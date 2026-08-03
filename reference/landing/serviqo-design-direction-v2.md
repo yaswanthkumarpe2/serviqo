@@ -1,6 +1,6 @@
 # Serviqo — Design Direction v2
 
-**Status:** proposal for approval. No implementation until signed off.
+**Status:** ACCEPTED — approved as the Serviqo v2 design direction.
 **Supersedes:** v1 (navy / electric blue / marketing-led landing page).
 
 ---
