@@ -31,14 +31,6 @@ export function SparkIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-export function SparkOutlineIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" {...props}>
-      <path d="M12 2.5 14 9l6.5 2-6.5 2-2 6.5-2-6.5L3.5 11 10 9l2-6.5Z" />
-    </svg>
-  );
-}
-
 export function ArrowRightIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg
