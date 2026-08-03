@@ -4,7 +4,7 @@
 
 Serviqo is a multi-tenant, AI-powered real-time customer support platform. It brings live chat, AI assistance, tickets and your support team into one organized workspace.
 
-> **Status:** Early development — Phase 0 (repository initialization) complete. No production features are implemented yet. See [ROADMAP.md](./ROADMAP.md) for the development plan.
+> **Status:** Early development — Phase 1 (landing page migration to React) complete. No backend, auth, or database exists yet. See [ROADMAP.md](./ROADMAP.md) for the development plan.
 
 ---
 
@@ -54,7 +54,7 @@ serviqo/
 
 ## Getting Started
 
-> **Note:** The application is not yet runnable. Phase 0 establishes the repository structure and documentation only.
+> **Note:** Only the marketing frontend (`apps/web`) is runnable so far. There is no backend yet — `dev:server` is a placeholder.
 
 ### Prerequisites
 
@@ -73,13 +73,17 @@ cp .env.example .env
 npm install
 ```
 
-### Development (future)
+### Development
 
 ```bash
-# Start the frontend dev server
+# Start the frontend dev server (apps/web, Vite on :5173)
 npm run dev:web
 
-# Start the backend dev server
+# Typecheck / lint every workspace
+npm run typecheck
+npm run lint
+
+# Start the backend dev server (not implemented yet)
 npm run dev:server
 ```
 
@@ -110,7 +114,7 @@ See [reference/landing/serviqo-design-direction-v2.md](./reference/landing/servi
 | Repository structure | ✅ Established |
 | Design reference files | ✅ Preserved |
 | Documentation | ✅ Complete |
-| React application | 🔲 Not started |
+| React application | ✅ Landing page (Phase 1) |
 | Express backend | 🔲 Not started |
 | Authentication | 🔲 Not started |
 | Database models | 🔲 Not started |

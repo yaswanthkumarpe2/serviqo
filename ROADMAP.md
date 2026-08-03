@@ -10,11 +10,11 @@ Note that phases may be adjusted when technically justified. Each phase follows:
   - Foundational documentation (README, ROADMAP, SECURITY)
   - Initial configuration of linters and build tools
 
-- 🔲 **Phase 1: Landing page migration into React**
-  - Migrate HTML/CSS prototype to React components
-  - Implement Tailwind CSS utilizing defined design tokens
-  - Ensure responsive design across all devices
-  - Set up routing for marketing pages
+- ✅ **Phase 1: Landing page migration into React**
+  - Migrated HTML/CSS prototype to componentized React (`apps/web`, Vite + TypeScript + Tailwind v4)
+  - Design tokens ported to `apps/web/src/styles/tokens.css` and mapped onto Tailwind's theme
+  - Verified responsive behavior at desktop/tablet/mobile against the approved reference
+  - Routing deferred — Phase 1 ships a single marketing route with no router dependency yet
 
 - 🔲 **Phase 2: Authentication + Organization onboarding**
   - User registration and login flows
