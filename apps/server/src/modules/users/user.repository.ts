@@ -27,11 +27,11 @@ export interface CreateUserInput {
  */
 export const userRepository = {
   async create(input: CreateUserInput): Promise<UserDocument> {
-    return UserModel.create({
-      email: normalizeEmail(input.email),
-      passwordHash: input.passwordHash,
-      name: input.name.trim(),
-    });
+    // Passed straight through — the schema's own trim/lowercase transforms
+    // normalize on save, and its required validators reject missing
+    // fields cleanly. Pre-normalizing here (e.g. input.email.trim()) would
+    // throw a raw TypeError on a missing field instead of a ValidationError.
+    return UserModel.create(input);
   },
 
   async findById(id: string): Promise<UserDocument | null> {
