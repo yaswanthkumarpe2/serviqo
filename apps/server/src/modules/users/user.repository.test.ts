@@ -139,6 +139,39 @@ describe("User persistence", () => {
     expect(user.lockedUntil).toBeNull();
   });
 
+  it("defaults status to active", async () => {
+    const user = await userRepository.create({
+      email: "status@example.com",
+      passwordHash: "hashed-value",
+      name: "Status",
+    });
+
+    expect(user.status).toBe("active");
+  });
+
+  it("sets createdAt and updatedAt on create", async () => {
+    const user = await userRepository.create({
+      email: "timestamps@example.com",
+      passwordHash: "hashed-value",
+      name: "Timestamps",
+    });
+
+    expect(user.createdAt).toBeInstanceOf(Date);
+    expect(user.updatedAt).toBeInstanceOf(Date);
+  });
+
+  it("rejects creation when a required field is missing", async () => {
+    await expect(
+      // @ts-expect-error -- intentionally omitting a required field to prove validation rejects it.
+      userRepository.create({
+        email: "incomplete@example.com",
+        name: "Incomplete",
+      }),
+    ).rejects.toThrow(/passwordHash/);
+
+    await expect(userRepository.findByEmail("incomplete@example.com")).resolves.toBeNull();
+  });
+
   it("has no organizationId, role, or permissions field", async () => {
     const user = await userRepository.create({
       email: "notenant@example.com",
