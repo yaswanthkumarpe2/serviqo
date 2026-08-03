@@ -1,0 +1,201 @@
+/*
+  CSS for the shared UI primitives in components/ui. Ported from the
+  approved prototype's stylesheet, split out because these rules back a
+  real component (Pill, Avatar, MiniButton, MessageBubble, IconButton)
+  reused across two or more marketing sections.
+*/
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--success);
+  flex: 0 0 auto;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 20px;
+  background: var(--surface);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-2);
+  margin-bottom: 20px;
+}
+.pill .dot {
+  background: var(--em-600);
+}
+
+.iconbtn {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  display: grid;
+  place-items: center;
+  color: var(--text-2);
+}
+.iconbtn:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+.im__av {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.mini {
+  height: 27px;
+  padding: 0 11px;
+  border-radius: var(--r-xs);
+  font-size: 11.5px;
+  font-weight: 500;
+  border: 1px solid var(--em-200);
+  background: var(--surface);
+  color: var(--em-700);
+}
+.mini--fill {
+  background: var(--em-600);
+  border-color: var(--em-600);
+  color: #fff;
+}
+[data-theme="dark"] .mini--fill {
+  color: #0a140f;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(7px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.msg {
+  max-width: 82%;
+  animation: rise 0.32s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+.msg--in {
+  align-self: flex-start;
+}
+.msg--out {
+  align-self: flex-end;
+}
+.msg__bubble {
+  padding: 9px 12px;
+  border-radius: var(--r-lg);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.msg--in .msg__bubble {
+  background: var(--surface-sunk);
+  border-radius: 10px 10px 10px 3px;
+  color: var(--text);
+}
+.msg--out .msg__bubble {
+  background: var(--em-50);
+  border-radius: 10px 10px 3px 10px;
+  color: var(--text);
+}
+.msg--ai .msg__bubble {
+  background: var(--surface);
+  border: 1px solid var(--em-200);
+  border-radius: 10px 10px 10px 3px;
+}
+.msg__tag {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--em-600);
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.msg__tag--human {
+  color: var(--text-2);
+}
+.msg__meta {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-3);
+  margin-top: 4px;
+}
+.msg--out .msg__meta {
+  text-align: right;
+}
+.msg--sys {
+  align-self: center;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin: 2px 0;
+}
+.msg--sys .line {
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+.msg--sys span {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+@keyframes typing-bounce {
+  0%,
+  60%,
+  100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+.typing {
+  display: flex;
+  gap: 4px;
+  align-self: flex-start;
+  padding: 10px 12px;
+  background: var(--surface-sunk);
+  border-radius: 10px 10px 10px 3px;
+}
+.typing i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--text-3);
+  animation: typing-bounce 1.3s infinite;
+}
+.typing i:nth-child(2) {
+  animation-delay: 0.18s;
+}
+.typing i:nth-child(3) {
+  animation-delay: 0.36s;
+}
