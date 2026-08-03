@@ -1,0 +1,1180 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Serviqo — Customer support, connected.</title>
+<meta name="description" content="Serviqo brings live conversations, AI assistance, tickets and your support team into one organized workspace." />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   SERVIQO — DESIGN TOKENS (source of truth for the React build)
+   ============================================================ */
+:root{
+  --canvas:#F7F8F5;
+  --surface:#FFFFFF;
+  --surface-sunk:#F1F3EE;
+  --surface-hover:#F3F5F1;
+  --border:#E4E7E0;
+  --border-strong:#CDD2C8;
+  --text:#17211D;
+  --text-2:#66716B;
+  --text-3:#8B948D;
+  --text-inverse:#F2F5F0;
+
+  --dark:#14201B;
+  --dark-2:#1B2A24;
+  --dark-3:#23342C;
+  --dark-border:#2C3D35;
+
+  --em-50:#EFF6F1;
+  --em-100:#DCEBE2;
+  --em-200:#B9D7C6;
+  --em-400:#3F9873;
+  --em-600:#14684A;
+  --em-700:#0F5239;
+  --em-900:#07301F;
+
+  --success:#1E9E6A; --success-bg:#E6F5EE;
+  --warning:#B0700F; --warning-bg:#FBF0DD;
+  --danger:#BE4034;  --danger-bg:#FAEAE8;
+  --neutral:#5E6B7A;  --neutral-bg:#EFF1F3;
+
+  --font-sans:'Inter','Segoe UI',Roboto,Arial,sans-serif;
+  --font-serif:'Source Serif 4',Georgia,serif;
+  --font-mono:'IBM Plex Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+
+  --r-xs:4px; --r-sm:6px; --r-md:8px; --r-lg:10px; --r-xl:12px;
+  --sh-sm:0 2px 6px rgba(23,33,29,.07);
+  --sh-md:0 8px 24px rgba(23,33,29,.10);
+  --sh-lg:0 16px 48px rgba(23,33,29,.14);
+
+  --maxw:1200px;
+}
+[data-theme="dark"]{
+  --canvas:#0F1815;
+  --surface:#14201B;
+  --surface-sunk:#1B2A24;
+  --surface-hover:#1F2E27;
+  --border:#263630;
+  --border-strong:#33463D;
+  --text:#EDF2EE;
+  --text-2:#9FAEA5;
+  --text-3:#71827A;
+  --text-inverse:#0F1815;
+
+  --dark:#0A100D;
+  --dark-2:#0F1815;
+  --dark-3:#14201B;
+  --dark-border:#22322B;
+
+  --em-50:#16261F;
+  --em-100:#1B3227;
+  --em-200:#245038;
+  --em-400:#3FA37B;
+  --em-600:#3DBB8B;
+  --em-700:#5FCB9F;
+  --em-900:#D8F0E5;
+
+  --success:#3DBB8B; --success-bg:#132A22;
+  --warning:#DDA24A; --warning-bg:#2C2311;
+  --danger:#E2766A;  --danger-bg:#2C1815;
+  --neutral:#8C9AA6; --neutral-bg:#1B2226;
+
+  --sh-sm:0 2px 8px rgba(0,0,0,.35);
+  --sh-md:0 12px 28px rgba(0,0,0,.4);
+  --sh-lg:0 20px 56px rgba(0,0,0,.5);
+}
+
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
+body{
+  margin:0;background:var(--canvas);color:var(--text);
+  font-family:var(--font-sans);font-size:15px;line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+  transition:background .25s ease, color .25s ease;
+}
+img,svg{display:block;max-width:100%}
+a{color:inherit;text-decoration:none}
+button{font:inherit;color:inherit;cursor:pointer;background:none;border:none}
+h1,h2,h3,h4{margin:0;font-weight:500;letter-spacing:-.01em;color:var(--text)}
+p{margin:0}
+ul{margin:0;padding:0;list-style:none}
+:focus-visible{outline:2px solid var(--em-600);outline-offset:2px;border-radius:3px}
+::selection{background:var(--em-200);color:var(--em-900)}
+
+.wrap{width:100%;max-width:var(--maxw);margin:0 auto;padding:0 24px}
+.section{padding:88px 0}
+.section--tight{padding:56px 0}
+.section--sunk{background:var(--surface-sunk)}
+.section--dark{background:var(--dark);color:var(--text-inverse)}
+[data-theme="dark"] .section--dark{background:#080C0A}
+
+.eyebrow{
+  font-family:var(--font-mono);font-size:11px;font-weight:500;
+  letter-spacing:.1em;text-transform:uppercase;color:var(--text-3);
+  display:inline-flex;align-items:center;gap:8px;
+}
+.section--dark .eyebrow{color:#6E8578}
+
+.h1{font-family:var(--font-serif);font-weight:500;font-size:clamp(32px,4.6vw,52px);line-height:1.08;letter-spacing:-.015em}
+.h2{font-family:var(--font-serif);font-weight:500;font-size:clamp(26px,3.2vw,36px);line-height:1.15;letter-spacing:-.01em}
+.h3{font-size:16px;font-weight:600;letter-spacing:-.005em}
+.lede{font-size:16px;color:var(--text-2);line-height:1.65;max-width:52ch}
+.section--dark .lede{color:#A9BAB0}
+
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:7px;
+  height:40px;padding:0 18px;border-radius:var(--r-sm);
+  font-weight:500;font-size:14px;letter-spacing:-.005em;
+  transition:background .15s ease, border-color .15s ease, transform .15s ease, color .15s ease;
+  white-space:nowrap;
+}
+.btn:active{transform:scale(.98)}
+.btn--primary{background:var(--em-600);color:#fff}
+.btn--primary:hover{background:var(--em-700)}
+[data-theme="dark"] .btn--primary{color:#0A140F}
+.btn--secondary{background:var(--surface);border:1px solid var(--border-strong);color:var(--text)}
+.btn--secondary:hover{background:var(--surface-hover);border-color:var(--text-3)}
+.btn--onDark{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.16);color:var(--text-inverse)}
+.btn--onDark:hover{background:rgba(255,255,255,.11)}
+.btn--sm{height:34px;padding:0 14px;font-size:13px}
+
+/* ---------------- nav ---------------- */
+.nav{
+  position:sticky;top:0;z-index:70;
+  background:color-mix(in srgb, var(--canvas) 88%, transparent);
+  backdrop-filter:blur(10px);border-bottom:1px solid transparent;
+  transition:border-color .2s ease;
+}
+.nav.is-stuck{border-bottom-color:var(--border)}
+.nav__in{display:flex;align-items:center;gap:8px;height:62px}
+.brand{display:flex;align-items:center;gap:9px;font-weight:600;font-size:16px;letter-spacing:-.01em}
+.brand__mark{display:grid;place-items:center;flex:0 0 auto}
+.nav__links{display:flex;align-items:center;gap:4px;margin-left:32px}
+.nav__item{position:relative}
+.nav__item>button, .nav__item>a{
+  display:flex;align-items:center;gap:6px;height:62px;padding:0 14px;
+  font-size:13.5px;color:var(--text-2);font-weight:500;
+}
+.nav__item:hover>button,.nav__item:hover>a,.nav__item.is-open>button{color:var(--text)}
+.nav__item svg{width:12px;height:12px;opacity:.6;transition:transform .18s ease}
+.nav__item:hover svg,.nav__item.is-open svg{transform:rotate(180deg)}
+.mega{
+  position:absolute;top:56px;left:50%;transform:translateX(-50%) translateY(4px);
+  width:460px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);
+  box-shadow:var(--sh-md);padding:10px;display:grid;grid-template-columns:1fr 1fr;gap:2px;
+  opacity:0;visibility:hidden;pointer-events:none;transition:opacity .18s ease, transform .18s ease, visibility .18s;
+}
+.mega--narrow{width:260px;grid-template-columns:1fr}
+.nav__item:hover .mega,.nav__item:focus-within .mega,.nav__item.is-open .mega{
+  opacity:1;visibility:visible;pointer-events:auto;transform:translateX(-50%) translateY(0);
+}
+.mega a{display:block;padding:9px 10px;border-radius:var(--r-sm)}
+.mega a:hover,.mega a:focus-visible{background:var(--surface-hover)}
+.mega b{display:block;font-size:13px;font-weight:600;color:var(--text)}
+.mega span{display:block;font-size:12px;color:var(--text-3);margin-top:2px}
+.nav__right{margin-left:auto;display:flex;align-items:center;gap:8px}
+.iconbtn{width:34px;height:34px;border-radius:var(--r-sm);border:1px solid var(--border);display:grid;place-items:center;color:var(--text-2)}
+.iconbtn:hover{color:var(--text);border-color:var(--border-strong)}
+.mobileBtn{display:none}
+@media(max-width:940px){
+  .nav__links,.signInBtn{display:none}
+  .mobileBtn{display:grid}
+}
+
+/* ---------------- mobile nav panel ---------------- */
+.mobileNav{
+  display:none;border-bottom:1px solid var(--border);background:var(--surface);
+  max-height:0;overflow:hidden;transition:max-height .25s var(--ease-spring, ease);
+}
+.mobileNav.is-open{max-height:80vh;overflow-y:auto}
+@media(max-width:940px){.mobileNav{display:block}}
+.mobileNav__in{padding:8px 24px 20px}
+.mobileNav h6{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3);font-family:var(--font-mono);font-weight:600;margin:16px 0 6px}
+.mobileNav a{display:flex;align-items:center;min-height:44px;font-size:14.5px;color:var(--text);border-bottom:1px solid var(--border)}
+.mobileNav a:last-child{border-bottom:none}
+.mobileNav__cta{display:flex;gap:10px;margin-top:16px}
+.mobileNav__cta .btn{flex:1}
+
+/* ---------------- hero ---------------- */
+.hero{padding:52px 0 0}
+.hero__in{display:grid;grid-template-columns:1fr;gap:36px}
+.hero__top{text-align:left;max-width:640px;margin:0 auto;text-align:center}
+.pill{
+  display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 14px;
+  border:1px solid var(--border-strong);border-radius:20px;background:var(--surface);
+  font-family:var(--font-mono);font-size:11px;font-weight:500;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--text-2);margin-bottom:20px;
+}
+.pill .dot{background:var(--em-600)}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--success);flex:0 0 auto}
+.demo__dots{display:flex;gap:5px}
+.demo__dots i{width:7px;height:7px;border-radius:50%;background:var(--border-strong)}
+.hero h1{margin-bottom:16px}
+.hero h1 em{font-style:normal;color:var(--em-600)}
+.hero .lede{font-size:17px;margin:0 auto 26px;max-width:52ch}
+.hero__cta{display:flex;gap:10px;margin-bottom:26px;flex-wrap:wrap;justify-content:center}
+.btn__arrow{transition:transform .15s ease}
+.btn--primary:hover .btn__arrow{transform:translateX(2px)}
+.heroFeats{display:flex;align-items:center;justify-content:center;gap:18px;flex-wrap:wrap;font-size:13px;color:var(--text-2)}
+.heroFeats span{display:flex;align-items:center;gap:7px}
+.heroFeats svg{color:var(--em-600);flex:0 0 auto}
+.heroFeats i.sep{width:3px;height:3px;border-radius:50%;background:var(--border-strong)}
+
+/* ---- product demonstration: two connected cards ---- */
+.demoTitle{text-align:center;font-family:var(--font-serif);font-size:18px;color:var(--em-700);margin-bottom:20px}
+[data-theme="dark"] .demoTitle{color:var(--em-700)}
+.demoWrap{display:grid;grid-template-columns:1fr auto 1fr;gap:16px;align-items:stretch;max-width:1040px;margin:0 auto}
+.demoArrow{align-self:center;color:var(--text-3)}
+@media(max-width:900px){.demoWrap{grid-template-columns:1fr}.demoArrow{display:none}}
+
+.demoCard{border:1px solid var(--border);border-radius:var(--r-xl);background:var(--surface);box-shadow:var(--sh-md);overflow:hidden;display:flex;flex-direction:column;min-width:0}
+.demoCard__head{padding:13px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px}
+.demoCard__head b{display:block;font-size:14px;font-weight:600}
+.demoCard__head span{font-size:11.5px;color:var(--success);display:flex;align-items:center;gap:5px}
+.demoCard__head .im__av{width:30px;height:30px}
+.demoCard__meta{margin-left:auto;text-align:right}
+.demoCard__meta b{font-size:13px}
+.demoCard__meta span{color:var(--success)}
+
+.demoTabs{display:flex;gap:2px;padding:0 16px;border-bottom:1px solid var(--border)}
+.demoTabs span{padding:10px 4px;font-size:12.5px;color:var(--text-3);font-weight:500;border-bottom:2px solid transparent;margin-bottom:-1px}
+.demoTabs span[aria-current="true"]{color:var(--em-600);border-color:var(--em-600);font-weight:600}
+
+.demo__body{padding:16px;display:flex;flex-direction:column;gap:9px;min-height:340px;background:var(--surface);flex:1}
+.demo__composer{padding:11px 16px;border-top:1px solid var(--border);display:flex;align-items:center;gap:9px}
+.demo__composer input{flex:1;height:34px;border:1px solid var(--border-strong);border-radius:var(--r-sm);background:var(--canvas);padding:0 11px;font-size:12.5px;color:var(--text-3)}
+.demo__send{width:34px;height:34px;border-radius:var(--r-sm);background:var(--em-600);display:grid;place-items:center;flex:0 0 auto}
+
+/* AI summary panel — appears at handoff, structured like a real agent-assist surface */
+.demo__aiPanel{border-top:1px solid var(--em-200);background:var(--em-50);padding:14px 16px;animation:rise .35s ease both}
+.demo__aiPanel .msg__tag{margin-bottom:2px}
+.demo__aiPanel .aiPrivacy{font-size:10.5px;color:var(--text-3);margin-bottom:10px}
+.aiFields{display:grid;grid-template-columns:1fr 1fr;gap:9px 16px;margin-bottom:10px}
+.aiFields .full{grid-column:1 / -1}
+.aiFields div span{display:block;font-family:var(--font-mono);font-size:9.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-3);margin-bottom:2px}
+.aiFields div b{font-size:12px;font-weight:600}
+.sentiDot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--warning);margin-right:5px}
+.kbPill{display:inline-block;background:var(--surface);border:1px solid var(--em-200);border-radius:5px;padding:2px 8px;font-size:11px;color:var(--em-700);font-weight:500}
+.confBar{margin-top:10px}
+.confBar__track{height:5px;border-radius:3px;background:var(--em-100);overflow:hidden;margin-top:5px}
+.confBar__fill{height:100%;background:var(--em-600);width:0%;border-radius:3px;transition:width 1s cubic-bezier(.2,.8,.3,1)}
+.aiActs{display:flex;gap:7px}
+.mini{height:27px;padding:0 11px;border-radius:var(--r-xs);font-size:11.5px;font-weight:500;border:1px solid var(--em-200);background:var(--surface);color:var(--em-700)}
+.mini--fill{background:var(--em-600);border-color:var(--em-600);color:#fff}
+[data-theme="dark"] .mini--fill{color:#0A140F}
+
+.demo__body{padding:16px;display:flex;flex-direction:column;gap:9px;min-height:390px;background:var(--surface)}
+.msg{max-width:82%;animation:rise .32s cubic-bezier(.2,.8,.3,1) both}
+@keyframes rise{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
+.msg--in{align-self:flex-start}
+.msg--out{align-self:flex-end}
+.msg__bubble{padding:9px 12px;border-radius:var(--r-lg);font-size:13px;line-height:1.5}
+.msg--in .msg__bubble{background:var(--surface-sunk);border-radius:10px 10px 10px 3px;color:var(--text)}
+.msg--out .msg__bubble{background:var(--em-50);border-radius:10px 10px 3px 10px;color:var(--text)}
+.msg--ai .msg__bubble{background:var(--surface);border:1px solid var(--em-200);border-radius:10px 10px 10px 3px}
+.msg__tag{font-family:var(--font-mono);font-size:9.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--em-600);margin-bottom:4px;display:flex;align-items:center;gap:4px}
+.msg__tag--human{color:var(--text-2)}
+.msg__meta{font-family:var(--font-mono);font-size:10px;color:var(--text-3);margin-top:4px}
+.msg--out .msg__meta{text-align:right}
+.msg--sys{align-self:center;display:flex;align-items:center;gap:10px;width:100%;margin:2px 0}
+.msg--sys .line{flex:1;height:1px;background:var(--border)}
+.msg--sys span{font-family:var(--font-mono);font-size:10px;letter-spacing:.05em;color:var(--text-3);white-space:nowrap}
+.quick{display:flex;gap:6px;flex-wrap:wrap;margin-top:2px}
+.quick button{height:26px;padding:0 10px;border-radius:20px;border:1px solid var(--border-strong);font-size:11.5px;color:var(--text-2);background:var(--surface)}
+
+.typing{display:flex;gap:4px;align-self:flex-start;padding:10px 12px;background:var(--surface-sunk);border-radius:10px 10px 10px 3px}
+.typing i{width:5px;height:5px;border-radius:50%;background:var(--text-3);animation:tb 1.3s infinite}
+.typing i:nth-child(2){animation-delay:.18s}
+.typing i:nth-child(3){animation-delay:.36s}
+@keyframes tb{0%,60%,100%{opacity:.3;transform:translateY(0)}30%{opacity:1;transform:translateY(-2px)}}
+
+.demo__composer{padding:11px 16px;border-top:1px solid var(--border);display:flex;align-items:center;gap:9px}
+.demo__composer input{flex:1;height:34px;border:1px solid var(--border-strong);border-radius:var(--r-sm);background:var(--canvas);padding:0 11px;font-size:12.5px;color:var(--text-3)}
+.demo__send{width:34px;height:34px;border-radius:var(--r-sm);background:var(--em-600);display:grid;place-items:center;flex:0 0 auto}
+
+/* agent avatar (also used in Unified Inbox section below) */
+.im__av{width:26px;height:26px;border-radius:7px;flex:0 0 auto;display:grid;place-items:center;font-size:10.5px;font-weight:600;color:#fff}
+
+/* ---------------- feature overview grid (replaces fake social proof with real product info) ---------------- */
+.featGrid{display:grid;grid-template-columns:repeat(6,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:var(--r-lg);overflow:hidden}
+.featGrid__item{display:block;background:var(--surface);padding:18px 16px;transition:background .15s ease}
+.featGrid__item:hover{background:var(--surface-hover)}
+.featGrid__i{width:32px;height:32px;border-radius:var(--r-sm);background:var(--em-100);color:var(--em-700);display:grid;place-items:center;margin-bottom:12px}
+.featGrid__item b{font-size:13.5px;font-weight:600;display:block;margin-bottom:4px}
+.featGrid__item p{font-size:12px;color:var(--text-3);line-height:1.5}
+@media(max-width:900px){.featGrid{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:560px){.featGrid{grid-template-columns:repeat(2,1fr)}}
+.head{max-width:600px;margin-bottom:40px}
+.head--center{margin-left:auto;margin-right:auto;text-align:center}
+.head h2{margin:12px 0 12px}
+.eyebrow-row{display:flex;align-items:center;gap:8px;margin-bottom:0}
+
+.split{display:grid;grid-template-columns:minmax(0,.95fr) minmax(0,1.05fr);gap:52px;align-items:center}
+.split--flip .split__media{order:-1}
+@media(max-width:920px){.split{grid-template-columns:1fr;gap:32px}.split--flip .split__media{order:0}}
+
+.featlist{margin-top:22px;display:grid;gap:12px}
+.featlist li{display:flex;gap:10px;align-items:flex-start;font-size:13.5px;color:var(--text-2)}
+.featlist b{color:var(--text);font-weight:600}
+.tick{flex:0 0 auto;width:17px;height:17px;border-radius:5px;background:var(--em-100);color:var(--em-700);display:grid;place-items:center;margin-top:2px}
+[data-theme="dark"] .tick{color:var(--em-700)}
+
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg)}
+.pad{padding:20px}
+
+/* ---------------- inbox section visual ---------------- */
+.inboxdemo{display:grid;grid-template-columns:1fr 1.6fr;border:1px solid var(--border);border-radius:var(--r-lg);overflow:hidden;background:var(--surface)}
+.inboxdemo__list{border-right:1px solid var(--border)}
+.inboxdemo__filters{display:flex;gap:4px;padding:10px 12px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+.filterchip{height:24px;padding:0 9px;border-radius:20px;font-size:11px;font-weight:500;color:var(--text-2);background:var(--surface-sunk)}
+.filterchip.is-on{background:var(--em-600);color:#fff}
+[data-theme="dark"] .filterchip.is-on{color:#0A140F}
+.row{display:flex;gap:10px;padding:11px 13px;border-bottom:1px solid var(--border);align-items:flex-start}
+.row.is-sel{background:var(--em-50)}
+.badge{height:19px;padding:0 6px;border-radius:var(--r-xs);font-family:var(--font-mono);font-size:10px;font-weight:600;letter-spacing:.03em;display:inline-flex;align-items:center;gap:3px}
+.badge--danger{background:var(--danger-bg);color:var(--danger)}
+.badge--warn{background:var(--warning-bg);color:var(--warning)}
+.badge--neutral{background:var(--neutral-bg);color:var(--neutral)}
+.badge--em{background:var(--em-100);color:var(--em-700)}
+.badge--success{background:var(--success-bg);color:var(--success)}
+.inboxdemo__thread{padding:16px;display:flex;flex-direction:column;gap:9px}
+
+/* ---------------- ai vs assist section ---------------- */
+.aiSplit{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:8px}
+.aiCol{border:1px solid var(--border);border-radius:var(--r-lg);padding:22px;background:var(--surface)}
+.aiCol__head{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.aiCol__icn{width:32px;height:32px;border-radius:var(--r-sm);display:grid;place-items:center;flex:0 0 auto}
+.aiCol--auto .aiCol__icn{background:var(--em-100);color:var(--em-700)}
+.aiCol--assist .aiCol__icn{background:var(--surface-sunk);color:var(--text-2)}
+.aiCol h4{font-size:14.5px;font-weight:600}
+.aiCol p.desc{font-size:13px;color:var(--text-2);margin-bottom:14px}
+@media(max-width:760px){.aiSplit{grid-template-columns:1fr}}
+
+/* ---------------- ticket row ---------------- */
+.ticket{display:grid;grid-template-columns:auto 1fr auto;gap:14px;align-items:center;padding:13px 16px;border-bottom:1px solid var(--border)}
+.ticket:last-child{border-bottom:none}
+.ticket__id{font-family:var(--font-mono);font-size:11.5px;color:var(--text-3)}
+.ticket__sub{font-size:13.5px;font-weight:600}
+.ticket__meta{font-size:11.5px;color:var(--text-3);margin-top:2px}
+.ticket__right{display:flex;gap:6px}
+@media(max-width:560px){.ticket{grid-template-columns:1fr}}
+
+/* ---------------- automation card ---------------- */
+.autoCard{border:1px solid var(--border);border-radius:var(--r-lg);background:var(--surface);overflow:hidden}
+.autoCard__head{display:flex;align-items:center;justify-content:space-between;padding:13px 18px;border-bottom:1px solid var(--border);background:var(--surface-sunk)}
+.autoCard__head b{font-size:13.5px;font-weight:600}
+.toggle{width:34px;height:20px;border-radius:20px;background:var(--em-600);position:relative;flex:0 0 auto}
+.toggle i{position:absolute;top:2px;right:2px;width:16px;height:16px;border-radius:50%;background:#fff}
+.autoCard__body{padding:18px}
+.autoLine{margin-bottom:14px}
+.autoLine .eyebrow{margin-bottom:8px;display:block}
+.condRow{display:flex;align-items:center;gap:8px;padding:9px 11px;background:var(--surface-sunk);border-radius:var(--r-sm);font-size:12.5px;margin-bottom:6px}
+.condRow b{font-weight:600}
+.condRow span{color:var(--text-3);font-family:var(--font-mono);font-size:11px}
+.autoFoot{display:flex;align-items:center;justify-content:space-between;padding:12px 18px;border-top:1px solid var(--border);background:var(--surface-sunk)}
+.autoFoot span{font-size:12px;color:var(--text-2)}
+
+/* ---------------- knowledge base ---------------- */
+.kbSearch{display:flex;align-items:center;gap:10px;height:44px;border:1px solid var(--border-strong);border-radius:var(--r-md);padding:0 14px;background:var(--surface);margin-bottom:16px}
+.kbSearch input{flex:1;border:none;background:none;font-size:13.5px;color:var(--text)}
+.kbSearch input::placeholder{color:var(--text-3)}
+.kbResult{display:flex;gap:12px;padding:12px 0;border-bottom:1px solid var(--border)}
+.kbResult:last-child{border-bottom:none}
+.kbResult__icn{width:30px;height:30px;border-radius:var(--r-sm);background:var(--surface-sunk);display:grid;place-items:center;color:var(--text-2);flex:0 0 auto}
+.kbResult b{font-size:13px;font-weight:600;display:block}
+.kbResult p{font-size:12px;color:var(--text-3);margin-top:2px}
+
+/* ---------------- analytics ---------------- */
+.bars{display:flex;align-items:flex-end;gap:8px;height:130px;padding-top:10px}
+.bar{flex:1;border-radius:4px 4px 2px 2px;background:var(--em-100);position:relative}
+.bar i{position:absolute;left:0;right:0;bottom:0;border-radius:4px 4px 2px 2px;background:var(--em-600);display:block;height:0%;transition:height .8s cubic-bezier(.2,.8,.3,1)}
+.barlabels{display:flex;gap:8px;margin-top:8px}
+.barlabels span{flex:1;text-align:center;font-family:var(--font-mono);font-size:9.5px;color:var(--text-3)}
+.metricrow{display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--border);margin-top:20px}
+.metricrow div{padding:16px 18px 0;border-right:1px solid var(--border)}
+.metricrow div:last-child{border-right:none}
+.metricrow b{display:block;font-size:22px;font-weight:600;font-family:var(--font-mono);letter-spacing:-.02em;margin:4px 0 2px}
+.metricrow small{font-size:11.5px;color:var(--text-3)}
+@media(max-width:700px){.metricrow{grid-template-columns:1fr 1fr}.metricrow div{border-right:none;border-bottom:1px solid var(--border);padding-bottom:14px}}
+
+/* ---------------- widget demo ---------------- */
+.browserFrame{border:1px solid var(--border);border-radius:var(--r-lg);overflow:hidden;background:var(--surface-sunk);box-shadow:var(--sh-sm)}
+.browserFrame__bar{display:flex;align-items:center;gap:8px;padding:9px 12px;background:var(--surface);border-bottom:1px solid var(--border)}
+.browserFrame__bar .demo__dots{display:flex}
+.browserFrame__url{flex:1;height:22px;background:var(--surface-sunk);border-radius:20px;font-family:var(--font-mono);font-size:10px;color:var(--text-3);display:flex;align-items:center;padding:0 10px}
+.browserFrame__body{position:relative;height:280px;background:
+  linear-gradient(var(--canvas),var(--canvas));overflow:hidden}
+.launcher{position:absolute;right:18px;bottom:18px;width:48px;height:48px;border-radius:var(--r-xl);background:var(--em-600);display:grid;place-items:center;box-shadow:var(--sh-md)}
+.widgetPanel{position:absolute;right:18px;bottom:76px;width:230px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);box-shadow:var(--sh-lg);overflow:hidden;animation:rise .3s ease both}
+.widgetPanel__head{background:var(--em-600);color:#fff;padding:11px 13px}
+[data-theme="dark"] .widgetPanel__head{color:#0A140F}
+.widgetPanel__head b{font-size:12.5px;display:block}
+.widgetPanel__head span{font-size:10.5px;opacity:.85;display:flex;align-items:center;gap:5px;margin-top:2px}
+.widgetPanel__body{padding:11px 13px}
+.widgetPanel__body p{font-size:11.5px;color:var(--text-2);margin-bottom:8px}
+.widgetPanel__body button{display:block;width:100%;height:26px;border:1px solid var(--border-strong);border-radius:var(--r-xs);font-size:11px;color:var(--text-2);margin-bottom:5px;text-align:left;padding:0 9px;background:var(--surface)}
+
+/* ---------------- security dark grid ---------------- */
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--dark-border);border:1px solid var(--dark-border);border-radius:var(--r-lg);overflow:hidden}
+@media(max-width:820px){.grid3{grid-template-columns:1fr 1fr}}
+@media(max-width:560px){.grid3{grid-template-columns:1fr}}
+.scard{background:var(--dark-2);padding:22px}
+.scard__i{width:30px;height:30px;border-radius:var(--r-sm);background:rgba(61,187,139,.12);color:var(--em-700);display:grid;place-items:center;margin-bottom:14px}
+.scard h4{font-size:14.5px;margin-bottom:6px;color:var(--text-inverse)}
+.scard p{font-size:13px;color:#9FAEA5;line-height:1.55}
+
+/* ---------------- integrations ---------------- */
+.chanList{border:1px solid var(--border);border-radius:var(--r-lg);background:var(--surface);overflow:hidden}
+.chanRow2{display:flex;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid var(--border)}
+.chanRow2:last-child{border-bottom:none}
+.chan__i{color:var(--text-2);flex:0 0 auto}
+.chanRow2 b{font-size:13.5px;font-weight:600;display:block}
+.chanRow2 span.desc{font-size:12px;color:var(--text-3)}
+.chanRow2 .badge{margin-left:auto}
+
+/* ---------------- final cta ---------------- */
+.cta{background:var(--dark);border-radius:var(--r-xl);padding:56px 40px;text-align:center}
+[data-theme="dark"] .cta{background:#080C0A;border:1px solid var(--dark-border)}
+.cta h2{color:var(--text-inverse)}
+.cta .lede{margin:14px auto 0;color:#9FAEA5;text-align:center}
+.cta__row{display:flex;gap:10px;justify-content:center;margin-top:26px;flex-wrap:wrap}
+@media(max-width:600px){.cta{padding:40px 20px}}
+
+/* ---------------- footer ---------------- */
+.foot{border-top:1px solid var(--border);padding:48px 0 34px}
+.foot__grid{display:grid;grid-template-columns:1.3fr repeat(5,1fr);gap:24px}
+.foot h5{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--text-3);margin:0 0 13px;font-weight:600;font-family:var(--font-mono)}
+.foot li{margin-bottom:8px}
+.foot a{font-size:13px;color:var(--text-2)}
+.foot a:hover{color:var(--text)}
+.foot__bottom{display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-top:38px;padding-top:20px;border-top:1px solid var(--border);font-size:12px;color:var(--text-3)}
+@media(max-width:1040px){.foot__grid{grid-template-columns:1.2fr repeat(2,1fr)}}
+@media(max-width:640px){.foot__grid{grid-template-columns:1fr 1fr}}
+
+.reveal{opacity:0;transform:translateY(14px);transition:opacity .55s ease,transform .55s cubic-bezier(.2,.8,.3,1)}
+.reveal.is-in{opacity:1;transform:none}
+
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}
+  .reveal{opacity:1;transform:none}
+  html{scroll-behavior:auto}
+}
+</style>
+</head>
+<body>
+
+<header class="nav" id="nav">
+  <div class="wrap nav__in">
+    <a class="brand" href="#top">
+      <span class="brand__mark" aria-hidden="true">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M4 5.8C4 4.3 5.2 3 6.7 3h10.6C18.8 3 20 4.3 20 5.8v7.4c0 1.5-1.2 2.8-2.7 2.8H9.3l-4.1 3.7v-3.7H6.7C5.2 16 4 14.7 4 13.2V5.8Z" stroke="var(--em-600)" stroke-width="1.6" stroke-linejoin="round"/><circle cx="8.6" cy="9.3" r="1" fill="var(--em-600)"/><circle cx="12" cy="9.3" r="1" fill="var(--em-600)"/><circle cx="15.4" cy="9.3" r="1" fill="var(--em-600)"/></svg>
+      </span>
+      Serviqo
+    </a>
+    <nav class="nav__links" aria-label="Primary">
+      <div class="nav__item">
+        <button aria-haspopup="true" aria-expanded="false" aria-controls="megaProduct">Product <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m2.5 4.5 3.5 3 3.5-3"/></svg></button>
+        <div class="mega" id="megaProduct">
+          <a href="#demo"><b>Live chat</b><span>Talk in real time</span></a>
+          <a href="#inbox"><b>Team inbox</b><span>One queue, every channel</span></a>
+          <a href="#tickets"><b>Ticketing</b><span>Follow through with SLAs</span></a>
+          <a href="#ai"><b>AI support agent</b><span>Answers the routine ones</span></a>
+          <a href="#automation"><b>Automation</b><span>Deterministic routing and rules</span></a>
+          <a href="#kb"><b>Knowledge base</b><span>Answers people can find</span></a>
+        </div>
+      </div>
+      <div class="nav__item">
+        <button aria-haspopup="true" aria-expanded="false" aria-controls="megaSolutions">Solutions <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m2.5 4.5 3.5 3 3.5-3"/></svg></button>
+        <div class="mega mega--narrow" id="megaSolutions">
+          <a href="#pricing"><b>Customer support</b><span>General help desk teams</span></a>
+          <a href="#pricing"><b>Technical support</b><span>Product and engineering queries</span></a>
+          <a href="#pricing"><b>E-commerce</b><span>Orders, shipping, returns</span></a>
+          <a href="#pricing"><b>SaaS</b><span>Onboarding and account issues</span></a>
+          <a href="#pricing"><b>Financial services</b><span>Regulated, security-first support</span></a>
+        </div>
+      </div>
+      <div class="nav__item"><a href="#ai">AI Agent</a></div>
+      <div class="nav__item"><a href="#integrations">Integrations</a></div>
+      <div class="nav__item"><a href="#pricing">Pricing</a></div>
+      <div class="nav__item">
+        <button aria-haspopup="true" aria-expanded="false" aria-controls="megaResources">Resources <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m2.5 4.5 3.5 3 3.5-3"/></svg></button>
+        <div class="mega mega--narrow" id="megaResources">
+          <a href="#"><b>Documentation</b><span>Guides and API reference</span></a>
+          <a href="#kb"><b>Knowledge base</b><span>Answers people can find</span></a>
+          <a href="#"><b>Changelog</b><span>What shipped recently</span></a>
+        </div>
+      </div>
+    </nav>
+    <div class="nav__right">
+      <button class="iconbtn" id="themeBtn" aria-label="Switch to dark theme" title="Switch theme">
+        <svg id="themeIcon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg>
+      </button>
+      <a class="btn btn--secondary btn--sm signInBtn" href="#">Sign in</a>
+      <a class="btn btn--primary btn--sm" href="#pricing">Get started free</a>
+      <button class="iconbtn mobileBtn" id="mobileBtn" aria-label="Open menu" aria-expanded="false" aria-controls="mobileNav">
+        <svg id="mobileBtnIcon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      </button>
+    </div>
+  </div>
+  <div class="mobileNav" id="mobileNav">
+    <div class="mobileNav__in">
+      <h6>Product</h6>
+      <a href="#demo">Live chat</a>
+      <a href="#inbox">Team inbox</a>
+      <a href="#tickets">Ticketing</a>
+      <a href="#ai">AI support agent</a>
+      <a href="#automation">Automation</a>
+      <a href="#kb">Knowledge base</a>
+      <h6>Solutions</h6>
+      <a href="#pricing">Customer support</a>
+      <a href="#pricing">E-commerce</a>
+      <a href="#pricing">SaaS</a>
+      <a href="#pricing">Financial services</a>
+      <h6>Company</h6>
+      <a href="#integrations">Integrations</a>
+      <a href="#pricing">Pricing</a>
+      <h6>Resources</h6>
+      <a href="#">Documentation</a>
+      <a href="#kb">Knowledge base</a>
+      <a href="#">Changelog</a>
+      <a href="#">Sign in</a>
+      <div class="mobileNav__cta">
+        <a class="btn btn--primary" href="#pricing">Get started free</a>
+      </div>
+    </div>
+  </div>
+</header>
+
+<section class="hero" id="top">
+  <div class="wrap">
+    <div class="hero__in">
+      <div class="hero__top reveal is-in">
+        <span class="pill"><i class="dot" aria-hidden="true"></i> AI-powered customer support platform</span>
+        <h1 class="h1">Customer support,<br><em>connected.</em></h1>
+        <p class="lede">Serviqo brings live chat, AI assistance, tickets and your support team into one organized workspace.</p>
+        <div class="hero__cta">
+          <a class="btn btn--primary" href="#pricing">Start supporting customers
+            <svg class="btn__arrow" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </a>
+          <a class="btn btn--secondary" href="#demo">Explore the platform</a>
+        </div>
+        <div class="heroFeats">
+          <span><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4h16v12H8l-4 4V4Z"/></svg>Real-time messaging</span>
+          <i class="sep" aria-hidden="true"></i>
+          <span><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2.5 14 9l6.5 2-6.5 2-2 6.5-2-6.5L3.5 11 10 9l2-6.5Z"/></svg>AI + human support</span>
+          <i class="sep" aria-hidden="true"></i>
+          <span><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3"/><path d="M3.5 19c0-3 2.5-5 5.5-5s5.5 2 5.5 5"/><circle cx="17.5" cy="8.5" r="2.3"/><path d="M15.8 12.2c2.4.2 4.2 2 4.2 4.6"/></svg>Built for teams</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="wrap" style="margin-top:44px">
+    <p class="demoTitle reveal">One conversation. Everyone in sync.</p>
+    <div class="demoWrap reveal" id="demo" role="img" aria-label="Animated demonstration of a customer chatting with Serviqo AI, which resolves part of the issue and then hands off to a human agent, whose workspace shows the same conversation with a private AI-generated brief.">
+
+      <!-- CUSTOMER SIDE -->
+      <div class="demoCard">
+        <div class="demoCard__head">
+          <span class="brand__mark" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M4 5.8C4 4.3 5.2 3 6.7 3h10.6C18.8 3 20 4.3 20 5.8v7.4c0 1.5-1.2 2.8-2.7 2.8H9.3l-4.1 3.7v-3.7H6.7C5.2 16 4 14.7 4 13.2V5.8Z" stroke="var(--em-600)" stroke-width="1.6" stroke-linejoin="round"/><circle cx="8.6" cy="9.3" r="1" fill="var(--em-600)"/><circle cx="12" cy="9.3" r="1" fill="var(--em-600)"/><circle cx="15.4" cy="9.3" r="1" fill="var(--em-600)"/></svg></span>
+          <div><b>Customer chat</b><span><i class="dot"></i>Online</span></div>
+        </div>
+        <div class="demo__body" id="custBody"></div>
+        <div class="demo__composer"><input placeholder="Type your message…" disabled /><span class="demo__send"><svg width="14" height="14" viewBox="0 0 24 24" fill="#fff"><path d="M3.4 20.4 21 12 3.4 3.6 3.4 10.2 15 12 3.4 13.8Z"/></svg></span></div>
+      </div>
+
+      <div class="demoArrow" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 12h16M15 7l5 5-5 5"/><path d="M20 12H4M9 7 4 12l5 5"/></svg></div>
+
+      <!-- AGENT SIDE -->
+      <div class="demoCard">
+        <div class="demoCard__head">
+          <div class="im__av" style="background:#14684A">AR</div>
+          <div><b>Ananya Rao</b><span><i class="dot"></i>Billing support</span></div>
+          <div class="demoCard__meta"><span style="font-size:11.5px;color:var(--success);display:flex;align-items:center;gap:5px;justify-content:flex-end"><i class="dot"></i>Online</span></div>
+        </div>
+        <div class="demoTabs">
+          <span aria-current="true">Conversation</span>
+          <span>Customer</span>
+          <span>AI summary</span>
+          <span>Ticket</span>
+        </div>
+        <div class="demo__body" id="agentBody" style="min-height:200px"></div>
+        <div id="aiSlot"></div>
+        <div class="demo__composer"><input placeholder="Type a reply…" disabled /><span class="demo__send"><svg width="14" height="14" viewBox="0 0 24 24" fill="#fff"><path d="M3.4 20.4 21 12 3.4 3.6 3.4 10.2 15 12 3.4 13.8Z"/></svg></span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section section--tight section--sunk">
+  <div class="wrap">
+    <div class="head head--center reveal">
+      <h2 class="h2">Everything you need for exceptional support.</h2>
+    </div>
+    <div class="featGrid reveal">
+      <a href="#inbox" class="featGrid__item">
+        <span class="featGrid__i"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4h16v12H8l-4 4V4Z"/></svg></span>
+        <b>Unified inbox</b><p>All conversations from every channel, in one place.</p>
+      </a>
+      <a href="#ai" class="featGrid__item">
+        <span class="featGrid__i"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2.5 14 9l6.5 2-6.5 2-2 6.5-2-6.5L3.5 11 10 9l2-6.5Z"/></svg></span>
+        <b>AI + human support</b><p>AI resolves routine issues. Humans handle the rest.</p>
+      </a>
+      <a href="#tickets" class="featGrid__item">
+        <span class="featGrid__i"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M3 10h18"/></svg></span>
+        <b>Ticket management</b><p>Auto-create, assign and track tickets with SLAs.</p>
+      </a>
+      <a href="#automation" class="featGrid__item">
+        <span class="featGrid__i"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="4" width="16" height="16" rx="3"/><circle cx="9" cy="10" r="1"/><circle cx="15" cy="10" r="1"/><path d="M9 15h6"/></svg></span>
+        <b>Automation</b><p>Deterministic greetings, routing and updates.</p>
+      </a>
+      <a href="#kb" class="featGrid__item">
+        <span class="featGrid__i"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H12v18H6.5A2.5 2.5 0 0 1 4 18.5v-13Z"/><path d="M20 5.5A2.5 2.5 0 0 0 17.5 3H12v18h5.5a2.5 2.5 0 0 0 2.5-2.5v-13Z"/></svg></span>
+        <b>Knowledge base</b><p>Centralized articles for agents and AI to answer faster.</p>
+      </a>
+      <a href="#analytics" class="featGrid__item">
+        <span class="featGrid__i"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"/></svg></span>
+        <b>Analytics</b><p>Track performance, CSAT and resolution metrics.</p>
+      </a>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="inbox">
+  <div class="wrap">
+    <div class="head reveal">
+      <span class="eyebrow">Unified inbox</span>
+      <h2 class="h2">One queue, every channel.</h2>
+      <p class="lede">Web chat, email and API conversations land in the same inbox, sorted by department, priority and SLA — never by who happened to click first.</p>
+    </div>
+    <div class="inboxdemo reveal">
+      <div class="inboxdemo__list">
+        <div class="inboxdemo__filters">
+          <span class="filterchip is-on">All 20</span>
+          <span class="filterchip">Mine</span>
+          <span class="filterchip">Unassigned</span>
+          <span class="filterchip">AI handling</span>
+          <span class="filterchip">Priority</span>
+        </div>
+        <div class="row is-sel">
+          <div class="im__av" style="background:#14684A">YK</div>
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;justify-content:space-between"><span style="font-size:12.5px;font-weight:600">Yaswanth Kumar</span><span style="font-family:var(--font-mono);font-size:10px;color:var(--text-3)">2m</span></div>
+            <div style="font-size:11.5px;color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Payment deducted, wallet still zero</div>
+            <div style="margin-top:5px;display:flex;gap:5px"><span class="badge badge--danger">▲ HIGH</span></div>
+          </div>
+        </div>
+        <div class="row">
+          <div class="im__av" style="background:#5E6B7A">PM</div>
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;justify-content:space-between"><span style="font-size:12.5px;font-weight:600">Priya Mehta</span><span style="font-family:var(--font-mono);font-size:10px;color:var(--text-3)">7m</span></div>
+            <div style="font-size:11.5px;color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Refund not received</div>
+            <div style="margin-top:5px;display:flex;gap:5px"><span class="badge badge--warn">■ MEDIUM</span></div>
+          </div>
+        </div>
+        <div class="row">
+          <div class="im__av" style="background:#8B948D">DK</div>
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;justify-content:space-between"><span style="font-size:12.5px;font-weight:600">Daniel Kim</span><span style="font-family:var(--font-mono);font-size:10px;color:var(--text-3)">18m</span></div>
+            <div style="font-size:11.5px;color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">SSO configuration</div>
+            <div style="margin-top:5px;display:flex;gap:5px"><span class="badge badge--em">AI HANDLING</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="inboxdemo__thread">
+        <div class="msg msg--in"><div class="msg__bubble">My payment was deducted but my wallet still shows zero.</div><div class="msg__meta">12:41</div></div>
+        <div class="msg msg--ai"><div class="msg__bubble"><div class="msg__tag"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5 14 9l6.5 2-6.5 2-2 6.5-2-6.5L3.5 11 10 9l2-6.5Z"/></svg>Serviqo AI</div>I found a matching article on payment reconciliation. Would you like me to walk you through it?</div><div class="msg__meta">12:41</div></div>
+        <div class="msg msg--sys"><span class="line"></span><span>conversation assigned to ananya rao</span><span class="line"></span></div>
+        <div class="msg msg--out"><div class="msg__bubble">I've checked your transaction. Let me verify with our billing team.</div><div class="msg__meta">12:43 ✓✓</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section section--sunk" id="ai">
+  <div class="wrap">
+    <div class="head reveal">
+      <span class="eyebrow">AI support</span>
+      <h2 class="h2">Two distinct jobs. Never confused.</h2>
+      <p class="lede">Serviqo AI can talk to customers directly for approved, low-risk work — and it separately assists your agents behind the scenes. The two never blur together.</p>
+    </div>
+    <div class="aiSplit reveal">
+      <div class="aiCol aiCol--auto">
+        <div class="aiCol__head">
+          <span class="aiCol__icn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2.5 14 9l6.5 2-6.5 2-2 6.5-2-6.5L3.5 11 10 9l2-6.5Z"/></svg></span>
+          <h4>Autonomous AI support</h4>
+        </div>
+        <p class="desc">When an organization enables it, Serviqo AI replies to customers directly for greetings, FAQs, knowledge-base questions, basic troubleshooting, order status, and collecting information — always labeled, never disguised as a person.</p>
+        <ul class="featlist" style="margin-top:0">
+          <li><span class="tick">✓</span><span>Every AI reply carries the <b>Serviqo AI</b> label — the customer always knows who they're talking to</span></li>
+          <li><span class="tick">✓</span><span>Identifies intent, recommends articles, creates and categorizes tickets, routes to the right department</span></li>
+          <li><span class="tick">✓</span><span>Hands off the moment a rule requires a person — with a private summary so the customer never repeats themselves</span></li>
+        </ul>
+      </div>
+      <div class="aiCol aiCol--assist">
+        <div class="aiCol__head">
+          <span class="aiCol__icn"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="5" width="16" height="12" rx="2"/><path d="M9 20h6M12 17v3"/></svg></span>
+          <h4>Human agent AI assistance</h4>
+        </div>
+        <p class="desc">Inside the agent workspace, AI drafts and suggests — it never sends. Every suggestion is reviewed, edited or discarded by the person handling the conversation.</p>
+        <ul class="featlist" style="margin-top:0">
+          <li><span class="tick">✓</span><span>Suggested replies, thread summaries, sentiment, and detected intent</span></li>
+          <li><span class="tick">✓</span><span>Suggested category, priority and department — applied by a human, recorded in the ticket history</span></li>
+          <li><span class="tick">✓</span><span>Relevant knowledge articles and a recommended next action, surfaced next to the reply box</span></li>
+        </ul>
+      </div>
+    </div>
+    <div class="card pad reveal" style="margin-top:16px;border-color:var(--em-200);background:var(--em-50)">
+      <p style="font-size:13.5px"><b>Where autonomy stops.</b> AI cannot issue refunds, change passwords, delete accounts, access payment credentials, or close a critical ticket — for either capability. Consequential actions always require a person.</p>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="tickets">
+  <div class="wrap split split--flip">
+    <div class="split__media reveal">
+      <div class="card" style="overflow:hidden">
+        <div class="ticket">
+          <span class="ticket__id">SRV-10482</span>
+          <div><div class="ticket__sub">Payment deducted, wallet not credited</div><div class="ticket__meta">Yaswanth Kumar · Billing · Ananya Rao</div></div>
+          <div class="ticket__right"><span class="badge badge--danger">URGENT</span><span class="badge badge--em">IN PROGRESS</span></div>
+        </div>
+        <div class="ticket">
+          <span class="ticket__id">SRV-10479</span>
+          <div><div class="ticket__sub">Refund not received after 5 days</div><div class="ticket__meta">Priya Mehta · Refunds · Rahul Sharma</div></div>
+          <div class="ticket__right"><span class="badge badge--warn">HIGH</span><span class="badge badge--neutral">WAITING</span></div>
+        </div>
+        <div class="ticket">
+          <span class="ticket__id">SRV-10475</span>
+          <div><div class="ticket__sub">SSO configuration for workspace</div><div class="ticket__meta">Daniel Kim · Technical · AI handling</div></div>
+          <div class="ticket__right"><span class="badge badge--neutral">LOW</span><span class="badge badge--em">OPEN</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="reveal">
+      <span class="eyebrow">Ticketing and SLA</span>
+      <h2 class="h2" style="margin:12px 0 14px">A clock on every promise you make.</h2>
+      <p class="lede">Any conversation can become a ticket with a number, an owner and a deadline. Response and resolution targets are set per priority, and agents are warned before the timer runs out.</p>
+      <ul class="featlist">
+        <li><span class="tick">✓</span><span><b>Nine states, one lifecycle.</b> Open through reopened, with the full activity history attached.</span></li>
+        <li><span class="tick">✓</span><span><b>Departments and skills.</b> Billing, refunds, technical, security — agents belong to the teams they know.</span></li>
+        <li><span class="tick">✓</span><span><b>AI-suggested category and priority</b>, applied by a human and logged as such.</span></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="section section--sunk" id="automation">
+  <div class="wrap split">
+    <div class="reveal">
+      <span class="eyebrow">Automation — separate from AI</span>
+      <h2 class="h2" style="margin:12px 0 14px">Deterministic messages don't need a model.</h2>
+      <p class="lede">Welcome messages, business-hours replies, queue position, ticket-created confirmations and SLA notifications run on Serviqo's rules engine — instant, predictable, and consuming zero AI calls.</p>
+      <ul class="featlist">
+        <li><span class="tick">✓</span><span>Rules read as sentences — <b>when / if / then</b> — not a node canvas nobody wants to debug at 2am</span></li>
+        <li><span class="tick">✓</span><span>Dry-run preview shows exactly what a rule would have matched before you turn it on</span></li>
+        <li><span class="tick">✓</span><span>Runs whether or not AI is enabled for the organization</span></li>
+      </ul>
+    </div>
+    <div class="split__media reveal">
+      <div class="autoCard">
+        <div class="autoCard__head"><b>Route billing to specialists</b><span class="toggle" aria-hidden="true"><i></i></span></div>
+        <div class="autoCard__body">
+          <div class="autoLine"><span class="eyebrow">When</span>
+            <div class="condRow"><b>A new conversation arrives</b></div>
+          </div>
+          <div class="autoLine"><span class="eyebrow">If</span>
+            <div class="condRow"><b>Department</b> <span>is</span> <b>Billing</b></div>
+            <div class="condRow"><b>Language</b> <span>is</span> <b>English</b></div>
+          </div>
+          <div class="autoLine" style="margin-bottom:0"><span class="eyebrow">Then</span>
+            <div class="condRow"><b>Assign to</b> <span>→</span> <b>Billing team</b></div>
+            <div class="condRow"><b>Send message</b> <span>→</span> <b>Welcome template</b></div>
+          </div>
+        </div>
+        <div class="autoFoot"><span>Matched 214 conversations in the last 7 days</span><button class="mini mini--fill">Save rule</button></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="kb">
+  <div class="wrap split split--flip">
+    <div class="split__media reveal">
+      <div class="card pad">
+        <div class="kbSearch">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-3)"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          <input placeholder="payment failed" disabled />
+        </div>
+        <div class="kbResult">
+          <span class="kbResult__icn"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 3v5h5"/><path d="M14 3H6v18h12V8l-4-5Z"/></svg></span>
+          <div><b>Why a successful payment might not reflect immediately</b><p>Reconciliation timing, common causes, and what to check first.</p></div>
+        </div>
+        <div class="kbResult">
+          <span class="kbResult__icn"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 3v5h5"/><path d="M14 3H6v18h12V8l-4-5Z"/></svg></span>
+          <div><b>Requesting a refund for a duplicate charge</b><p>Step-by-step, including expected turnaround time.</p></div>
+        </div>
+      </div>
+    </div>
+    <div class="reveal">
+      <span class="eyebrow">Knowledge base</span>
+      <h2 class="h2" style="margin:12px 0 14px">The answer, before the ticket.</h2>
+      <p class="lede">Customers see matching articles before they're prompted to open a conversation. Agents search the same library without leaving the thread — type <code style="font-family:var(--font-mono);font-size:12.5px;background:var(--surface-sunk);padding:1px 5px;border-radius:4px">/kb</code> and results appear inline.</p>
+      <ul class="featlist">
+        <li><span class="tick">✓</span><span>Articles, collections, drafts and published states, with view and helpfulness counts</span></li>
+        <li><span class="tick">✓</span><span>Powers both customer self-service and AI-suggested replies from the same source</span></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="section section--sunk" id="analytics">
+  <div class="wrap">
+    <div class="head reveal">
+      <span class="eyebrow">Analytics</span>
+      <h2 class="h2">Staffing decisions, not scoreboards.</h2>
+      <p class="lede">See when volume actually arrives and where AI is carrying load versus handing off, with context — not a wall of tiles.</p>
+    </div>
+    <div class="card pad reveal">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <span class="eyebrow">Conversations per hour · today</span>
+        <span class="badge badge--warn">PEAK 14:00–16:00</span>
+      </div>
+      <div class="bars" id="bars"></div>
+      <div class="barlabels"><span>09</span><span>10</span><span>11</span><span>12</span><span>13</span><span>14</span><span>15</span><span>16</span><span>17</span><span>18</span></div>
+      <div class="metricrow">
+        <div><small>AI resolution rate</small><b>41%</b></div>
+        <div><small>Human handoff rate</small><b>59%</b></div>
+        <div><small>First response</small><b>00:41</b></div>
+        <div><small>CSAT</small><b>4.7/5</b></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="wrap">
+    <div class="head head--center reveal">
+      <span class="eyebrow">Website widget</span>
+      <h2 class="h2">Wherever the question starts.</h2>
+      <p class="lede" style="margin:0 auto">One script tag on your site, and the same AI-plus-human workspace is live.</p>
+    </div>
+    <div class="reveal" style="max-width:640px;margin:0 auto">
+      <div class="browserFrame">
+        <div class="browserFrame__bar"><span class="demo__dots"><i></i><i></i><i></i></span><span class="browserFrame__url">acme.com</span></div>
+        <div class="browserFrame__body">
+          <div class="widgetPanel">
+            <div class="widgetPanel__head"><b>Acme Support</b><span><i class="dot" style="background:#fff"></i>We're online</span></div>
+            <div class="widgetPanel__body">
+              <p>Hi 👋 How can we help today?</p>
+              <button>Track an order</button>
+              <button>Payment issue</button>
+              <button>Talk to someone</button>
+            </div>
+          </div>
+          <span class="launcher"><svg width="20" height="20" viewBox="0 0 24 24" fill="#fff"><path d="M4 4h16v12H8l-4 4V4Z"/></svg></span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section section--dark">
+  <div class="wrap">
+    <div class="head reveal">
+      <span class="eyebrow">Security and reliability</span>
+      <h2 class="h2" style="color:var(--text-inverse);margin:12px 0 14px">Built for more than one company.</h2>
+      <p class="lede">Every business record carries an organization ID, and isolation is enforced in the data layer. These are the principles the platform is being built to — not an independent audit or certification claim.</p>
+    </div>
+    <div class="grid3 reveal">
+      <div class="scard"><span class="scard__i"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 4 6.5v5c0 5 3.4 8.6 8 9.5 4.6-.9 8-4.5 8-9.5v-5L12 3Z"/></svg></span><h4>Tenant isolation</h4><p>Queries are scoped to the caller's organization at the repository layer.</p></div>
+      <div class="scard"><span class="scard__i"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></span><h4>Rotating tokens</h4><p>Short-lived access tokens with revocable refresh tokens. Passwords hashed, never logged.</p></div>
+      <div class="scard"><span class="scard__i"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c0-3 2.5-5 5.5-5s5.5 2 5.5 5"/></svg></span><h4>Roles that mean something</h4><p>Checked on every route and every socket event, not just hidden in the UI.</p></div>
+      <div class="scard"><span class="scard__i"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h5"/></svg></span><h4>Audit trail</h4><p>Every assignment, status change and AI-applied suggestion is logged with an actor.</p></div>
+      <div class="scard"><span class="scard__i"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3v5h5"/><path d="M14 3H6v18h12V8l-4-5Z"/></svg></span><h4>Uploads under control</h4><p>Type, extension and size validated server-side; files stored under generated names.</p></div>
+      <div class="scard"><span class="scard__i"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg></span><h4>Your data, your retention</h4><p>Configure retention, export a customer's history, delete it on request.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="section section--tight" id="integrations">
+  <div class="wrap">
+    <div class="head head--center reveal">
+      <span class="eyebrow">Integrations</span>
+      <h2 class="h2">One inbox for every channel.</h2>
+      <p class="lede" style="margin:0 auto">Serviqo is in active development. Nothing below is labeled available until it has shipped and been tested end to end.</p>
+    </div>
+    <div class="chanList reveal" style="max-width:640px;margin:0 auto">
+      <div class="chanRow2">
+        <span class="chan__i"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v12H8l-4 4V4Z"/></svg></span>
+        <div><b>Web chat</b><span class="desc">Embeddable site widget — in active development</span></div>
+        <span class="badge badge--warn">IN DEVELOPMENT</span>
+      </div>
+      <div class="chanRow2">
+        <span class="chan__i"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.5 7 8.5 6 8.5-6"/></svg></span>
+        <div><b>Email to ticket</b><span class="desc">Inbound email becomes a tracked conversation</span></div>
+        <span class="badge badge--neutral">PLANNED</span>
+      </div>
+      <div class="chanRow2">
+        <span class="chan__i"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6 3 12l5 6M16 6l5 6-5 6"/></svg></span>
+        <div><b>REST API and webhooks</b><span class="desc">Build your own channel or automation on top</span></div>
+        <span class="badge badge--warn">IN DEVELOPMENT</span>
+      </div>
+      <div class="chanRow2">
+        <span class="chan__i"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12a8 8 0 1 1 3.4 6.5L4 20l1.6-3.4A7.9 7.9 0 0 1 4 12Z"/></svg></span>
+        <div><b>WhatsApp Business</b><span class="desc">Planned — not yet started</span></div>
+        <span class="badge badge--neutral">PLANNED</span>
+      </div>
+      <div class="chanRow2">
+        <span class="chan__i"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="13" width="8" height="8" rx="2"/></svg></span>
+        <div><b>Slack and Microsoft Teams</b><span class="desc">Planned — not yet started</span></div>
+        <span class="badge badge--neutral">PLANNED</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section section--tight" id="pricing">
+  <div class="wrap">
+    <div class="cta reveal">
+      <span class="eyebrow" style="color:#6E8578">Get started</span>
+      <h2 class="h2" style="margin:12px 0 0">Your queue is waiting.</h2>
+      <p class="lede">Set up Serviqo with your own team, or look around a workspace already full of conversations.</p>
+      <div class="cta__row">
+        <a class="btn btn--primary" href="#">Start free trial</a>
+      </div>
+      <div style="margin-top:28px;padding-top:24px;border-top:1px solid var(--dark-border)">
+        <p class="eyebrow" style="color:#6E8578;margin-bottom:12px">Or explore a live demo workspace</p>
+        <div class="cta__row" style="margin-top:0">
+          <a class="btn btn--onDark btn--sm" href="#">View as customer</a>
+          <a class="btn btn--onDark btn--sm" href="#">View as agent</a>
+          <a class="btn btn--onDark btn--sm" href="#">View as admin</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer class="foot">
+  <div class="wrap">
+    <div class="foot__grid">
+      <div>
+        <a class="brand" href="#top">
+          <span class="brand__mark" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M4 5.8C4 4.3 5.2 3 6.7 3h10.6C18.8 3 20 4.3 20 5.8v7.4c0 1.5-1.2 2.8-2.7 2.8H9.3l-4.1 3.7v-3.7H6.7C5.2 16 4 14.7 4 13.2V5.8Z" stroke="var(--em-600)" stroke-width="1.6" stroke-linejoin="round"/><circle cx="8.6" cy="9.3" r="1" fill="var(--em-600)"/><circle cx="12" cy="9.3" r="1" fill="var(--em-600)"/><circle cx="15.4" cy="9.3" r="1" fill="var(--em-600)"/></svg></span>
+          Serviqo
+        </a>
+        <p style="font-size:13px;color:var(--text-3);margin-top:12px;max-width:30ch">Chat, AI, tickets and your team in one support workspace.</p>
+      </div>
+      <div><h5>Product</h5><ul><li><a href="#demo">Live chat</a></li><li><a href="#tickets">Ticketing</a></li><li><a href="#ai">AI support agent</a></li><li><a href="#automation">Automation</a></li></ul></div>
+      <div><h5>Solutions</h5><ul><li><a href="#pricing">Customer support</a></li><li><a href="#pricing">E-commerce</a></li><li><a href="#pricing">SaaS</a></li><li><a href="#pricing">Financial services</a></li></ul></div>
+      <div><h5>Platform</h5><ul><li><a href="#">Security</a></li><li><a href="#">Multi-org</a></li><li><a href="#">API and webhooks</a></li></ul></div>
+      <div><h5>Resources</h5><ul><li><a href="#">Documentation</a></li><li><a href="#kb">Knowledge base</a></li><li><a href="#">Changelog</a></li></ul></div>
+      <div><h5>Company</h5><ul><li><a href="#">About</a></li><li><a href="#">Privacy</a></li><li><a href="#">Terms</a></li></ul></div>
+    </div>
+    <div class="foot__bottom"><span>© 2026 Serviqo</span></div>
+  </div>
+</footer>
+
+<script>
+(function(){
+  var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  var root=document.documentElement, btn=document.getElementById('themeBtn'), icon=document.getElementById('themeIcon');
+  var moon='<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/>';
+  var sun='<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/>';
+  btn.addEventListener('click',function(){
+    var dark = root.getAttribute('data-theme')==='dark';
+    root.setAttribute('data-theme', dark?'light':'dark');
+    icon.innerHTML = dark?moon:sun;
+    btn.setAttribute('aria-label', dark?'Switch to dark theme':'Switch to light theme');
+  });
+
+  var nav=document.getElementById('nav');
+
+  /* ---- desktop dropdowns: click/keyboard toggle, single-open, Escape + outside-click to close ---- */
+  var navItems=Array.prototype.slice.call(document.querySelectorAll('.nav__item')).filter(function(el){return el.querySelector('button[aria-haspopup]')});
+  function closeAllDropdowns(except){
+    navItems.forEach(function(el){
+      if(el===except) return;
+      el.classList.remove('is-open');
+      var b=el.querySelector('button'); if(b) b.setAttribute('aria-expanded','false');
+    });
+  }
+  navItems.forEach(function(el){
+    var btn=el.querySelector('button');
+    btn.addEventListener('click',function(e){
+      e.stopPropagation();
+      var willOpen = !el.classList.contains('is-open');
+      closeAllDropdowns(willOpen?el:null);
+      el.classList.toggle('is-open', willOpen);
+      btn.setAttribute('aria-expanded', willOpen?'true':'false');
+    });
+  });
+  document.addEventListener('click', function(){ closeAllDropdowns(); });
+  document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeAllDropdowns(); });
+
+  /* ---- mobile menu ---- */
+  var mobileBtn=document.getElementById('mobileBtn'), mobileNav=document.getElementById('mobileNav'), mobileIcon=document.getElementById('mobileBtnIcon');
+  var hamburger='<path d="M4 6h16M4 12h16M4 18h16"/>';
+  var xmark='<path d="M6 6l12 12M18 6 6 18"/>';
+  function setMobileNav(open){
+    mobileNav.classList.toggle('is-open', open);
+    mobileBtn.setAttribute('aria-expanded', open?'true':'false');
+    mobileBtn.setAttribute('aria-label', open?'Close menu':'Open menu');
+    mobileIcon.innerHTML = open?xmark:hamburger;
+  }
+  mobileBtn.addEventListener('click', function(e){
+    e.stopPropagation();
+    setMobileNav(!mobileNav.classList.contains('is-open'));
+  });
+  mobileNav.querySelectorAll('a').forEach(function(a){ a.addEventListener('click', function(){ setMobileNav(false); }); });
+  document.addEventListener('keydown', function(e){ if(e.key==='Escape') setMobileNav(false); });
+  window.addEventListener('resize', function(){ if(window.innerWidth>940) setMobileNav(false); });
+  window.addEventListener('scroll',function(){ nav.classList.toggle('is-stuck', window.scrollY>8); },{passive:true});
+
+  var items=document.querySelectorAll('.reveal');
+  if(reduce || !('IntersectionObserver' in window)){
+    items.forEach(function(el){el.classList.add('is-in')});
+  } else {
+    var io=new IntersectionObserver(function(entries){
+      entries.forEach(function(e){ if(e.isIntersecting){ e.target.classList.add('is-in'); io.unobserve(e.target); } });
+    },{threshold:.1,rootMargin:'0px 0px -60px 0px'});
+    items.forEach(function(el){io.observe(el)});
+  }
+
+  var vals=[28,44,61,52,38,86,94,79,55,33];
+  var barsEl=document.getElementById('bars');
+  vals.forEach(function(v){
+    var b=document.createElement('div'); b.className='bar';
+    var i=document.createElement('i'); b.appendChild(i); barsEl.appendChild(b);
+    requestAnimationFrame(function(){ setTimeout(function(){ i.style.height=v+'%'; }, 240); });
+  });
+
+  var custBody=document.getElementById('custBody'), agentBody=document.getElementById('agentBody'), aiSlot=document.getElementById('aiSlot');
+
+  function bubble(container, cls, tag, text, meta){
+    var d=document.createElement('div');
+    d.className='msg '+cls;
+    var isAi = cls.indexOf('msg--ai')>-1;
+    var tagHtml='';
+    if(tag){
+      tagHtml = isAi
+        ? '<div class="msg__tag"><svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5 14 9l6.5 2-6.5 2-2 6.5-2-6.5L3.5 11 10 9l2-6.5Z"/></svg>'+tag+'</div>'
+        : '<div class="msg__tag msg__tag--human">'+tag+'</div>';
+    }
+    d.innerHTML = '<div class="msg__bubble">'+tagHtml+text+'</div>'+(meta?'<div class="msg__meta">'+meta+'</div>':'');
+    container.appendChild(d);
+    container.scrollTop = container.scrollHeight;
+    return d;
+  }
+  function sysLine(container, text){
+    var d=document.createElement('div');
+    d.className='msg msg--sys';
+    d.innerHTML='<span class="line"></span><span>'+text+'</span><span class="line"></span>';
+    container.appendChild(d);
+    return d;
+  }
+  function typingIn(container){
+    var d=document.createElement('div'); d.className='typing'; d.innerHTML='<i></i><i></i><i></i>';
+    container.appendChild(d); return d;
+  }
+  function aiPrivateBrief(){
+    aiSlot.innerHTML =
+      '<div class="demo__aiPanel">'+
+        '<div class="msg__tag"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5 14 9l6.5 2-6.5 2-2 6.5-2-6.5L3.5 11 10 9l2-6.5Z"/></svg>AI summary</div>'+
+        '<div class="aiPrivacy">Private · visible only to agents</div>'+
+        '<div class="aiFields">'+
+          '<div class="full"><span>Summary</span><b style="font-weight:500">Customer paid ₹2,400 via UPI but wallet balance is still zero. Payment may be successful but not yet reconciled.</b></div>'+
+          '<div><span>Intent</span><b>Payment issue</b></div>'+
+          '<div><span>Sentiment</span><b><span class="sentiDot"></span>Concerned</b></div>'+
+          '<div class="full"><span>Suggested action</span><b style="font-weight:500">Verify transaction status with billing</b></div>'+
+          '<div class="full"><span>Knowledge used</span><span class="kbPill">Payment Reconciliation Policy</span></div>'+
+        '</div>'+
+        '<div class="confBar"><span style="font-family:var(--font-mono);font-size:9.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-3)">Confidence · 92%</span><div class="confBar__track"><div class="confBar__fill" id="confFill"></div></div></div>'+
+        '<div class="aiActs" style="margin-top:12px"><button class="mini mini--fill">Insert suggested reply</button><button class="mini">View full summary</button></div>'+
+      '</div>';
+    requestAnimationFrame(function(){ setTimeout(function(){ var f=document.getElementById('confFill'); if(f) f.style.width='92%'; }, 120); });
+  }
+
+  var timers=[];
+  function at(ms, fn){ timers.push(setTimeout(fn, ms)); }
+
+  /* Staged sequence, both panes stay in sync throughout:
+     1. customer message   2. AI typing   3. AI response
+     4. handoff             5. human agent joins   6. private AI summary (agent-only) */
+  function play(){
+    timers.forEach(clearTimeout); timers=[];
+    custBody.innerHTML=''; agentBody.innerHTML=''; aiSlot.innerHTML='';
+
+    /* 1 — customer message */
+    at(300, function(){
+      bubble(custBody,'msg--out',null,'My payment was deducted but my wallet still shows zero.','12:40 ✓✓');
+      bubble(agentBody,'msg--in',null,'My payment was deducted but my wallet still shows zero.','12:40');
+    });
+
+    /* 2 — AI typing */
+    at(1600, function(){
+      var t1=typingIn(custBody), t2=typingIn(agentBody);
+      at(1500,function(){ t1.remove(); t2.remove(); });
+    });
+
+    /* 3 — AI response */
+    at(3300, function(){
+      bubble(custBody,'msg--ai','Serviqo AI','I can check that for you. Could you share the transaction ID?','12:41');
+      bubble(agentBody,'msg--ai','Serviqo AI','I can check that for you. Could you share the transaction ID?','12:41');
+    });
+    at(4900, function(){
+      bubble(custBody,'msg--out',null,'4471-08832, and it&#39;s still not showing.','12:42 ✓✓');
+      bubble(agentBody,'msg--in',null,'4471-08832, and it&#39;s still not showing.','12:42');
+    });
+    at(6300, function(){
+      var t1=typingIn(custBody), t2=typingIn(agentBody);
+      at(1300,function(){ t1.remove(); t2.remove(); });
+    });
+    at(7700, function(){
+      bubble(custBody,'msg--ai','Serviqo AI','That transaction hasn&#39;t settled on our end yet — this needs a specialist to verify with billing directly.','12:42');
+      bubble(agentBody,'msg--ai','Serviqo AI','That transaction hasn&#39;t settled on our end yet — this needs a specialist to verify with billing directly.','12:42');
+    });
+
+    /* 4 — handoff */
+    at(9400, function(){
+      sysLine(custBody,'connecting you with billing support');
+      sysLine(agentBody,'conversation assigned to ananya rao');
+    });
+
+    /* 5 — human agent joins */
+    at(10700, function(){ sysLine(custBody,'ananya joined the conversation'); });
+
+    /* 6 — private AI summary, agent side only */
+    at(11400, function(){ aiPrivateBrief(); });
+
+    at(13200, function(){ var t=typingIn(custBody); at(1300,function(){t.remove();}); });
+    at(14600, function(){
+      bubble(custBody,'msg--in','Ananya','I can see the ₹2,400 charge. I&#39;ve opened ticket SRV-10482 — you&#39;ll be credited within 2 hours.','12:43');
+      bubble(agentBody,'msg--out',null,'I can see the ₹2,400 charge. I&#39;ve opened ticket SRV-10482 — you&#39;ll be credited within 2 hours.','12:43 ✓✓');
+    });
+    at(16400, function(){
+      bubble(custBody,'msg--out',null,'Thank you, appreciate the quick help.','12:44 ✓✓');
+      bubble(agentBody,'msg--in',null,'Thank you, appreciate the quick help.','12:44');
+    });
+    at(20500, play);
+  }
+
+  if(reduce){
+    bubble(custBody,'msg--out',null,'My payment was deducted but my wallet still shows zero.','12:40 ✓✓');
+    bubble(custBody,'msg--ai','Serviqo AI','That needs a specialist to verify with billing directly.','12:41');
+    sysLine(custBody,'ananya joined the conversation');
+    bubble(custBody,'msg--in','Ananya','I can see the ₹2,400 charge. Ticket SRV-10482 is open — you&#39;ll be credited within 2 hours.','12:43');
+    bubble(agentBody,'msg--in',null,'My payment was deducted but my wallet still shows zero.','12:40');
+    aiPrivateBrief();
+  } else {
+    play();
+  }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,63 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build outputs
+dist/
+build/
+*.tsbuildinfo
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+.claude/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+ehthumbs.db
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Testing
+coverage/
+.nyc_output/
+
+# Temporary
+tmp/
+temp/
+*.tmp
+
+# MongoDB
+data/db/
+
+# Redis
+dump.rdb
+
+# Docker
+docker-compose.override.yml
+
+# Uploads (user-generated content)
+uploads/
+!uploads/.gitkeep
+
+# Package manager lockfiles (keep the one you use, remove others)
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yaml
