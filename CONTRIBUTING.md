@@ -152,23 +152,37 @@ utils/         — Utility functions
 
 ### Backend (`apps/server/src/`)
 
+Domain-first: business domains own their own implementation under
+`modules/<domain>/`. Only cross-cutting infrastructure lives at the top
+level — never global `controllers/`/`services/`/`repositories/`/`models/`
+buckets, which become unnavigable as Serviqo grows.
+
 ```
 config/        — App configuration
-controllers/   — Request handlers
+database/      — MongoDB connection
+lib/           — Cross-cutting utilities (env, logger, errors, response, ids, ...)
 middleware/    — Express middleware
-models/        — Mongoose schemas
-repositories/  — Data access layer (tenant-scoped)
-routes/        — Express route definitions
-services/      — Business logic
-sockets/       — Socket.IO event handlers
-jobs/          — Background job processors
-events/        — Event system
-validators/    — Request validation schemas
-utils/         — Utility functions
-types/         — Backend-specific types
+routes/        — Route mounting
+modules/       — Domain-first feature modules
 ```
 
-Domain modules (`auth/`, `organizations/`, `conversations/`, etc.) follow the same internal structure.
+Each domain module contains only the files its current implementation
+genuinely needs — not a mandatory template:
+
+```
+modules/users/
+├── user.model.ts
+├── user.repository.ts
+├── user.service.ts       (added when there's real business logic)
+├── user.controller.ts    (added when there's a route to handle)
+├── user.validation.ts    (added when there's request input to validate)
+└── user.types.ts         (added when types need a home outside the above)
+```
+
+Future product domains (`organizations/`, `memberships/`, `sessions/`,
+`conversations/`, `tickets/`, `automation/`, `knowledge/`, `catalogue/`,
+`analytics/`, ...) follow the same convention, created only when their
+implementation begins. See `docs/decisions/003-domain-first-server-modules.md`.
 
 ## Documentation
 
