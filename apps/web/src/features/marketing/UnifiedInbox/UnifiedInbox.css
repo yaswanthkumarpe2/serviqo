@@ -1,0 +1,62 @@
+.inboxdemo {
+  display: grid;
+  grid-template-columns: 1fr 1.6fr;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  background: var(--surface);
+}
+.inboxdemo__list {
+  border-right: 1px solid var(--border);
+}
+.inboxdemo__filters {
+  display: flex;
+  gap: 4px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.filterchip {
+  height: 24px;
+  padding: 0 9px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-2);
+  background: var(--surface-sunk);
+  display: inline-flex;
+  align-items: center;
+}
+.filterchip.is-on {
+  background: var(--em-600);
+  color: #fff;
+}
+[data-theme="dark"] .filterchip.is-on {
+  color: #0a140f;
+}
+.row {
+  display: flex;
+  gap: 10px;
+  padding: 11px 13px;
+  border-bottom: 1px solid var(--border);
+  align-items: flex-start;
+}
+.row.is-sel {
+  background: var(--em-50);
+}
+.inboxdemo__thread {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+@media (max-width: 760px) {
+  .inboxdemo {
+    grid-template-columns: 1fr;
+  }
+  .inboxdemo__list {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+}

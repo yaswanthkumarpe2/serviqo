@@ -1,0 +1,77 @@
+.autoCard {
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  overflow: hidden;
+}
+.autoCard__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 13px 18px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-sunk);
+}
+.autoCard__head b {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.toggle {
+  width: 34px;
+  height: 20px;
+  border-radius: 20px;
+  background: var(--em-600);
+  position: relative;
+  flex: 0 0 auto;
+}
+.toggle i {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+}
+.autoCard__body {
+  padding: 18px;
+}
+.autoLine {
+  margin-bottom: 14px;
+}
+.autoLine .eyebrow {
+  margin-bottom: 8px;
+  display: block;
+}
+.condRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 11px;
+  background: var(--surface-sunk);
+  border-radius: var(--r-sm);
+  font-size: 12.5px;
+  margin-bottom: 6px;
+}
+.condRow b {
+  font-weight: 600;
+}
+.condRow span {
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.autoFoot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-sunk);
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.autoFoot span {
+  font-size: 12px;
+  color: var(--text-2);
+}

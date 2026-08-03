@@ -1,0 +1,33 @@
+.cta {
+  background: var(--dark);
+  border-radius: var(--r-xl);
+  padding: 56px 40px;
+  text-align: center;
+}
+[data-theme="dark"] .cta {
+  background: #080c0a;
+  border: 1px solid var(--dark-border);
+}
+.cta h2 {
+  color: var(--text-inverse);
+}
+.cta .lede {
+  margin: 14px auto 0;
+  color: #9faea5;
+  text-align: center;
+}
+.cta__eyebrow {
+  color: #6e8578;
+}
+.cta__row {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  margin-top: 26px;
+  flex-wrap: wrap;
+}
+@media (max-width: 600px) {
+  .cta {
+    padding: 40px 20px;
+  }
+}
