@@ -16,8 +16,9 @@
     "dev:server": "npm run dev --workspace=apps/server",
     "build:web": "npm run build --workspace=apps/web",
     "build:server": "npm run build --workspace=apps/server",
-    "lint": "echo 'lint not yet configured'",
-    "test": "echo 'tests not yet configured'",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "echo 'no automated tests yet - Phase 1 ships static marketing markup with no reusable business logic to test'",
     "clean": "rimraf apps/*/dist packages/*/dist"
   },
   "engines": {
