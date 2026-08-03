@@ -95,7 +95,8 @@ Serviqo is designed as a single deployment serving multiple organizations secure
 ## 8. Authentication & Authorization
 Security is paramount, utilizing a robust, role-based access control (RBAC) system.
 
-- **Tokens**: JWT-based authentication featuring short-lived access tokens and refresh token rotation, stored in secure HTTP-only cookies where appropriate.
+- **Tokens**: JWT-based authentication (signed/verified via `jose`) featuring short-lived access tokens and refresh token rotation, stored in secure HTTP-only cookies where appropriate.
+- **Password Hashing**: Argon2id.
 - **Roles**: Centralized RBAC with distinct roles: Owner, Admin, Supervisor, Agent, Customer.
 - **Permissions**: Granular permission-based authorization (e.g., `conversation.read`, `ticket.update`).
 - **Enforcement**: Middleware enforces authorization rules on every HTTP route and Socket event. The system is designed to support custom roles and granular permissions in the future.

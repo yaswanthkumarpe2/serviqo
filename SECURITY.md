@@ -17,7 +17,7 @@ As a multi-tenant SaaS, isolation is paramount.
 ## 3. Authentication
 - Implementing short-lived access tokens (JWT).
 - Secure refresh-token rotation to maintain sessions without permanent credentials.
-- Password hashing using strong algorithms (bcrypt).
+- Password hashing using Argon2id (memory-hard, OWASP-recommended default).
 - Strict rate limiting on all authentication-related endpoints to prevent brute-force attacks.
 - Robust session and device management, allowing users to view and revoke active sessions.
 - Server-side session revocation capabilities.
