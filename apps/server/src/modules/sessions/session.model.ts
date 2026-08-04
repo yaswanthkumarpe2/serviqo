@@ -1,6 +1,8 @@
 import { Schema, model } from "mongoose";
 import type { HydratedDocument, Model, Types } from "mongoose";
 
+import { MAX_USER_AGENT_LENGTH } from "../../config/constants";
+
 /**
  * A Session represents one authenticated login on one device. Its _id is
  * stable for the session's entire life — rotation changes which refresh
@@ -33,9 +35,6 @@ import type { HydratedDocument, Model, Types } from "mongoose";
 /** Maximum retained previously-rotated hashes. Enforced atomically by sessionRepository.rotateRefreshToken. */
 export const MAX_PREVIOUS_REFRESH_TOKEN_HASHES = 5;
 
-/** Generous upper bound; real user-agent strings are ~100-200 chars. Oversized input is rejected, not truncated. */
-export const MAX_USER_AGENT_LENGTH = 512;
-
 /** Fits the longest IPv6 textual form, including IPv4-mapped (e.g. "::ffff:255.255.255.255"). */
 export const MAX_IP_LENGTH = 45;
 
@@ -46,6 +45,7 @@ export interface SessionAttrs {
   userAgent?: string;
   ip?: string;
   lastUsedAt: Date;
+  lastRotatedAt: Date | null;
   expiresAt: Date;
   revokedAt: Date | null;
   createdAt: Date;
@@ -83,6 +83,22 @@ const sessionSchema = new Schema<SessionAttrs>(
     lastUsedAt: {
       type: Date,
       default: () => new Date(),
+    },
+    /**
+     * When this session's refresh token was last rotated — null until the
+     * first rotation.
+     *
+     * Exists solely so refresh classification can distinguish a benign
+     * concurrent double-submit (the immediately-previous token, presented
+     * within the grace window) from a genuine replay of a stolen token. It
+     * deliberately does NOT reuse `lastUsedAt`: that field's meaning is
+     * broader, and basing a revoke-everything security decision on a value
+     * some future non-rotation code path might also write would be a silent
+     * failure waiting to happen.
+     */
+    lastRotatedAt: {
+      type: Date,
+      default: null,
     },
     expiresAt: {
       type: Date,

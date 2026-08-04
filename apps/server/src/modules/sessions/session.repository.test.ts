@@ -2,8 +2,9 @@ import { MongoMemoryServer } from "mongodb-memory-server";
 import mongoose from "mongoose";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
+import { MAX_USER_AGENT_LENGTH } from "../../config/constants";
 import { UserModel } from "../users/user.model";
-import { MAX_PREVIOUS_REFRESH_TOKEN_HASHES, MAX_USER_AGENT_LENGTH, SessionModel } from "./session.model";
+import { MAX_PREVIOUS_REFRESH_TOKEN_HASHES, SessionModel } from "./session.model";
 import { sessionRepository } from "./session.repository";
 
 /**
@@ -276,6 +277,70 @@ describe("Session persistence", () => {
   it("returns null when rotating a session that does not exist", async () => {
     const missingId = new mongoose.Types.ObjectId();
     await expect(sessionRepository.rotateRefreshToken(missingId, HASH_B)).resolves.toBeNull();
+  });
+
+  // ---- lastRotatedAt (refresh race / reuse classification) ----
+
+  it("defaults lastRotatedAt to null before any rotation", async () => {
+    const user = await createUser("neverrotated@example.com");
+    const session = await sessionRepository.create({
+      userId: user._id,
+      currentRefreshTokenHash: HASH_A,
+      expiresAt: futureDate(),
+    });
+
+    expect(session.lastRotatedAt).toBeNull();
+  });
+
+  it("sets lastRotatedAt on a successful rotation", async () => {
+    const user = await createUser("rotatedonce@example.com");
+    const created = await sessionRepository.create({
+      userId: user._id,
+      currentRefreshTokenHash: HASH_A,
+      expiresAt: futureDate(),
+    });
+    const before = Date.now();
+
+    const rotated = await sessionRepository.rotateRefreshToken(created._id, HASH_B);
+
+    expect(rotated!.lastRotatedAt).toBeInstanceOf(Date);
+    expect(rotated!.lastRotatedAt!.getTime()).toBeGreaterThanOrEqual(before);
+    // Rotation stamps both fields with the same instant.
+    expect(rotated!.lastRotatedAt!.getTime()).toBe(rotated!.lastUsedAt.getTime());
+  });
+
+  it("advances lastRotatedAt on a subsequent rotation", async () => {
+    const user = await createUser("rotatedtwice@example.com");
+    const created = await sessionRepository.create({
+      userId: user._id,
+      currentRefreshTokenHash: HASH_A,
+      expiresAt: futureDate(),
+    });
+
+    const first = await sessionRepository.rotateRefreshToken(created._id, HASH_B);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const second = await sessionRepository.rotateRefreshToken(created._id, HASH_C);
+
+    expect(second!.lastRotatedAt!.getTime()).toBeGreaterThan(first!.lastRotatedAt!.getTime());
+  });
+
+  it("leaves lastRotatedAt unchanged when a rotation does not match a session", async () => {
+    const user = await createUser("unchangedrotation@example.com");
+    const created = await sessionRepository.create({
+      userId: user._id,
+      currentRefreshTokenHash: HASH_A,
+      expiresAt: futureDate(),
+    });
+    const rotated = await sessionRepository.rotateRefreshToken(created._id, HASH_B);
+    const stampedAt = rotated!.lastRotatedAt!.getTime();
+
+    // A rotation aimed at a different (non-existent) session must not touch this one.
+    await expect(
+      sessionRepository.rotateRefreshToken(new mongoose.Types.ObjectId(), HASH_C),
+    ).resolves.toBeNull();
+
+    const reloaded = await sessionRepository.findById(created._id);
+    expect(reloaded!.lastRotatedAt!.getTime()).toBe(stampedAt);
   });
 
   // ---- user scope ----

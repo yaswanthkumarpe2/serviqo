@@ -74,7 +74,7 @@ export const sessionRepository = {
   /**
    * Atomically rotates the refresh token: the outgoing hash is appended to
    * history, the history is trimmed to its bound, the new hash becomes
-   * current, and lastUsedAt advances.
+   * current, and lastUsedAt / lastRotatedAt advance to the same instant.
    *
    * Done as a single aggregation-pipeline update rather than
    * read-modify-write so two concurrent rotations cannot interleave and
@@ -87,6 +87,10 @@ export const sessionRepository = {
    * session matched.
    */
   async rotateRefreshToken(id: ObjectIdLike, newRefreshTokenHash: string): Promise<SessionDocument | null> {
+    // One timestamp for both fields: at the moment of rotation they describe
+    // the same instant, and the grace-window comparison must not drift.
+    const rotatedAt = new Date();
+
     return SessionModel.findByIdAndUpdate(
       id,
       [
@@ -99,7 +103,8 @@ export const sessionRepository = {
               ],
             },
             currentRefreshTokenHash: newRefreshTokenHash,
-            lastUsedAt: new Date(),
+            lastUsedAt: rotatedAt,
+            lastRotatedAt: rotatedAt,
           },
         },
       ],
