@@ -1,7 +1,7 @@
 import { MAX_USER_AGENT_LENGTH } from "../../config/constants";
 
 /**
- * Normalizes a raw User-Agent header for storage on a Session.
+ * Prepares a raw User-Agent header for storage on a Session.
  *
  * Policy: optional diagnostic metadata must NEVER cause an otherwise-valid
  * login to fail. So this truncates rather than rejects — the informative part
@@ -15,15 +15,15 @@ import { MAX_USER_AGENT_LENGTH } from "../../config/constants";
  * schema keeps its `maxlength` validation as defense in depth, asserting
  * that this helper ran.
  *
- * Missing, empty, or whitespace-only input yields `undefined` — storing a
- * blank string would show an empty row in the user's own device list, which
- * is worse than showing nothing.
+ * Truncation is the ONLY transformation applied. The value is not trimmed,
+ * normalized, or otherwise altered: a User-Agent is an opaque diagnostic
+ * string, and silently rewriting its contents would make the device list
+ * disagree with what the client actually sent. An absent header is already
+ * `undefined` at the HTTP boundary, so no additional emptiness handling is
+ * invented here — an empty header value stays an empty string.
  */
 export function normalizeUserAgent(rawUserAgent: string | undefined | null): string | undefined {
   if (typeof rawUserAgent !== "string") return undefined;
 
-  const trimmed = rawUserAgent.trim();
-  if (trimmed.length === 0) return undefined;
-
-  return trimmed.slice(0, MAX_USER_AGENT_LENGTH);
+  return rawUserAgent.slice(0, MAX_USER_AGENT_LENGTH);
 }
