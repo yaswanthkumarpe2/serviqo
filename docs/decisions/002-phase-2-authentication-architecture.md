@@ -91,7 +91,10 @@ touching service code again.
   later phase's concern entirely.
 - **Database**: only `User`, `Organization`, `Membership`, `Session` exist
   in Phase 2. No `Conversation`, `Ticket`, `Knowledge`, `Automation`,
-  `Analytics`, `AI`, or `Customer` schemas yet.
+  `Analytics`, `AI`, or `Customer` schemas yet. The refresh-token
+  representation inside `Session` is specified in detail by
+  [ADR-004](./004-refresh-token-rotation-and-reuse-detection.md), which
+  refines the token/session strategy in §3 above.
 - **Multi-tenancy**: `User → Membership → Organization`. `organizationId`
   never lives directly on `User`.
 - **RBAC**: permission-based, centralized via `can()` / `requirePermission()`
