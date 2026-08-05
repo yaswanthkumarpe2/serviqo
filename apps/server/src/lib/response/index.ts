@@ -1,3 +1,4 @@
+import type { ValidationIssue } from "../errors";
 import type { Response } from "express";
 
 /**
@@ -5,6 +6,11 @@ import type { Response } from "express";
  * envelope exactly:
  *   success: { success: true,  data, meta:  { requestId, timestamp, version } }
  *   failure: { success: false, error: { code, message, requestId, timestamp, version } }
+ *
+ * Failures may additionally carry `error.details` (ADR-007 §7) — an optional
+ * key, present only on errors that have field-level issues to report. Every
+ * other key is unconditional, so a client reading only code/message is
+ * unaffected by whether it appears.
  */
 
 const API_VERSION = "v1";
@@ -29,10 +35,17 @@ export function created<T>(res: Response, data: T) {
 }
 
 /** General-purpose error responder — errorHandler uses this for any AppError's own httpStatus/code. */
-export function sendError(res: Response, status: number, code: string, message: string) {
+export function sendError(res: Response, status: number, code: string, message: string, details?: ValidationIssue[]) {
   return res.status(status).json({
     success: false,
-    error: { code, message, ...buildMeta(res) },
+    error: {
+      code,
+      message,
+      // Omitted entirely rather than sent as null or [] — an absent key and
+      // an empty list would otherwise mean the same thing in two ways.
+      ...(details && details.length > 0 ? { details } : {}),
+      ...buildMeta(res),
+    },
   });
 }
 

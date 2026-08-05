@@ -3,4 +3,5 @@
 // to run the suite (e.g. in CI).
 process.env.NODE_ENV = process.env.NODE_ENV || "test";
 process.env.MONGODB_URI = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/serviqo-test";
+process.env.CLIENT_URL = process.env.CLIENT_URL || "http://localhost:5173";
 process.env.LOG_LEVEL = "silent";
