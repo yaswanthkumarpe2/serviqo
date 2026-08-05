@@ -19,6 +19,7 @@ As a multi-tenant SaaS, isolation is paramount.
 - Secure refresh-token rotation to maintain sessions without permanent credentials.
 - Password hashing using Argon2id (memory-hard, OWASP-recommended default).
 - Strict rate limiting on all authentication-related endpoints to prevent brute-force attacks.
+  - **Deployment gate (not yet implemented):** authentication endpoints must not be exposed outside local development until authentication rate limiting is implemented. This covers staging, public demos, tunnel/ngrok-style exposure, shared environments, and production. See [ADR-007 §13](docs/decisions/007-registration-flow-and-account-enumeration.md).
 - Robust session and device management, allowing users to view and revoke active sessions.
 - Server-side session revocation capabilities.
 
