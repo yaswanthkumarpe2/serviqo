@@ -64,6 +64,17 @@ export const REFRESH_SECRET_BYTES = 32;
  */
 export const REFRESH_RACE_GRACE_MS = 10 * 1000;
 
+// ---- account action tokens (ADR-005) ----
+// Lifetimes for the single-use credentials emailed for account actions.
+// Kept in code for the same reason as the values above: a misconfigured
+// deployment must not be able to stretch a reset window.
+
+/** Email-verification links stay usable for 24 hours. */
+export const EMAIL_VERIFICATION_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
+
+/** Password-reset links are deliberately much shorter-lived than verification. */
+export const PASSWORD_RESET_TOKEN_TTL_MS = 60 * 60 * 1000;
+
 // ---- session metadata ----
 
 /**
