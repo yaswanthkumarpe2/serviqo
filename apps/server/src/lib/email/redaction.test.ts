@@ -6,89 +6,150 @@ import { describeActionUrl, maskEmailAddress } from "./redaction";
 const SECRET = "DO_NOT_LOG_THIS_SECRET";
 
 describe("describeActionUrl", () => {
-  it("keeps origin and pathname", () => {
-    const result = describeActionUrl("http://localhost:5173/verify-email?token=abc");
+  describe("action classification", () => {
+    it("maps a known verification URL to the verify-email action", () => {
+      expect(describeActionUrl("http://localhost:5173/verify-email?token=abc").action).toBe("verify-email");
+    });
 
-    expect(result.origin).toBe("http://localhost:5173");
-    expect(result.path).toBe("/verify-email");
+    it("maps a known password-reset URL to the password-reset action", () => {
+      expect(describeActionUrl("http://localhost:5173/reset-password?token=abc").action).toBe("password-reset");
+    });
+
+    it("maps known invitation URLs to the invitation action", () => {
+      expect(describeActionUrl("http://localhost:5173/accept-invitation?token=abc").action).toBe("invitation");
+      expect(describeActionUrl("http://localhost:5173/invitations?token=abc").action).toBe("invitation");
+    });
+
+    it("classifies consistently regardless of case or trailing slash", () => {
+      expect(describeActionUrl("http://localhost:5173/Verify-Email").action).toBe("verify-email");
+      expect(describeActionUrl("http://localhost:5173/verify-email/").action).toBe("verify-email");
+    });
+
+    it("classifies an unknown path as unknown without echoing it", () => {
+      const result = describeActionUrl("https://app.example.com/some/unexpected/route");
+
+      expect(result.action).toBe("unknown");
+      expect(JSON.stringify(result)).not.toContain("unexpected");
+      expect(JSON.stringify(result)).not.toContain("route");
+    });
+
+    it("retains origin only for valid http/https URLs", () => {
+      expect(describeActionUrl("https://app.example.com/verify-email").origin).toBe("https://app.example.com");
+      expect(describeActionUrl("http://localhost:5173/verify-email").origin).toBe("http://localhost:5173");
+      expect(describeActionUrl("garbage::x").origin).toBe("(unparseable)");
+    });
   });
 
-  it("reports the presence of a token without capturing its value", () => {
-    const withToken = describeActionUrl(`http://localhost:5173/verify-email?token=${SECRET}`);
-    const withoutToken = describeActionUrl("http://localhost:5173/verify-email");
+  describe("secret containment", () => {
+    it("never leaks a secret in the token query parameter", () => {
+      const result = describeActionUrl(`http://localhost:5173/verify-email?token=${SECRET}`);
 
-    expect(withToken.hasToken).toBe(true);
-    expect(withoutToken.hasToken).toBe(false);
-    expect(JSON.stringify(withToken)).not.toContain(SECRET);
-  });
-
-  it("drops every query parameter value, not just the token", () => {
-    const result = describeActionUrl(
-      `https://app.example.com/reset-password?token=${SECRET}&email=user%40example.com&ref=campaign`,
-    );
-    const serialized = JSON.stringify(result);
-
-    expect(serialized).not.toContain(SECRET);
-    expect(serialized).not.toContain("user@example.com");
-    expect(serialized).not.toContain("user%40example.com");
-    expect(serialized).not.toContain("campaign");
-    expect(result.path).toBe("/reset-password");
-  });
-
-  it("drops URL fragments", () => {
-    const result = describeActionUrl(`https://app.example.com/verify-email#${SECRET}`);
-
-    expect(JSON.stringify(result)).not.toContain(SECRET);
-    expect(result.path).toBe("/verify-email");
-  });
-
-  it("returns a safe representation for a malformed URL instead of throwing", () => {
-    expect(() => describeActionUrl("not a url at all")).not.toThrow();
-
-    const result = describeActionUrl("not a url at all");
-    expect(result.origin).toBe("(unparseable)");
-    expect(result.path).toBe("(unparseable)");
-    expect(result.hasToken).toBe(false);
-  });
-
-  it("never echoes a malformed URL, which may still contain a secret", () => {
-    // A string that fails to parse can still hold a live token.
-    const result = describeActionUrl(`::::not-a-url::::${SECRET}`);
-    expect(JSON.stringify(result)).not.toContain(SECRET);
-  });
-
-  it("rejects non-web protocols, which can smuggle a secret into the pathname", () => {
-    // Regression: `new URL()` parses this happily as scheme "garbage:" with
-    // the entire secret as the pathname, which the pathname branch would
-    // otherwise log verbatim.
-    const result = describeActionUrl(`garbage::${SECRET}`);
-
-    expect(result.path).toBe("(unparseable)");
-    expect(result.origin).toBe("(unparseable)");
-    expect(JSON.stringify(result)).not.toContain(SECRET);
-  });
-
-  it("rejects other non-http schemes that parse successfully", () => {
-    for (const rawUrl of [
-      `javascript:alert("${SECRET}")`,
-      `data:text/plain,${SECRET}`,
-      `mailto:${SECRET}@example.com`,
-      `file:///etc/${SECRET}`,
-    ]) {
-      const result = describeActionUrl(rawUrl);
-      expect(result.path).toBe("(unparseable)");
+      expect(result.hasToken).toBe(true);
       expect(JSON.stringify(result)).not.toContain(SECRET);
-    }
+    });
+
+    it("never leaks a secret in any other query parameter", () => {
+      const result = describeActionUrl(
+        `https://app.example.com/reset-password?email=user%40example.com&ref=${SECRET}&campaign=x`,
+      );
+      const serialized = JSON.stringify(result);
+
+      expect(serialized).not.toContain(SECRET);
+      expect(serialized).not.toContain("user@example.com");
+      expect(serialized).not.toContain("user%40example.com");
+      expect(serialized).not.toContain("campaign");
+    });
+
+    it("never leaks a secret in a URL fragment", () => {
+      const result = describeActionUrl(`https://app.example.com/verify-email#${SECRET}`);
+
+      expect(JSON.stringify(result)).not.toContain(SECRET);
+      expect(result.action).toBe("verify-email");
+    });
+
+    it("never leaks a secret placed in a pathname segment", () => {
+      // The hardening case: a caller building /verify-email/SECRET must not
+      // be able to put it in a log just by constructing the URL that way.
+      const result = describeActionUrl(`https://app.example.com/verify-email/${SECRET}?x=1`);
+
+      expect(JSON.stringify(result)).not.toContain(SECRET);
+      // Exact match only, so an extra segment fails closed rather than
+      // being treated as a known action.
+      expect(result.action).toBe("unknown");
+    });
+
+    it("never leaks a secret placed in the final pathname segment of a deep path", () => {
+      const result = describeActionUrl(`https://app.example.com/auth/v1/verify/${SECRET}`);
+
+      expect(JSON.stringify(result)).not.toContain(SECRET);
+      expect(result.action).toBe("unknown");
+    });
+
+    it("never leaks a secret spread across multiple path segments", () => {
+      const result = describeActionUrl(`https://app.example.com/${SECRET}/verify-email/${SECRET}`);
+
+      expect(JSON.stringify(result)).not.toContain(SECRET);
+      expect(result.action).toBe("unknown");
+    });
+
+    it("never leaks a secret from a malformed URL", () => {
+      const result = describeActionUrl(`::::not-a-url::::${SECRET}`);
+
+      expect(JSON.stringify(result)).not.toContain(SECRET);
+      expect(result.action).toBe("unknown");
+    });
+
+    it("never leaks a secret from non-web protocols that parse successfully", () => {
+      for (const rawUrl of [
+        `garbage::${SECRET}`,
+        `javascript:alert("${SECRET}")`,
+        `data:text/plain,${SECRET}`,
+        `mailto:${SECRET}@example.com`,
+        `file:///etc/${SECRET}`,
+      ]) {
+        const result = describeActionUrl(rawUrl);
+
+        expect(JSON.stringify(result)).not.toContain(SECRET);
+        expect(result.action).toBe("unknown");
+        expect(result.origin).toBe("(unparseable)");
+      }
+    });
+
+    it("never returns the raw URL in any field", () => {
+      const rawUrl = `https://app.example.com/verify-email?token=${SECRET}#frag`;
+      const result = describeActionUrl(rawUrl);
+
+      expect(JSON.stringify(result)).not.toContain(rawUrl);
+      expect(JSON.stringify(result)).not.toContain("frag");
+    });
+
+    it("only ever emits values from the closed action set", () => {
+      const allowed = new Set(["verify-email", "password-reset", "invitation", "unknown"]);
+      const inputs = [
+        `https://app.example.com/verify-email?token=${SECRET}`,
+        `https://app.example.com/${SECRET}`,
+        `garbage::${SECRET}`,
+        "not a url",
+        "",
+      ];
+
+      for (const input of inputs) {
+        expect(allowed.has(describeActionUrl(input).action)).toBe(true);
+      }
+    });
   });
 
-  it("still accepts ordinary http and https links", () => {
-    expect(describeActionUrl("http://localhost:5173/verify-email").path).toBe("/verify-email");
-    expect(describeActionUrl("https://app.example.com/reset-password").path).toBe("/reset-password");
-  });
+  describe("robustness", () => {
+    it("does not throw for a malformed URL", () => {
+      expect(() => describeActionUrl("not a url at all")).not.toThrow();
+      expect(describeActionUrl("not a url at all").action).toBe("unknown");
+    });
 
-  it("handles empty input safely", () => {
-    expect(() => describeActionUrl("")).not.toThrow();
-    expect(describeActionUrl("").path).toBe("(unparseable)");
+    it("handles empty input safely", () => {
+      expect(() => describeActionUrl("")).not.toThrow();
+      expect(describeActionUrl("").action).toBe("unknown");
+      expect(describeActionUrl("").origin).toBe("(unparseable)");
+    });
   });
 });
 

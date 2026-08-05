@@ -172,9 +172,52 @@ describe("ConsoleEmailProvider", () => {
       });
 
       const url = capture.entries[0]!.payload.url as Record<string, unknown>;
-      expect(url.path).toBe("/verify-email");
+      expect(url.action).toBe("verify-email");
       expect(url.origin).toBe("http://localhost:5173");
       expect(url.hasToken).toBe(true);
+    });
+
+    it("never logs a secret placed in the URL pathname", async () => {
+      const provider = createConsoleEmailProvider(capture.log);
+      await provider.sendVerification({
+        to: RECIPIENT,
+        verificationUrl: `https://app.example.com/verify-email/${SECRET}`,
+      });
+
+      expect(serializeAll(capture.entries)).not.toContain(SECRET);
+      expect((capture.entries[0]!.payload.url as Record<string, unknown>).action).toBe("unknown");
+    });
+
+    it("never logs a secret in the pathname for any of the three email types", async () => {
+      const provider = createConsoleEmailProvider(capture.log);
+      await provider.sendVerification({
+        to: RECIPIENT,
+        verificationUrl: `https://app.example.com/verify-email/${SECRET}`,
+      });
+      await provider.sendPasswordReset({
+        to: RECIPIENT,
+        resetUrl: `https://app.example.com/reset-password/${SECRET}`,
+      });
+      await provider.sendInvitation({
+        to: RECIPIENT,
+        organizationName: "Acme Support",
+        invitationUrl: `https://app.example.com/accept-invitation/${SECRET}`,
+      });
+
+      expect(capture.entries).toHaveLength(3);
+      expect(serializeAll(capture.entries)).not.toContain(SECRET);
+    });
+
+    it("never logs raw pathname text even for an unrecognized route", async () => {
+      const provider = createConsoleEmailProvider(capture.log);
+      await provider.sendVerification({
+        to: RECIPIENT,
+        verificationUrl: "https://app.example.com/totally/unexpected/path",
+      });
+
+      const serialized = serializeAll(capture.entries);
+      expect(serialized).not.toContain("unexpected");
+      expect(serialized).not.toContain("totally");
     });
   });
 
@@ -236,7 +279,8 @@ describe("ConsoleEmailProvider", () => {
       });
 
       const url = capture.entries[0]!.payload.url as Record<string, unknown>;
-      expect(url.path).toBe("(unparseable)");
+      expect(url.action).toBe("unknown");
+      expect(url.origin).toBe("(unparseable)");
       expect(serializeAll(capture.entries)).not.toContain(SECRET);
     });
 
