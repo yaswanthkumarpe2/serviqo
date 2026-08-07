@@ -2,7 +2,7 @@ import { Router } from "express";
 
 import { validateBody } from "../../middleware/validate";
 import { createAuthController } from "./auth.controller";
-import { registerSchema, resendVerificationSchema } from "./auth.validation";
+import { registerSchema, resendVerificationSchema, verifyEmailSchema } from "./auth.validation";
 import { createRegistrationService } from "./registration.service";
 import { createVerificationService } from "./verification.service";
 
@@ -30,6 +30,7 @@ export function createAuthRouter({ emailProvider }: AuthRouterDependencies): Rou
 
   router.post("/register", validateBody(registerSchema), controller.register);
   router.post("/resend-verification", validateBody(resendVerificationSchema), controller.resendVerification);
+  router.post("/verify-email", validateBody(verifyEmailSchema), controller.verifyEmail);
 
   return router;
 }

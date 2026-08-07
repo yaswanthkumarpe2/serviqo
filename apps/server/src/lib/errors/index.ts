@@ -54,3 +54,18 @@ export class EmailAlreadyExistsError extends AppError {
   readonly httpStatus = 409;
   readonly code = "EMAIL_ALREADY_EXISTS";
 }
+
+/**
+ * A verification token could not be redeemed — and deliberately does not say
+ * why (ADR-009 §1).
+ *
+ * Invalid, expired, already consumed, fabricated, and belonging-to-a-deleted-
+ * user all raise this same error with the same message. "Expired" would
+ * confirm the token was once real, and "already consumed" would confirm the
+ * address is verified; either turns a link into an account-existence probe
+ * for whoever holds it.
+ */
+export class InvalidVerificationTokenError extends AppError {
+  readonly httpStatus = 400;
+  readonly code = "INVALID_VERIFICATION_TOKEN";
+}

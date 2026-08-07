@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { registerSchema, resendVerificationSchema } from "./auth.validation";
+import { registerSchema, resendVerificationSchema, verifyEmailSchema } from "./auth.validation";
 
 const validInput = {
   name: "Ada Lovelace",
@@ -253,6 +253,66 @@ describe("resendVerificationSchema", () => {
     expect(result.success).toBe(false);
     if (!result.success) {
       expect(result.error.issues.map((i) => i.message).join(" ")).not.toContain("leak-me");
+    }
+  });
+});
+
+describe("verifyEmailSchema", () => {
+  it("accepts a token on its own", () => {
+    expect(verifyEmailSchema.safeParse({ token: "AbC-123_xyz" }).success).toBe(true);
+  });
+
+  it("requires the token", () => {
+    const result = verifyEmailSchema.safeParse({});
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.map((i) => i.path.join("."))).toContain("token");
+    }
+  });
+
+  it.each(["", "   "])("rejects an empty token %#", (token) => {
+    expect(verifyEmailSchema.safeParse({ token }).success).toBe(false);
+  });
+
+  it("rejects a non-string token", () => {
+    expect(verifyEmailSchema.safeParse({ token: 12345 }).success).toBe(false);
+  });
+
+  it("accepts a token of exactly 512 characters", () => {
+    expect(verifyEmailSchema.safeParse({ token: "a".repeat(512) }).success).toBe(true);
+  });
+
+  it("rejects a token of 513 characters", () => {
+    expect(verifyEmailSchema.safeParse({ token: "a".repeat(513) }).success).toBe(false);
+  });
+
+  // base64url contains no whitespace, so trimming can only repair a pasted
+  // value and can never alter a real secret.
+  it("trims surrounding whitespace", () => {
+    expect(verifyEmailSchema.parse({ token: "  abc123  " }).token).toBe("abc123");
+  });
+
+  // A wrongly-shaped token must fail the same way a wrong-valued one does,
+  // so no charset rule carves out a second distinguishable failure.
+  it("accepts an oddly-shaped token so it can fail as INVALID_VERIFICATION_TOKEN instead", () => {
+    expect(verifyEmailSchema.safeParse({ token: "not base64url at all!!" }).success).toBe(true);
+  });
+
+  it("strips every key other than token", () => {
+    const result = verifyEmailSchema.parse({
+      token: "abc123",
+      userId: "deadbeefdeadbeefdeadbeef",
+      emailVerifiedAt: null,
+    });
+
+    expect(Object.keys(result)).toEqual(["token"]);
+  });
+
+  it("never echoes the submitted token in a message", () => {
+    const result = verifyEmailSchema.safeParse({ token: "x".repeat(600) });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.map((i) => i.message).join(" ")).not.toContain("xxxx");
     }
   });
 });

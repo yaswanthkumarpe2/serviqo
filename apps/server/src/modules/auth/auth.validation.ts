@@ -92,3 +92,33 @@ export const resendVerificationSchema = z.object({
 });
 
 export type ResendVerificationInput = z.infer<typeof resendVerificationSchema>;
+
+/**
+ * Generous upper bound on a submitted token. The real secret is 43
+ * base64url characters; this only stops an absurd body from reaching the
+ * hash function, and `express.json()`'s own limit already caps the request.
+ */
+const TOKEN_MAX_LENGTH = 512;
+
+/**
+ * Verification takes the token and nothing else.
+ *
+ * Deliberately no charset or length-exactness rule beyond the bound above.
+ * A token of the wrong shape should fail the same way a token of the wrong
+ * value does — it hashes to something no document matches, producing the
+ * single `INVALID_VERIFICATION_TOKEN` response (ADR-009 §1). A dedicated
+ * validation error for malformed tokens would carve out a second,
+ * distinguishable failure for no benefit.
+ *
+ * Trimming is safe: base64url contains no whitespace, so trimming can only
+ * repair a sloppily-pasted value and can never alter a real secret.
+ */
+export const verifyEmailSchema = z.object({
+  token: z
+    .string()
+    .trim()
+    .min(1, "Token is required")
+    .max(TOKEN_MAX_LENGTH, `Token must be at most ${TOKEN_MAX_LENGTH} characters`),
+});
+
+export type VerifyEmailInput = z.infer<typeof verifyEmailSchema>;

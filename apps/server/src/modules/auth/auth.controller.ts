@@ -1,6 +1,6 @@
 import { created, noContent } from "../../lib/response";
 
-import type { RegisterInput, ResendVerificationInput } from "./auth.validation";
+import type { RegisterInput, ResendVerificationInput, VerifyEmailInput } from "./auth.validation";
 import type { RegistrationService } from "./registration.service";
 import type { VerificationService } from "./verification.service";
 import type { RequestHandler } from "express";
@@ -40,5 +40,18 @@ export function createAuthController({
     noContent(res);
   };
 
-  return { register, resendVerification };
+  /**
+   * 204 on success and on an already-verified account; the service throws
+   * for every other outcome and errorHandler turns that into the single
+   * 400 INVALID_VERIFICATION_TOKEN (ADR-009 §1).
+   *
+   * No body, no session, no cookie: verifying an address proves control of
+   * an inbox, it does not present a credential (ADR-009 §7).
+   */
+  const verifyEmail: RequestHandler = async (req, res) => {
+    await verificationService.verifyEmail(req.body as VerifyEmailInput, req.log);
+    noContent(res);
+  };
+
+  return { register, resendVerification, verifyEmail };
 }
