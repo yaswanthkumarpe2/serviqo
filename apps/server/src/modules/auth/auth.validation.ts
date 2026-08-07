@@ -30,6 +30,22 @@ const EMAIL_MAX_LENGTH = 254;
  */
 const CONTROL_CHARACTERS = /\p{Cc}/u;
 
+/**
+ * Trimmed before the format check, so a stray leading space is not reported
+ * as a malformed address. Trimming is the ONLY transformation here:
+ * `normalizeEmail` in user.model.ts remains the single authority on
+ * canonicalization, and a second lowercasing here would be a second
+ * authority free to drift from it.
+ *
+ * Shared by every schema that takes an address, so the length bound and the
+ * no-canonicalization rule are stated once.
+ */
+const emailField = z
+  .string()
+  .trim()
+  .max(EMAIL_MAX_LENGTH, `Email must be at most ${EMAIL_MAX_LENGTH} characters`)
+  .pipe(z.email("Email must be a valid email address"));
+
 export const registerSchema = z.object({
   name: z
     .string()
@@ -38,16 +54,7 @@ export const registerSchema = z.object({
     .max(NAME_MAX_LENGTH, `Name must be at most ${NAME_MAX_LENGTH} characters`)
     .refine((value) => !CONTROL_CHARACTERS.test(value), "Name must not contain control characters"),
 
-  // Trimmed before the format check, so a stray leading space is not
-  // reported as a malformed address. Trimming is the ONLY transformation
-  // here: `normalizeEmail` in user.model.ts remains the single authority on
-  // canonicalization, and a second lowercasing here would be a second
-  // authority free to drift from it.
-  email: z
-    .string()
-    .trim()
-    .max(EMAIL_MAX_LENGTH, `Email must be at most ${EMAIL_MAX_LENGTH} characters`)
-    .pipe(z.email("Email must be a valid email address")),
+  email: emailField,
 
   /**
    * Returned raw — no trim, no case folding, no transformation of any kind.
@@ -74,3 +81,14 @@ export const registerSchema = z.object({
 });
 
 export type RegisterInput = z.infer<typeof registerSchema>;
+
+/**
+ * Resend takes the address and nothing else. No password, no name, and
+ * deliberately no "reason" or "redirect" field — an unauthenticated endpoint
+ * that emails a link should accept the smallest possible input.
+ */
+export const resendVerificationSchema = z.object({
+  email: emailField,
+});
+
+export type ResendVerificationInput = z.infer<typeof resendVerificationSchema>;

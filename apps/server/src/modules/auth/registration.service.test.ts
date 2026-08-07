@@ -14,7 +14,7 @@ import { userRepository } from "../users/user.repository";
 import { createRegistrationService } from "./registration.service";
 import { createFailingEmailProvider, createFakeEmailProvider, extractToken } from "./testing/fakeEmailProvider";
 
-import type { RegistrationLogger } from "./registration.service";
+import type { AuthLogger } from "./emailVerification";
 
 /** Obvious sentinels — if either reaches a database, response, or log, the test fails. */
 const PASSWORD = "DO_NOT_LEAK_THIS_PASSWORD";
@@ -30,7 +30,10 @@ interface CapturedLog {
 /** Capture logger, so the real Pino instance is never reconfigured or weakened. */
 function createCapturingLogger() {
   const entries: CapturedLog[] = [];
-  const log: RegistrationLogger = {
+  const log: AuthLogger = {
+    info(payload, message) {
+      entries.push({ payload, message });
+    },
     error(payload, message) {
       entries.push({ payload, message });
     },

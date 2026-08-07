@@ -1,15 +1,13 @@
-import { EMAIL_VERIFICATION_TOKEN_TTL_MS } from "../../config/constants";
 import { hashPassword } from "../../lib/crypto/password";
-import { generateSecret, sha256 } from "../../lib/crypto/tokens";
-import { env } from "../../lib/env";
 import { EmailAlreadyExistsError } from "../../lib/errors";
 import { logger } from "../../lib/logger";
-import { accountTokenRepository } from "../accountTokens/accountToken.repository";
 import { userRepository } from "../users/user.repository";
+import { buildVerificationUrl, failureType, issueVerificationToken } from "./emailVerification";
 
 import type { EmailProvider } from "../../lib/email/emailProvider";
 import type { UserDocument } from "../users/user.model";
 import type { RegisterInput } from "./auth.validation";
+import type { AuthLogger } from "./emailVerification";
 
 /**
  * Registration workflow (ADR-007).
@@ -26,18 +24,8 @@ export interface RegisteredUser {
   emailVerified: boolean;
 }
 
-/**
- * Minimal structural type for the logger this service needs. Declared here
- * rather than importing Pino's type so a controller can pass `req.log`
- * (carrying the requestId) and a test can pass a capture function, without
- * the production logger being weakened.
- */
-export interface RegistrationLogger {
-  error(payload: Record<string, unknown>, message: string): void;
-}
-
 export interface RegistrationService {
-  register(input: RegisterInput, log?: RegistrationLogger): Promise<RegisteredUser>;
+  register(input: RegisterInput, log?: AuthLogger): Promise<RegisteredUser>;
 }
 
 export interface RegistrationServiceDependencies {
@@ -51,17 +39,6 @@ function isDuplicateKeyError(err: unknown): boolean {
   return typeof err === "object" && err !== null && (err as { code?: unknown }).code === DUPLICATE_KEY_ERROR;
 }
 
-/**
- * Names the failure without carrying its message. A Mongo error's text can
- * quote the offending document — for a duplicate-key error, that includes
- * the email address — so only the constructor name is ever logged. It is
- * enough to tell "database unreachable" from "constraint violated" during
- * triage, and carries no data.
- */
-function failureType(err: unknown): string {
-  return err instanceof Error ? err.name : "UnknownError";
-}
-
 function toRegisteredUser(user: UserDocument): RegisteredUser {
   return {
     id: user._id.toString(),
@@ -73,28 +50,9 @@ function toRegisteredUser(user: UserDocument): RegisteredUser {
   };
 }
 
-/**
- * Builds the emailed verification link.
- *
- * Constructed through the URL API, never string concatenation: `CLIENT_URL`
- * is operator-supplied, and a trailing slash or stray component would
- * otherwise produce a malformed link.
- *
- * The secret goes in the query string and must stay there. `lib/email/
- * redaction.ts` classifies the exact pathname `/verify-email` and reports
- * only whether a `token` parameter was present; a path-segment form would
- * classify as "unknown" and is precisely the shape that module was hardened
- * against.
- */
-function buildVerificationUrl(rawSecret: string): string {
-  const url = new URL("/verify-email", env.CLIENT_URL);
-  url.searchParams.set("token", rawSecret);
-  return url.toString();
-}
-
 export function createRegistrationService({ emailProvider }: RegistrationServiceDependencies): RegistrationService {
   return {
-    async register(input: RegisterInput, log: RegistrationLogger = logger): Promise<RegisteredUser> {
+    async register(input: RegisterInput, log: AuthLogger = logger): Promise<RegisteredUser> {
       // Fast path for an address that is already taken, and it avoids
       // spending ~19 MiB and ~100ms of Argon2 work to reach the same answer.
       // NOT the authority — see the duplicate-key catch below.
@@ -123,20 +81,12 @@ export function createRegistrationService({ emailProvider }: RegistrationService
         throw err;
       }
 
-      const rawSecret = generateSecret();
-      const tokenHash = sha256(rawSecret);
-      const expiresAt = new Date(Date.now() + EMAIL_VERIFICATION_TOKEN_TTL_MS);
-
+      let rawSecret: string;
       try {
         // No invalidateOutstandingForUser: this user was created microseconds
         // ago by this same request, so prior tokens are impossible. That call
         // belongs to the resend and forgot-password flows (ADR-005 §7).
-        await accountTokenRepository.create({
-          userId: user._id,
-          purpose: "email_verification",
-          tokenHash,
-          expiresAt,
-        });
+        rawSecret = await issueVerificationToken(user._id);
       } catch (err) {
         // The User is deliberately left in place, unverified (ADR-007 §3).
         // Compensating deletion would put a destructive primitive on an

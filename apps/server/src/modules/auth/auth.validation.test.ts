@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { registerSchema } from "./auth.validation";
+import { registerSchema, resendVerificationSchema } from "./auth.validation";
 
 const validInput = {
   name: "Ada Lovelace",
@@ -201,6 +201,59 @@ describe("registerSchema — password is never transformed", () => {
 
     expect(result.password).toBe(decomposed);
     expect(result.password).not.toBe(decomposed.normalize("NFC"));
+  });
+});
+
+describe("resendVerificationSchema", () => {
+  it("accepts an address on its own", () => {
+    expect(resendVerificationSchema.safeParse({ email: "ada@example.com" }).success).toBe(true);
+  });
+
+  it("requires the address", () => {
+    const result = resendVerificationSchema.safeParse({});
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.map((i) => i.path.join("."))).toContain("email");
+    }
+  });
+
+  it.each(["not-an-email", "@example.com", "double@@example.com", ""])("rejects %s", (email) => {
+    expect(resendVerificationSchema.safeParse({ email }).success).toBe(false);
+  });
+
+  it("applies the same 254-character bound as registration", () => {
+    const tooLong = `${"a".repeat(250)}@example.com`;
+    expect(resendVerificationSchema.safeParse({ email: tooLong }).success).toBe(false);
+  });
+
+  it("trims surrounding whitespace", () => {
+    expect(resendVerificationSchema.parse({ email: "  ada@example.com  " }).email).toBe("ada@example.com");
+  });
+
+  // Same rule as registration: normalizeEmail owns canonicalization.
+  it("does not lowercase", () => {
+    expect(resendVerificationSchema.parse({ email: "Ada@Example.COM" }).email).toBe("Ada@Example.COM");
+  });
+
+  // An unauthenticated endpoint that emails a link accepts the smallest
+  // possible input; anything extra is dropped before a service sees it.
+  it("strips every key other than email", () => {
+    const result = resendVerificationSchema.parse({
+      email: "ada@example.com",
+      password: "should-be-dropped",
+      emailVerifiedAt: null,
+      redirect: "https://evil.example.com",
+    });
+
+    expect(Object.keys(result)).toEqual(["email"]);
+  });
+
+  it("never echoes the submitted address in a message", () => {
+    const result = resendVerificationSchema.safeParse({ email: "leak-me@@example" });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.map((i) => i.message).join(" ")).not.toContain("leak-me");
+    }
   });
 });
 

@@ -34,6 +34,19 @@ export function created<T>(res: Response, data: T) {
   return success(res, data, 201);
 }
 
+/**
+ * 204 with no body at all — the one deliberate exception to the envelope
+ * (ADR-008 §1).
+ *
+ * Used where the response must carry no information beyond "accepted",
+ * because any field would be a channel through which internal state leaks.
+ * Correlation is not lost: requestContext has already set X-Request-Id and
+ * X-Correlation-Id on the response headers.
+ */
+export function noContent(res: Response) {
+  return res.status(204).end();
+}
+
 /** General-purpose error responder — errorHandler uses this for any AppError's own httpStatus/code. */
 export function sendError(res: Response, status: number, code: string, message: string, details?: ValidationIssue[]) {
   return res.status(status).json({

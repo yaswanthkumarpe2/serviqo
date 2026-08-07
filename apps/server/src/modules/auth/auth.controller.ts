@@ -1,11 +1,13 @@
-import { created } from "../../lib/response";
+import { created, noContent } from "../../lib/response";
 
-import type { RegisterInput } from "./auth.validation";
+import type { RegisterInput, ResendVerificationInput } from "./auth.validation";
 import type { RegistrationService } from "./registration.service";
+import type { VerificationService } from "./verification.service";
 import type { RequestHandler } from "express";
 
 export interface AuthControllerDependencies {
   registrationService: RegistrationService;
+  verificationService: VerificationService;
 }
 
 /**
@@ -16,13 +18,27 @@ export interface AuthControllerDependencies {
  * to the error middleware, which is the single place that turns an error
  * into a response.
  */
-export function createAuthController({ registrationService }: AuthControllerDependencies) {
+export function createAuthController({
+  registrationService,
+  verificationService,
+}: AuthControllerDependencies) {
+  // Safe to assert in both handlers: validateBody replaced req.body with the
+  // route's schema output before either could run.
+
   const register: RequestHandler = async (req, res) => {
-    // Safe to assert: validateBody replaced req.body with this schema's
-    // parsed output before this handler could run.
     const user = await registrationService.register(req.body as RegisterInput, req.log);
     created(res, { user });
   };
 
-  return { register };
+  /**
+   * Always 204, and the service is built so there is nothing else it could
+   * return — no branch of resend produces a value, precisely so this handler
+   * has no state it could accidentally disclose (ADR-008 §1).
+   */
+  const resendVerification: RequestHandler = async (req, res) => {
+    await verificationService.resendVerification(req.body as ResendVerificationInput, req.log);
+    noContent(res);
+  };
+
+  return { register, resendVerification };
 }
