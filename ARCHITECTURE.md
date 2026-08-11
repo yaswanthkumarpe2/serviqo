@@ -25,7 +25,7 @@ The web application is built with React and TypeScript, leveraging Vite for ligh
 - **Experience Zones**: The application is code-split by distinct experience zones to prevent a monolithic component tree:
   - Marketing (`/`)
   - Authentication (`/auth`)
-  - Customer Portal (`/customer/*`)
+  - Customer chat surface (`/customer/*`) — unauthenticated; customers never log in (see §8)
   - Agent Dashboard (`/app/*`)
   - Administration (`/admin/*`)
   - Help Center (`/help/*`)
@@ -97,7 +97,8 @@ Security is paramount, utilizing a robust, role-based access control (RBAC) syst
 
 - **Tokens**: JWT-based authentication (signed/verified via `jose`) featuring short-lived access tokens and refresh token rotation, stored in secure HTTP-only cookies where appropriate.
 - **Password Hashing**: Argon2id.
-- **Roles**: Centralized RBAC with distinct roles: Owner, Admin, Supervisor, Agent, Customer.
+- **Principal types**: Serviqo authenticates **organization users** only. Customers are a separate principal type — website visitors who never register, log in, or hold a Session — represented by a future `Customer` model with its own visitor identity mechanism. See [ADR-010](./docs/decisions/010-principal-types-organization-users-and-customers.md).
+- **Roles**: Centralized RBAC with distinct organization-user roles: Owner, Admin, Supervisor, Agent.
 - **Permissions**: Granular permission-based authorization (e.g., `conversation.read`, `ticket.update`).
 - **Enforcement**: Middleware enforces authorization rules on every HTTP route and Socket event. The system is designed to support custom roles and granular permissions in the future.
 

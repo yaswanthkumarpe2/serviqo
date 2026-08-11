@@ -136,6 +136,11 @@ between them without re-authenticating, and it keeps a single source of
 authorization truth: changing someone's role takes effect immediately
 rather than waiting for their session to expire.
 
+**"User" here means an organization user.** Customers never authenticate
+and never own a Session; their identity is a separate mechanism that must
+not reuse this model. See
+[ADR-010](./010-principal-types-organization-users-and-customers.md).
+
 ## Consequences
 
 - Session documents are slightly larger (up to five extra hash strings)

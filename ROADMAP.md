@@ -23,7 +23,7 @@ Note that phases may be adjusted when technically justified. Each phase follows:
   - Initial database models for Users and Organizations
 
 - 🔲 **Phase 3: User / Team / Role management**
-  - Implement RBAC (Owner, Admin, Supervisor, Agent, Customer)
+  - Implement RBAC (Owner, Admin, Supervisor, Agent) — organization users only (ADR-010)
   - Team creation and management
   - Invitation system for joining organizations
   - Profile management for users

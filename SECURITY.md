@@ -15,6 +15,7 @@ As a multi-tenant SaaS, isolation is paramount.
 - Company A must never access Company B data under any circumstances.
 
 ## 3. Authentication
+- Authentication applies to **organization users** only. Customers never authenticate into Serviqo — see [ADR-010](docs/decisions/010-principal-types-organization-users-and-customers.md).
 - Implementing short-lived access tokens (JWT).
 - Secure refresh-token rotation to maintain sessions without permanent credentials.
 - Password hashing using Argon2id (memory-hard, OWASP-recommended default).
@@ -25,7 +26,7 @@ As a multi-tenant SaaS, isolation is paramount.
 
 ## 4. Authorization / RBAC
 - A centralized permission system governs all actions.
-- Defined roles: Owner, Admin, Supervisor, Agent, Customer.
+- Defined organization-user roles: Owner, Admin, Supervisor, Agent. Customers hold no role and are authorized per-resource, not by RBAC (ADR-010).
 - Authorization is checked on every API route AND every real-time socket event.
 - UI elements are hidden based on roles, but security relies entirely on server-side validation, never on the client UI.
 

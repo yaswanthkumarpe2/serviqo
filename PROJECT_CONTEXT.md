@@ -35,15 +35,17 @@ The eventual capabilities of the Serviqo platform include:
 Every resource in Serviqo is scoped by an Organization ID. Tenant isolation is strictly enforced at the server-side repository layer. **Company A must NEVER access Company B data under any circumstances.** No database queries should be executed without explicitly verifying the organization context.
 
 ## 5. User Roles
-Serviqo relies on Centralized Role-Based Access Control (RBAC) with permission-based authorization (e.g., `conversation.read`, `ticket.update`, `ai.configure`). The primary roles are:
+Serviqo relies on Centralized Role-Based Access Control (RBAC) with permission-based authorization (e.g., `conversation.read`, `ticket.update`, `ai.configure`). Roles are held by **organization users** — people who work for a tenant — and are granted through Membership. The roles are:
 - **Owner:** Full organizational control, billing, and destruction.
 - **Admin:** System configuration, team management, and global settings.
 - **Supervisor:** Department/team management, queue oversight, SLA monitoring.
 - **Agent:** Standard operator handling conversations and tickets.
-- **Customer:** End-user receiving support (external to the organization).
-The architecture supports the addition of custom roles in the future.
+The architecture supports the addition of custom roles in the future; those would be additional organization-user positions.
+
+**Customer is not a role.** A customer is the end-user receiving support — a website visitor who arrives through the chat widget, never registers, never logs in, and holds no Membership. Customers are a separate principal type represented by a future `Customer` model. See [ADR-010](./docs/decisions/010-principal-types-organization-users-and-customers.md).
 
 ## 6. Authentication Architecture
+Authentication applies to organization users only; customers never authenticate (see §5).
 - **Features:** Registration, login, logout, email verification, forgot/reset password, refresh sessions, organization onboarding, agent invitations.
 - **Security:** Short-lived access tokens, refresh-token rotation, secure HTTP-only cookies, robust password hashing, strict rate limiting.
 
