@@ -79,20 +79,33 @@ export const sessionRepository = {
    * Done as a single aggregation-pipeline update rather than
    * read-modify-write so two concurrent rotations cannot interleave and
    * lose a history entry or exceed the bound. This repository — not the
-   * future auth service — owns the bounded-history invariant, so no
-   * caller can violate it (ADR-004 §4).
+   * auth service — owns the bounded-history invariant, so no caller can
+   * violate it (ADR-004 §4).
+   *
+   * COMPARE-AND-SWAP: `expectedCurrentHash` is part of the filter, so the
+   * write commits only if the session still accepts the token the caller
+   * validated against. Two requests presenting the same token would
+   * otherwise both match while reading and both rotate, leaving the session
+   * two rotations ahead and one of the issued tokens orphaned at birth —
+   * which the grace window would eventually classify as theft and answer by
+   * revoking every session that user has (ADR-012 §6).
    *
    * Returns the updated session *with* token state, since the caller is
-   * by definition in the middle of refresh validation. Returns null if no
-   * session matched.
+   * by definition in the middle of refresh validation. Returns null when no
+   * session matched — it does not exist, or another rotation won the race.
+   * Those are indistinguishable here and both mean "issue nothing".
    */
-  async rotateRefreshToken(id: ObjectIdLike, newRefreshTokenHash: string): Promise<SessionDocument | null> {
+  async rotateRefreshToken(
+    id: ObjectIdLike,
+    expectedCurrentHash: string,
+    newRefreshTokenHash: string,
+  ): Promise<SessionDocument | null> {
     // One timestamp for both fields: at the moment of rotation they describe
     // the same instant, and the grace-window comparison must not drift.
     const rotatedAt = new Date();
 
-    return SessionModel.findByIdAndUpdate(
-      id,
+    return SessionModel.findOneAndUpdate(
+      { _id: id, currentRefreshTokenHash: expectedCurrentHash },
       [
         {
           $set: {

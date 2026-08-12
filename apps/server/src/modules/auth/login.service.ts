@@ -66,7 +66,11 @@ export interface LoginService {
  */
 const GENERIC_FAILURE_MESSAGE = "Email or password is incorrect";
 
-function toAuthenticatedUser(user: UserDocument): AuthenticatedUser {
+/**
+ * Shared with the refresh flow so the two cannot drift into disagreeing about
+ * what a session's owner looks like (ADR-012 §8).
+ */
+export function toAuthenticatedUser(user: UserDocument): AuthenticatedUser {
   return { id: user._id.toString(), name: user.name, email: user.email };
 }
 

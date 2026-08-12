@@ -4,8 +4,10 @@ import { REFRESH_COOKIE_PATH, SESSION_TTL_MS } from "../../config/constants";
 import { sha256 } from "../../lib/crypto/tokens";
 import {
   REFRESH_TOKEN_SEPARATOR,
+  clearRefreshCookieOptions,
   formatRefreshToken,
   generateRefreshSecret,
+  parseRefreshToken,
   refreshCookieOptions,
 } from "./refreshToken";
 
@@ -81,5 +83,78 @@ describe("refreshCookieOptions", () => {
   // matters and is asserted by construction below.
   it("omits Secure outside production only", () => {
     expect(options.secure).toBe(false);
+  });
+});
+
+describe("parseRefreshToken", () => {
+  it("round-trips a token produced by formatRefreshToken", () => {
+    const { secret } = generateRefreshSecret();
+
+    expect(parseRefreshToken(formatRefreshToken(SESSION_ID, secret))).toEqual({
+      sessionId: SESSION_ID,
+      secret,
+    });
+  });
+
+  // The secret is base64url and contains no separator, but the format's rule
+  // is "split at the first one" and a parser must not depend on the alphabet.
+  it("splits at the first separator, leaving the rest as the secret", () => {
+    expect(parseRefreshToken(`${SESSION_ID}.a.b.c`)).toEqual({ sessionId: SESSION_ID, secret: "a.b.c" });
+  });
+
+  it("rejects a token with no separator", () => {
+    expect(parseRefreshToken(SESSION_ID)).toBeNull();
+    expect(parseRefreshToken("")).toBeNull();
+  });
+
+  it("rejects an empty session id or an empty secret", () => {
+    expect(parseRefreshToken(".secret")).toBeNull();
+    expect(parseRefreshToken(`${SESSION_ID}.`)).toBeNull();
+  });
+
+  // ADR-012 §9: findById raises a CastError on a malformed id, which would
+  // answer a hand-typed cookie with a 500.
+  it("rejects a session id that is not a 24-character hex ObjectId", () => {
+    expect(parseRefreshToken("not-an-object-id.secret")).toBeNull();
+    expect(parseRefreshToken("507f191e810c19729de860.secret")).toBeNull(); // too short
+    expect(parseRefreshToken("507f191e810c19729de860eaff.secret")).toBeNull(); // too long
+    expect(parseRefreshToken("507f191e810c19729de860zz.secret")).toBeNull(); // non-hex
+  });
+
+  // Mongoose's own isValid() accepts any 12-character string; this must not.
+  it("rejects a 12-character session id Mongoose would otherwise cast", () => {
+    expect(parseRefreshToken("abcdefghijkl.secret")).toBeNull();
+  });
+
+  it("accepts an uppercase hex session id", () => {
+    expect(parseRefreshToken(`${SESSION_ID.toUpperCase()}.secret`)).toEqual({
+      sessionId: SESSION_ID.toUpperCase(),
+      secret: "secret",
+    });
+  });
+});
+
+describe("clearRefreshCookieOptions", () => {
+  const clearing = clearRefreshCookieOptions();
+
+  // A browser only replaces a cookie when name, Path, and domain match.
+  it("keeps the attributes that identify the cookie being removed", () => {
+    expect(clearing.path).toBe(REFRESH_COOKIE_PATH);
+    expect(clearing.httpOnly).toBe(true);
+    expect(clearing.sameSite).toBe("strict");
+    expect(clearing.secure).toBe(refreshCookieOptions().secure);
+  });
+
+  // res.cookie recomputes `expires` from maxAge whenever it is present, which
+  // would re-issue the cookie for another seven days at the moment the server
+  // meant to destroy it.
+  it("drops maxAge so clearCookie's past expiry survives", () => {
+    expect(clearing.maxAge).toBeUndefined();
+    expect("maxAge" in clearing).toBe(false);
+  });
+
+  it("does not mutate the options used to set the cookie", () => {
+    clearRefreshCookieOptions();
+    expect(refreshCookieOptions().maxAge).toBe(SESSION_TTL_MS);
   });
 });

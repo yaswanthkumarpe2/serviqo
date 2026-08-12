@@ -191,8 +191,8 @@ describe("Session persistence", () => {
       expiresAt: futureDate(),
     });
 
-    await sessionRepository.rotateRefreshToken(created._id, HASH_B);
-    const rotated = await sessionRepository.rotateRefreshToken(created._id, HASH_C);
+    await sessionRepository.rotateRefreshToken(created._id, HASH_A, HASH_B);
+    const rotated = await sessionRepository.rotateRefreshToken(created._id, HASH_B, HASH_C);
 
     expect(rotated?.currentRefreshTokenHash).toBe(HASH_C);
     // Oldest first: A was rotated out before B.
@@ -207,7 +207,7 @@ describe("Session persistence", () => {
       expiresAt: futureDate(),
     });
 
-    const rotated = await sessionRepository.rotateRefreshToken(created._id, HASH_B);
+    const rotated = await sessionRepository.rotateRefreshToken(created._id, HASH_A, HASH_B);
 
     expect(rotated?._id.toString()).toBe(created._id.toString());
     await expect(SessionModel.countDocuments({ userId: user._id })).resolves.toBe(1);
@@ -223,7 +223,7 @@ describe("Session persistence", () => {
     const originalLastUsedAt = created.lastUsedAt.getTime();
 
     await new Promise((resolve) => setTimeout(resolve, 5));
-    const rotated = await sessionRepository.rotateRefreshToken(created._id, HASH_B);
+    const rotated = await sessionRepository.rotateRefreshToken(created._id, HASH_A, HASH_B);
 
     expect(rotated!.lastUsedAt.getTime()).toBeGreaterThan(originalLastUsedAt);
   });
@@ -239,7 +239,7 @@ describe("Session persistence", () => {
     // Rotate well past the bound.
     const rotations = MAX_PREVIOUS_REFRESH_TOKEN_HASHES + 3;
     for (let i = 1; i <= rotations; i += 1) {
-      await sessionRepository.rotateRefreshToken(created._id, `hash-${i}`);
+      await sessionRepository.rotateRefreshToken(created._id, `hash-${i - 1}`, `hash-${i}`);
     }
 
     const sensitive = await sessionRepository.findByIdWithRefreshTokenState(created._id);
@@ -265,7 +265,7 @@ describe("Session persistence", () => {
       expiresAt: futureDate(),
     });
 
-    await sessionRepository.rotateRefreshToken(created._id, HASH_B);
+    await sessionRepository.rotateRefreshToken(created._id, HASH_A, HASH_B);
     const sensitive = await sessionRepository.findByIdWithRefreshTokenState(created._id);
 
     // This is the three-way outcome future refresh logic depends on.
@@ -276,7 +276,7 @@ describe("Session persistence", () => {
 
   it("returns null when rotating a session that does not exist", async () => {
     const missingId = new mongoose.Types.ObjectId();
-    await expect(sessionRepository.rotateRefreshToken(missingId, HASH_B)).resolves.toBeNull();
+    await expect(sessionRepository.rotateRefreshToken(missingId, HASH_A, HASH_B)).resolves.toBeNull();
   });
 
   // ---- lastRotatedAt (refresh race / reuse classification) ----
@@ -301,7 +301,7 @@ describe("Session persistence", () => {
     });
     const before = Date.now();
 
-    const rotated = await sessionRepository.rotateRefreshToken(created._id, HASH_B);
+    const rotated = await sessionRepository.rotateRefreshToken(created._id, HASH_A, HASH_B);
 
     expect(rotated!.lastRotatedAt).toBeInstanceOf(Date);
     expect(rotated!.lastRotatedAt!.getTime()).toBeGreaterThanOrEqual(before);
@@ -317,9 +317,9 @@ describe("Session persistence", () => {
       expiresAt: futureDate(),
     });
 
-    const first = await sessionRepository.rotateRefreshToken(created._id, HASH_B);
+    const first = await sessionRepository.rotateRefreshToken(created._id, HASH_A, HASH_B);
     await new Promise((resolve) => setTimeout(resolve, 5));
-    const second = await sessionRepository.rotateRefreshToken(created._id, HASH_C);
+    const second = await sessionRepository.rotateRefreshToken(created._id, HASH_B, HASH_C);
 
     expect(second!.lastRotatedAt!.getTime()).toBeGreaterThan(first!.lastRotatedAt!.getTime());
   });
@@ -331,16 +331,75 @@ describe("Session persistence", () => {
       currentRefreshTokenHash: HASH_A,
       expiresAt: futureDate(),
     });
-    const rotated = await sessionRepository.rotateRefreshToken(created._id, HASH_B);
+    const rotated = await sessionRepository.rotateRefreshToken(created._id, HASH_A, HASH_B);
     const stampedAt = rotated!.lastRotatedAt!.getTime();
 
     // A rotation aimed at a different (non-existent) session must not touch this one.
     await expect(
-      sessionRepository.rotateRefreshToken(new mongoose.Types.ObjectId(), HASH_C),
+      sessionRepository.rotateRefreshToken(new mongoose.Types.ObjectId(), HASH_B, HASH_C),
     ).resolves.toBeNull();
 
     const reloaded = await sessionRepository.findById(created._id);
     expect(reloaded!.lastRotatedAt!.getTime()).toBe(stampedAt);
+  });
+
+  // ---- compare-and-swap guard (ADR-012 §6) ----
+
+  it("refuses to rotate when the expected current hash is stale", async () => {
+    const user = await createUser("staleexpected@example.com");
+    const created = await sessionRepository.create({
+      userId: user._id,
+      currentRefreshTokenHash: HASH_A,
+      expiresAt: futureDate(),
+    });
+    await sessionRepository.rotateRefreshToken(created._id, HASH_A, HASH_B);
+
+    // HASH_A is history now, not current. A rotation still claiming it must
+    // not commit.
+    const stale = await sessionRepository.rotateRefreshToken(created._id, HASH_A, HASH_C);
+
+    expect(stale).toBeNull();
+  });
+
+  it("leaves the session untouched when the guard rejects a rotation", async () => {
+    const user = await createUser("guardnowrite@example.com");
+    const created = await sessionRepository.create({
+      userId: user._id,
+      currentRefreshTokenHash: HASH_A,
+      expiresAt: futureDate(),
+    });
+    const rotated = await sessionRepository.rotateRefreshToken(created._id, HASH_A, HASH_B);
+    const stampedAt = rotated!.lastRotatedAt!.getTime();
+
+    await sessionRepository.rotateRefreshToken(created._id, HASH_A, HASH_C);
+
+    const sensitive = await sessionRepository.findByIdWithRefreshTokenState(created._id);
+    expect(sensitive!.currentRefreshTokenHash).toBe(HASH_B);
+    expect(sensitive!.previousRefreshTokenHashes).toEqual([HASH_A]);
+    expect(sensitive!.previousRefreshTokenHashes).not.toContain(HASH_C);
+    expect(sensitive!.lastRotatedAt!.getTime()).toBe(stampedAt);
+  });
+
+  // The race the guard exists for: two requests validated the same token.
+  it("lets exactly one of two concurrent rotations of the same token win", async () => {
+    const user = await createUser("concurrentrotation@example.com");
+    const created = await sessionRepository.create({
+      userId: user._id,
+      currentRefreshTokenHash: HASH_A,
+      expiresAt: futureDate(),
+    });
+
+    const [first, second] = await Promise.all([
+      sessionRepository.rotateRefreshToken(created._id, HASH_A, HASH_B),
+      sessionRepository.rotateRefreshToken(created._id, HASH_A, HASH_C),
+    ]);
+
+    expect([first, second].filter((result) => result !== null)).toHaveLength(1);
+
+    // One rotation happened, so the session is one step ahead — never two.
+    const sensitive = await sessionRepository.findByIdWithRefreshTokenState(created._id);
+    expect(sensitive!.previousRefreshTokenHashes).toEqual([HASH_A]);
+    expect([HASH_B, HASH_C]).toContain(sensitive!.currentRefreshTokenHash);
   });
 
   // ---- user scope ----

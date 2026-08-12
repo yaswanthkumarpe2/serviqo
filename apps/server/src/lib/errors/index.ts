@@ -98,3 +98,23 @@ export class InvalidVerificationTokenError extends AppError {
   readonly httpStatus = 400;
   readonly code = "INVALID_VERIFICATION_TOKEN";
 }
+
+/**
+ * A refresh token could not be exchanged — and deliberately does not say why
+ * (ADR-012 §3).
+ *
+ * Absent cookie, malformed token, unknown session, expired session, revoked
+ * session, unknown secret, replayed secret, a concurrent rotation that lost,
+ * and an account no longer entitled to refresh all raise this one error with
+ * one message.
+ *
+ * The distinctions matter most where they are least safe to make: "this
+ * session was revoked" would confirm a real session exists at that id, and
+ * "replayed" would tell whoever stole the token that the theft was noticed.
+ * The endpoint has exactly two observable outcomes, and this is the one that
+ * is not success.
+ */
+export class InvalidRefreshTokenError extends AppError {
+  readonly httpStatus = 401;
+  readonly code = "INVALID_REFRESH_TOKEN";
+}

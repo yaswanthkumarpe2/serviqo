@@ -1,10 +1,13 @@
 import { REFRESH_COOKIE_NAME } from "../../config/constants";
+import { readCookie } from "../../lib/http/cookies";
 import { normalizeUserAgent } from "../../lib/http/userAgent";
 import { created, noContent, success } from "../../lib/response";
-import { refreshCookieOptions } from "./refreshToken";
+import { RefreshRejectedError } from "./refresh.service";
+import { clearRefreshCookieOptions, refreshCookieOptions } from "./refreshToken";
 
 import type { LoginInput, RegisterInput, ResendVerificationInput, VerifyEmailInput } from "./auth.validation";
 import type { LoginService } from "./login.service";
+import type { RefreshService } from "./refresh.service";
 import type { RegistrationService } from "./registration.service";
 import type { VerificationService } from "./verification.service";
 import type { RequestHandler } from "express";
@@ -13,6 +16,7 @@ export interface AuthControllerDependencies {
   registrationService: RegistrationService;
   verificationService: VerificationService;
   loginService: LoginService;
+  refreshService: RefreshService;
 }
 
 /**
@@ -27,6 +31,7 @@ export function createAuthController({
   registrationService,
   verificationService,
   loginService,
+  refreshService,
 }: AuthControllerDependencies) {
   // Safe to assert in both handlers: validateBody replaced req.body with the
   // route's schema output before either could run.
@@ -85,5 +90,41 @@ export function createAuthController({
     });
   };
 
-  return { register, resendVerification, verifyEmail, login };
+  /**
+   * Exchanges the refresh cookie for a fresh pair of credentials (ADR-012).
+   *
+   * The credential is read from the cookie header here and nowhere else —
+   * there is no body and no schema, because a second place to look for a
+   * credential is how one of them ends up trusted by mistake (§1). Cookies
+   * are parsed at this one call site rather than by app-wide middleware, so
+   * the header's blast radius matches the cookie's `Path` scope (§2).
+   *
+   * The error is caught, uniquely among these handlers, for one reason: the
+   * cookie has to be cleared on the way out. Every refusal is the same
+   * `INVALID_REFRESH_TOKEN`, and errorHandler still writes the body — the
+   * catch only decides the `Set-Cookie`, then rethrows (§5).
+   */
+  const refresh: RequestHandler = async (req, res) => {
+    try {
+      const result = await refreshService.refresh(readCookie(req.headers.cookie, REFRESH_COOKIE_NAME), req.log);
+
+      res.cookie(REFRESH_COOKIE_NAME, result.refreshToken, refreshCookieOptions());
+
+      success(res, {
+        user: result.user,
+        accessToken: result.accessToken,
+        expiresIn: result.expiresIn,
+      });
+    } catch (err) {
+      // False for exactly one refusal: the loser of a concurrent rotation,
+      // whose cookie the winning request has already replaced with a valid
+      // token. Clearing it there would destroy a live credential.
+      if (err instanceof RefreshRejectedError && err.clearCookie) {
+        res.clearCookie(REFRESH_COOKIE_NAME, clearRefreshCookieOptions());
+      }
+      throw err;
+    }
+  };
+
+  return { register, resendVerification, verifyEmail, login, refresh };
 }

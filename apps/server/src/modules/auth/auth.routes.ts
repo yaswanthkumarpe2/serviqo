@@ -4,6 +4,7 @@ import { validateBody } from "../../middleware/validate";
 import { createAuthController } from "./auth.controller";
 import { loginSchema, registerSchema, resendVerificationSchema, verifyEmailSchema } from "./auth.validation";
 import { createLoginService } from "./login.service";
+import { createRefreshService } from "./refresh.service";
 import { createRegistrationService } from "./registration.service";
 import { createVerificationService } from "./verification.service";
 
@@ -30,12 +31,16 @@ export function createAuthRouter({ emailProvider }: AuthRouterDependencies): Rou
     // Takes no EmailProvider: login sends nothing. Its factory does start the
     // dummy-hash computation, so constructing it early is deliberate.
     loginService: createLoginService(),
+    refreshService: createRefreshService(),
   });
 
   router.post("/register", validateBody(registerSchema), controller.register);
   router.post("/resend-verification", validateBody(resendVerificationSchema), controller.resendVerification);
   router.post("/verify-email", validateBody(verifyEmailSchema), controller.verifyEmail);
   router.post("/login", validateBody(loginSchema), controller.login);
+  // No validateBody: the credential is the cookie, and this route accepts no
+  // body at all (ADR-012 §1). The absence of a schema here is the point.
+  router.post("/refresh", controller.refresh);
 
   return router;
 }
