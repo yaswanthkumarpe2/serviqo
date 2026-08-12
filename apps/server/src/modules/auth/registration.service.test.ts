@@ -14,7 +14,7 @@ import { userRepository } from "../users/user.repository";
 import { createRegistrationService } from "./registration.service";
 import { createFailingEmailProvider, createFakeEmailProvider, extractToken } from "./testing/fakeEmailProvider";
 
-import type { AuthLogger } from "./emailVerification";
+import type { AuthLogger } from "./authLogging";
 
 /** Obvious sentinels — if either reaches a database, response, or log, the test fails. */
 const PASSWORD = "DO_NOT_LEAK_THIS_PASSWORD";

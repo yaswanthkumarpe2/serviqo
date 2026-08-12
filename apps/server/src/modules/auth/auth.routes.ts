@@ -2,7 +2,8 @@ import { Router } from "express";
 
 import { validateBody } from "../../middleware/validate";
 import { createAuthController } from "./auth.controller";
-import { registerSchema, resendVerificationSchema, verifyEmailSchema } from "./auth.validation";
+import { loginSchema, registerSchema, resendVerificationSchema, verifyEmailSchema } from "./auth.validation";
+import { createLoginService } from "./login.service";
 import { createRegistrationService } from "./registration.service";
 import { createVerificationService } from "./verification.service";
 
@@ -26,11 +27,15 @@ export function createAuthRouter({ emailProvider }: AuthRouterDependencies): Rou
   const controller = createAuthController({
     registrationService: createRegistrationService({ emailProvider }),
     verificationService: createVerificationService({ emailProvider }),
+    // Takes no EmailProvider: login sends nothing. Its factory does start the
+    // dummy-hash computation, so constructing it early is deliberate.
+    loginService: createLoginService(),
   });
 
   router.post("/register", validateBody(registerSchema), controller.register);
   router.post("/resend-verification", validateBody(resendVerificationSchema), controller.resendVerification);
   router.post("/verify-email", validateBody(verifyEmailSchema), controller.verifyEmail);
+  router.post("/login", validateBody(loginSchema), controller.login);
 
   return router;
 }

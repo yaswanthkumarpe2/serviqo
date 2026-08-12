@@ -83,6 +83,26 @@ export const registerSchema = z.object({
 export type RegisterInput = z.infer<typeof registerSchema>;
 
 /**
+ * Login takes an address and a password, and nothing else.
+ *
+ * The password is checked for presence only — deliberately NOT against the
+ * registration policy. A password that is too short is simply wrong, not
+ * malformed, and answering it with a 400 that names the length rule would
+ * both leak the policy to an unauthenticated caller and split login's single
+ * generic failure (ADR-011 §3) into two distinguishable ones.
+ *
+ * It is also returned raw, like registration's: NFC normalization is the
+ * crypto boundary's job, and `verifyPassword` already refuses an over-long
+ * value without hashing it.
+ */
+export const loginSchema = z.object({
+  email: emailField,
+  password: z.string().min(1, "Password is required"),
+});
+
+export type LoginInput = z.infer<typeof loginSchema>;
+
+/**
  * Resend takes the address and nothing else. No password, no name, and
  * deliberately no "reason" or "redirect" field — an unauthenticated endpoint
  * that emails a link should accept the smallest possible input.

@@ -2,12 +2,13 @@ import { hashPassword } from "../../lib/crypto/password";
 import { EmailAlreadyExistsError } from "../../lib/errors";
 import { logger } from "../../lib/logger";
 import { userRepository } from "../users/user.repository";
-import { buildVerificationUrl, failureType, issueVerificationToken } from "./emailVerification";
+import { failureType } from "./authLogging";
+import { buildVerificationUrl, issueVerificationToken } from "./emailVerification";
 
 import type { EmailProvider } from "../../lib/email/emailProvider";
 import type { UserDocument } from "../users/user.model";
+import type { AuthLogger } from "./authLogging";
 import type { RegisterInput } from "./auth.validation";
-import type { AuthLogger } from "./emailVerification";
 
 /**
  * Registration workflow (ADR-007).

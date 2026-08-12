@@ -4,11 +4,12 @@ import { InvalidVerificationTokenError } from "../../lib/errors";
 import { logger } from "../../lib/logger";
 import { accountTokenRepository } from "../accountTokens/accountToken.repository";
 import { userRepository } from "../users/user.repository";
-import { buildVerificationUrl, failureType, issueVerificationToken } from "./emailVerification";
+import { failureType } from "./authLogging";
+import { buildVerificationUrl, issueVerificationToken } from "./emailVerification";
 
 import type { EmailProvider } from "../../lib/email/emailProvider";
+import type { AuthLogger } from "./authLogging";
 import type { ResendVerificationInput, VerifyEmailInput } from "./auth.validation";
-import type { AuthLogger } from "./emailVerification";
 import type { Types } from "mongoose";
 
 /**

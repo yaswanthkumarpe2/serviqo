@@ -9,6 +9,7 @@ const BASE_ENV = {
   NODE_ENV: "test",
   MONGODB_URI: "mongodb://127.0.0.1:27017/serviqo-test",
   CLIENT_URL: "http://localhost:5173",
+  JWT_ACCESS_SECRET: "a-signing-secret-long-enough-for-hs256",
   LOG_LEVEL: "silent",
 };
 
@@ -75,6 +76,34 @@ describe("CLIENT_URL validation", () => {
     const offending = "ftp://do-not-echo-this-host.invalid";
     await expect(loadEnv({ CLIENT_URL: offending })).rejects.toThrow(
       expect.objectContaining({ message: expect.not.stringContaining("do-not-echo-this-host") }),
+    );
+  });
+});
+
+describe("JWT_ACCESS_SECRET validation", () => {
+  it("accepts a secret at the minimum length", async () => {
+    const secret = "x".repeat(32);
+    const env = await loadEnv({ JWT_ACCESS_SECRET: secret });
+    expect(env.JWT_ACCESS_SECRET).toBe(secret);
+  });
+
+  it("rejects a missing value rather than defaulting", async () => {
+    await expect(loadEnv({ JWT_ACCESS_SECRET: undefined })).rejects.toThrow(/JWT_ACCESS_SECRET/);
+  });
+
+  it("rejects an empty value", async () => {
+    await expect(loadEnv({ JWT_ACCESS_SECRET: "" })).rejects.toThrow(/JWT_ACCESS_SECRET/);
+  });
+
+  // HMAC-SHA256's security is bounded by its key, so a short secret is the
+  // whole system's weakest link and must stop the process at boot.
+  it("rejects a secret below the minimum length", async () => {
+    await expect(loadEnv({ JWT_ACCESS_SECRET: "x".repeat(31) })).rejects.toThrow(/at least 32 characters/);
+  });
+
+  it("does not echo the offending secret in the failure message", async () => {
+    await expect(loadEnv({ JWT_ACCESS_SECRET: "short-do-not-echo" })).rejects.toThrow(
+      expect.objectContaining({ message: expect.not.stringContaining("short-do-not-echo") }),
     );
   });
 });

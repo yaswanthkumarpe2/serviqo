@@ -3,6 +3,8 @@ import path from "node:path";
 import dotenv from "dotenv";
 import { z } from "zod";
 
+import { ACCESS_TOKEN_SECRET_MIN_LENGTH } from "../../config/constants";
+
 /**
  * Loaded once from the monorepo root .env — shared with apps/web rather
  * than a per-workspace file. dotenv never overwrites an already-set
@@ -50,11 +52,33 @@ const clientUrlSchema = z
   })
   .transform((value) => value.replace(/\/+$/, ""));
 
+/**
+ * HS256 signing key for access tokens (ADR-011 §11).
+ *
+ * Required with no default, for the same reason as MONGODB_URI and
+ * CLIENT_URL: a fallback would let a process boot and sign real credentials
+ * with a key an attacker could guess from the source tree. The minimum
+ * length is enforced because HMAC-SHA256's security is bounded by its key.
+ *
+ * Only the secret lives here. The token's lifetime does not — a misconfigured
+ * deployment must not be able to stretch a credential's validity, so
+ * ACCESS_TOKEN_TTL_MS is a code constant.
+ *
+ * The message never echoes the value.
+ */
+const jwtAccessSecretSchema = z
+  .string()
+  .min(
+    ACCESS_TOKEN_SECRET_MIN_LENGTH,
+    `JWT_ACCESS_SECRET must be at least ${ACCESS_TOKEN_SECRET_MIN_LENGTH} characters`,
+  );
+
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().positive().default(3001),
   MONGODB_URI: z.string().min(1, "MONGODB_URI is required"),
   CLIENT_URL: clientUrlSchema,
+  JWT_ACCESS_SECRET: jwtAccessSecretSchema,
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
 });
 

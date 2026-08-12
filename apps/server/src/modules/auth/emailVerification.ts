@@ -15,30 +15,6 @@ import type { Types } from "mongoose";
  */
 
 /**
- * Minimal structural type for the logger auth services need.
- *
- * Declared here rather than importing Pino's, so a controller can pass
- * `req.log` (carrying the requestId) and a test can pass a capture function,
- * without the production logger being weakened or reconfigured.
- */
-export interface AuthLogger {
-  info(payload: Record<string, unknown>, message: string): void;
-  error(payload: Record<string, unknown>, message: string): void;
-}
-
-/**
- * Names a failure without carrying its message.
- *
- * A Mongo error's text can quote the offending document — for a duplicate
- * key that includes the indexed value — so only the constructor name is ever
- * logged. It distinguishes "database unreachable" from "constraint violated"
- * during triage and carries no data.
- */
-export function failureType(err: unknown): string {
-  return err instanceof Error ? err.name : "UnknownError";
-}
-
-/**
  * Mints a verification token for `userId` and returns the raw secret.
  *
  * Only the SHA-256 hash reaches MongoDB (ADR-005 §1). The returned secret

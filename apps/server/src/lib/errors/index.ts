@@ -56,6 +56,35 @@ export class EmailAlreadyExistsError extends AppError {
 }
 
 /**
+ * Authentication failed — and deliberately does not say how (ADR-011 §3).
+ *
+ * Unknown address, wrong password, locked account, and disabled account all
+ * raise this same error with the same message. Naming the reason would tell
+ * an unauthenticated caller whether an address has an account, which is
+ * exactly what ADR-007 §1 committed login to withholding.
+ */
+export class InvalidCredentialsError extends AppError {
+  readonly httpStatus = 401;
+  readonly code = "INVALID_CREDENTIALS";
+}
+
+/**
+ * The credentials were correct but the address has never been verified
+ * (ADR-011 §6).
+ *
+ * This is the one authentication refusal that is not generic, and it is safe
+ * because it is unreachable without a correct password — so it discloses
+ * nothing the caller did not already know. It is named specifically because
+ * it is the only refusal with a self-service remedy
+ * (`POST /auth/resend-verification`), and a caller cannot be expected to
+ * guess that.
+ */
+export class EmailNotVerifiedError extends AppError {
+  readonly httpStatus = 403;
+  readonly code = "EMAIL_NOT_VERIFIED";
+}
+
+/**
  * A verification token could not be redeemed — and deliberately does not say
  * why (ADR-009 §1).
  *

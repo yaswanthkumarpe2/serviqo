@@ -75,6 +75,61 @@ export const EMAIL_VERIFICATION_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 /** Password-reset links are deliberately much shorter-lived than verification. */
 export const PASSWORD_RESET_TOKEN_TTL_MS = 60 * 60 * 1000;
 
+// ---- access token (ADR-011) ----
+
+/**
+ * Access-token lifetime.
+ *
+ * Short by design: nothing checks a session's revocation state per request,
+ * so this value alone bounds how long a revoked session's access token keeps
+ * working. Lengthening it widens that window.
+ */
+export const ACCESS_TOKEN_TTL_MS = 15 * 60 * 1000;
+
+/** JWT `iss` claim. */
+export const ACCESS_TOKEN_ISSUER = "serviqo";
+
+/**
+ * JWT `aud` claim — the principal type this token authenticates (ADR-010 §5).
+ *
+ * Serviqo authenticates organization users only; customers never hold a
+ * token of any kind. This claim exists so that if a customer visitor
+ * credential is ever introduced, a token minted for one principal type
+ * cannot verify as the other. It is one claim now and un-retrofittable onto
+ * tokens already issued.
+ */
+export const ACCESS_TOKEN_AUDIENCE = "serviqo-dashboard";
+
+/**
+ * Minimum length of the HS256 signing secret, in characters.
+ *
+ * HMAC-SHA256's security is bounded by key length; a short human-chosen
+ * secret is the whole system's weakest link. Enforced at boot so a process
+ * cannot start signing with one.
+ */
+export const ACCESS_TOKEN_SECRET_MIN_LENGTH = 32;
+
+// ---- sessions and the refresh cookie (ADR-011) ----
+
+/**
+ * How long one login stays refreshable before the user must authenticate
+ * again. Also the refresh cookie's Max-Age, so the two cannot drift.
+ */
+export const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Name of the cookie carrying the opaque refresh token. */
+export const REFRESH_COOKIE_NAME = "serviqo_refresh";
+
+/**
+ * Path the refresh cookie is scoped to.
+ *
+ * Keeps the cookie off every non-auth API call, shrinking both its exposure
+ * and the CSRF surface, and makes it structurally impossible for the staff
+ * refresh credential to reach a future customer/widget endpoint (ADR-010 §8).
+ * It also fixes the refresh endpoint's URL prefix — accepted deliberately.
+ */
+export const REFRESH_COOKIE_PATH = "/api/v1/auth";
+
 // ---- session metadata ----
 
 /**

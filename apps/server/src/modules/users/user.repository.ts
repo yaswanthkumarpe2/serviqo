@@ -1,3 +1,4 @@
+import { LOGIN_LOCK_DURATION_MS, LOGIN_MAX_FAILED_ATTEMPTS } from "../../config/constants";
 import { UserModel, normalizeEmail } from "./user.model";
 import type { UserDocument } from "./user.model";
 import type { Types } from "mongoose";
@@ -48,6 +49,20 @@ export const userRepository = {
   },
 
   /**
+   * SECURITY-SENSITIVE: returns the user including `passwordHash`, which
+   * `select: false` keeps out of every ordinary query.
+   *
+   * Named for what it does, so its significance is visible at the call site —
+   * the same convention as `sessionRepository.findByIdWithRefreshTokenState`.
+   * Intended solely for credential verification during login. The returned
+   * document must never be serialized into a response; `toJSON`/`toObject`
+   * strip the hash as a second line of defense if it is.
+   */
+  async findByEmailWithPasswordHash(email: string): Promise<UserDocument | null> {
+    return UserModel.findOne({ email: normalizeEmail(email) }).select("+passwordHash");
+  },
+
+  /**
    * Marks an address verified, exactly once (ADR-009 §3).
    *
    * Returns the updated document, or `null` when the user does not exist OR
@@ -72,5 +87,64 @@ export const userRepository = {
       { $set: { emailVerifiedAt: verifiedAt } },
       { returnDocument: "after" },
     );
+  },
+
+  /**
+   * Records one failed login attempt and locks the account when the attempt
+   * crosses `LOGIN_MAX_FAILED_ATTEMPTS` (ADR-011 §7).
+   *
+   * A single aggregation-pipeline update rather than read-modify-write, so
+   * two concurrent failures cannot both read the same count and lose one —
+   * the same technique and the same reason as
+   * `sessionRepository.rotateRefreshToken`. Two stages are required because
+   * the second must see the incremented value the first produced.
+   *
+   * Crossing the threshold ALSO resets the counter to zero. If it stayed at
+   * its maximum, the first failure after the lock expired would immediately
+   * re-lock, and a user who simply forgot their password would be locked out
+   * permanently by a mechanism whose stated requirement is that it always
+   * auto-expires.
+   *
+   * This repository owns that invariant, so no caller can implement the
+   * threshold differently or forget the reset.
+   */
+  async registerFailedLogin(id: ObjectIdLike): Promise<UserDocument | null> {
+    // Computed once in Node rather than inside the pipeline: $$NOW would be
+    // the server's clock, and every other expiry in this codebase is derived
+    // from the application's.
+    const lockedUntil = new Date(Date.now() + LOGIN_LOCK_DURATION_MS);
+
+    return UserModel.findByIdAndUpdate(
+      id,
+      [
+        { $set: { failedLoginAttempts: { $add: ["$failedLoginAttempts", 1] } } },
+        {
+          $set: {
+            lockedUntil: {
+              $cond: [{ $gte: ["$failedLoginAttempts", LOGIN_MAX_FAILED_ATTEMPTS] }, lockedUntil, "$lockedUntil"],
+            },
+            failedLoginAttempts: {
+              $cond: [{ $gte: ["$failedLoginAttempts", LOGIN_MAX_FAILED_ATTEMPTS] }, 0, "$failedLoginAttempts"],
+            },
+          },
+        },
+      ],
+      // updatePipeline: Mongoose requires an explicit opt-in before it will
+      // send an aggregation pipeline rather than a plain update document.
+      { returnDocument: "after", updatePipeline: true },
+    );
+  },
+
+  /**
+   * Clears lockout state after a successful authentication.
+   *
+   * Deliberately narrow, like `markEmailVerified`: it reaches the two lockout
+   * fields and nothing else, and cannot touch `email`, `passwordHash`,
+   * `status`, or `emailVerifiedAt`. `userRepository` still has no general
+   * `update(id, patch)`, which is the guarantee that matters when these
+   * methods sit on an unauthenticated code path.
+   */
+  async clearLoginFailures(id: ObjectIdLike): Promise<void> {
+    await UserModel.updateOne({ _id: id }, { $set: { failedLoginAttempts: 0, lockedUntil: null } });
   },
 };

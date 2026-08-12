@@ -13,7 +13,7 @@ import { createRegistrationService } from "./registration.service";
 import { createFakeEmailProvider, extractToken } from "./testing/fakeEmailProvider";
 import { createVerificationService } from "./verification.service";
 
-import type { AuthLogger } from "./emailVerification";
+import type { AuthLogger } from "./authLogging";
 
 const PASSWORD = "DO_NOT_LEAK_THIS_PASSWORD";
 const EMAIL = "ada@example.com";

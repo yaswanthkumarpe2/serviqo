@@ -1,6 +1,10 @@
-import { created, noContent } from "../../lib/response";
+import { REFRESH_COOKIE_NAME } from "../../config/constants";
+import { normalizeUserAgent } from "../../lib/http/userAgent";
+import { created, noContent, success } from "../../lib/response";
+import { refreshCookieOptions } from "./refreshToken";
 
-import type { RegisterInput, ResendVerificationInput, VerifyEmailInput } from "./auth.validation";
+import type { LoginInput, RegisterInput, ResendVerificationInput, VerifyEmailInput } from "./auth.validation";
+import type { LoginService } from "./login.service";
 import type { RegistrationService } from "./registration.service";
 import type { VerificationService } from "./verification.service";
 import type { RequestHandler } from "express";
@@ -8,6 +12,7 @@ import type { RequestHandler } from "express";
 export interface AuthControllerDependencies {
   registrationService: RegistrationService;
   verificationService: VerificationService;
+  loginService: LoginService;
 }
 
 /**
@@ -21,6 +26,7 @@ export interface AuthControllerDependencies {
 export function createAuthController({
   registrationService,
   verificationService,
+  loginService,
 }: AuthControllerDependencies) {
   // Safe to assert in both handlers: validateBody replaced req.body with the
   // route's schema output before either could run.
@@ -53,5 +59,31 @@ export function createAuthController({
     noContent(res);
   };
 
-  return { register, resendVerification, verifyEmail };
+  /**
+   * The refresh token is written to an HttpOnly cookie and is deliberately
+   * absent from the body — a body copy would make the flag meaningless
+   * (ADR-011 §1). The access token goes the other way, in the body, so it
+   * never becomes an ambient credential on every API call.
+   *
+   * The User-Agent is truncated by the existing boundary helper before it
+   * reaches the service; it is diagnostic metadata that must never be able
+   * to fail a login.
+   */
+  const login: RequestHandler = async (req, res) => {
+    const result = await loginService.login(
+      req.body as LoginInput,
+      { userAgent: normalizeUserAgent(req.get("user-agent")) },
+      req.log,
+    );
+
+    res.cookie(REFRESH_COOKIE_NAME, result.refreshToken, refreshCookieOptions());
+
+    success(res, {
+      user: result.user,
+      accessToken: result.accessToken,
+      expiresIn: result.expiresIn,
+    });
+  };
+
+  return { register, resendVerification, verifyEmail, login };
 }

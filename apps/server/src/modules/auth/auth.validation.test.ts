@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { registerSchema, resendVerificationSchema, verifyEmailSchema } from "./auth.validation";
+import { loginSchema, registerSchema, resendVerificationSchema, verifyEmailSchema } from "./auth.validation";
 
 const validInput = {
   name: "Ada Lovelace",
@@ -330,5 +330,59 @@ describe("registerSchema — issue messages", () => {
     expect(messages).not.toContain(password);
     expect(messages).not.toContain(email);
     expect(messages).not.toContain("bad");
+  });
+});
+
+describe("loginSchema", () => {
+  const credentials = { email: "ada@example.com", password: "correct-horse-battery" };
+
+  it("accepts an address and a password", () => {
+    expect(loginSchema.safeParse(credentials).success).toBe(true);
+  });
+
+  it("trims the address but never the password", () => {
+    const result = loginSchema.safeParse({ email: "  ada@example.com ", password: "  spaced  " });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(result.data.email).toBe("ada@example.com");
+    expect(result.data.password).toBe("  spaced  ");
+  });
+
+  /**
+   * A short password is wrong, not malformed. Applying the registration
+   * length policy here would leak that policy to an unauthenticated caller
+   * and split login's single generic failure into two distinguishable ones
+   * (ADR-011 section 3).
+   */
+  it("does not apply the registration length policy", () => {
+    expect(loginSchema.safeParse({ ...credentials, password: "a" }).success).toBe(true);
+  });
+
+  it("requires the password to be present", () => {
+    expect(loginSchema.safeParse({ email: credentials.email, password: "" }).success).toBe(false);
+    expect(loginSchema.safeParse({ email: credentials.email }).success).toBe(false);
+  });
+
+  it("rejects a malformed address", () => {
+    expect(loginSchema.safeParse({ ...credentials, email: "not-an-address" }).success).toBe(false);
+  });
+
+  // Zod strips unknown keys, so a client cannot smuggle account state through.
+  it("strips unrecognized keys", () => {
+    const result = loginSchema.safeParse({ ...credentials, status: "active", emailVerifiedAt: new Date() });
+
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect(Object.keys(result.data).sort()).toEqual(["email", "password"]);
+  });
+
+  it("never echoes the submitted password in a failure message", () => {
+    const password = "DO_NOT_LEAK_THIS_PASSWORD";
+    const result = loginSchema.safeParse({ email: "not-an-address", password });
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(result.error.issues.map((issue) => issue.message).join(" | ")).not.toContain(password);
   });
 });
