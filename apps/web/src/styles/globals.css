@@ -149,6 +149,25 @@
     background: #080c0a;
   }
 
+  /*
+    The wordmark. Cross-cutting rather than marketing-only: the navbar, the
+    sign-in page and the workspace shell all render it, and only the first
+    loads Navbar.css.
+  */
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-weight: 600;
+    font-size: 16px;
+    letter-spacing: -0.01em;
+  }
+  .brand__mark {
+    display: grid;
+    place-items: center;
+    flex: 0 0 auto;
+  }
+
   .eyebrow {
     font-family: var(--font-mono);
     font-size: 11px;

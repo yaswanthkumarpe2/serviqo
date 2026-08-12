@@ -66,7 +66,7 @@ export const mobileNavGroups: MobileNavGroup[] = [
       { label: "Documentation", href: "#" },
       { label: "Knowledge base", href: "#kb" },
       { label: "Changelog", href: "#" },
-      { label: "Sign in", href: "#" },
+      { label: "Sign in", href: "/login" },
     ],
   },
 ];

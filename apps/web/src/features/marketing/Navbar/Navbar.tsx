@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 
 import { ButtonLink } from "@/components/ui/Button";
 import { IconButton } from "@/components/ui/IconButton";
@@ -111,9 +112,9 @@ export function Navbar() {
           >
             {theme === "dark" ? <SunIcon aria-hidden="true" /> : <MoonIcon aria-hidden="true" />}
           </IconButton>
-          <ButtonLink variant="secondary" size="sm" className="signInBtn" href="#">
+          <Link className="btn btn--secondary btn--sm signInBtn" to="/login">
             Sign in
-          </ButtonLink>
+          </Link>
           <ButtonLink variant="primary" size="sm" href="#pricing">
             Get started free
           </ButtonLink>

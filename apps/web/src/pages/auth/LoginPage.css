@@ -1,0 +1,238 @@
+/*
+  Sign-in page. Product surface, so Inter throughout — the serif display
+  face is reserved for marketing headlines.
+
+  Every colour is a token. Structure comes from borders, not shadows; the
+  card is the one panel allowed a soft shadow because it floats on the
+  canvas rather than sitting in flow.
+*/
+
+.auth {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--canvas);
+}
+
+.auth__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.auth__back {
+  font-size: 13px;
+  color: var(--text-2);
+}
+.auth__back:hover {
+  color: var(--text);
+}
+
+.auth__main {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  padding: 40px 24px 64px;
+}
+
+.auth__card {
+  width: 100%;
+  max-width: 412px;
+  padding: 32px;
+  box-shadow: var(--sh-sm);
+}
+
+.auth__head {
+  margin-bottom: 24px;
+}
+
+.auth__title {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin-bottom: 6px;
+}
+
+.auth__lede {
+  font-size: 14px;
+  color: var(--text-2);
+  line-height: 1.55;
+}
+
+.auth__alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 11px 13px;
+  margin-bottom: 20px;
+  border: 1px solid var(--danger);
+  border-radius: var(--r-sm);
+  background: var(--danger-bg);
+  color: var(--danger);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.auth__form {
+  display: grid;
+  gap: 18px;
+}
+
+.field {
+  display: grid;
+  gap: 7px;
+}
+
+.field__labelRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.field__label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.field__control {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.field__input {
+  width: 100%;
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out);
+}
+.field__input::placeholder {
+  color: var(--text-3);
+}
+.field__input:hover:not(:disabled) {
+  border-color: var(--text-3);
+}
+.field__input:focus {
+  outline: none;
+  border-color: var(--em-600);
+  box-shadow: 0 0 0 3px var(--em-100);
+}
+.field__input:disabled {
+  background: var(--surface-sunk);
+  color: var(--text-2);
+  cursor: not-allowed;
+}
+.field__input--withAction {
+  padding-right: 42px;
+}
+.field__input--invalid {
+  border-color: var(--danger);
+}
+.field__input--invalid:focus {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px var(--danger-bg);
+}
+
+/* Sits inside the input, so the control reads as one field. */
+.field__action {
+  position: absolute;
+  right: 4px;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-xs);
+  color: var(--text-3);
+}
+.field__action:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+.field__action:disabled {
+  cursor: not-allowed;
+}
+
+.field__error {
+  font-size: 12.5px;
+  color: var(--danger);
+}
+
+.auth__forgot {
+  font-size: 12.5px;
+  color: var(--text-2);
+  padding: 0;
+}
+.auth__forgot:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+.auth__remember {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-2);
+  cursor: pointer;
+  width: fit-content;
+}
+.auth__remember input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--em-600);
+  cursor: pointer;
+}
+
+.auth__submit {
+  width: 100%;
+  margin-top: 2px;
+}
+
+@keyframes auth-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.auth__spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  animation: auth-spin 0.65s linear infinite;
+}
+
+.auth__foot {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--text);
+}
+.auth__footMuted {
+  color: var(--text-2);
+}
+
+@media (max-width: 520px) {
+  .auth__card {
+    padding: 24px;
+  }
+  .auth__main {
+    padding: 24px 16px 48px;
+  }
+}
