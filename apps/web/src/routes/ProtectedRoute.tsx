@@ -1,5 +1,6 @@
 import { Navigate } from "react-router-dom";
 
+import { AuthRestoring } from "@/features/auth/AuthRestoring";
 import { useAuth } from "@/features/auth/useAuth";
 
 import type { ReactNode } from "react";
@@ -21,7 +22,17 @@ interface ProtectedRouteProps {
  * not bounce between the guard and the login page.
  */
 export function ProtectedRoute({ children }: ProtectedRouteProps) {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isRestoring } = useAuth();
+
+  /*
+    Waiting is the whole point of this branch. Until the startup refresh
+    settles, "not authenticated" means "not yet known" — redirecting on it
+    would bounce a signed-in user to /login on every reload, then bounce them
+    back once the token arrived (ADR-012 §8).
+  */
+  if (isRestoring) {
+    return <AuthRestoring />;
+  }
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;

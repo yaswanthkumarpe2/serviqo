@@ -19,14 +19,42 @@ const successBody = {
   },
 };
 
+const unauthenticatedRefreshBody = {
+  success: false,
+  error: { code: "INVALID_REFRESH_TOKEN", message: "Refresh token is invalid or expired" },
+};
+
+/**
+ * Answers `/login` with the given response, and the provider's one startup
+ * refresh with a 401.
+ *
+ * `AuthProvider` asks the refresh endpoint on mount whether this browser has a
+ * session (ADR-012). These tests are about someone who does not, so it is
+ * refused — and answered separately so assertions about the sign-in request
+ * are never reading the restore's call instead.
+ */
 function stubFetch(status: number, body: unknown) {
-  const fetchMock = vi.fn().mockResolvedValue({
-    ok: status >= 200 && status < 300,
-    status,
-    json: () => Promise.resolve(body),
-  } as Response);
+  const fetchMock = vi.fn((url: string) => {
+    if (String(url).endsWith("/auth/refresh")) {
+      return Promise.resolve({
+        ok: false,
+        status: 401,
+        json: () => Promise.resolve(unauthenticatedRefreshBody),
+      } as Response);
+    }
+    return Promise.resolve({
+      ok: status >= 200 && status < 300,
+      status,
+      json: () => Promise.resolve(body),
+    } as Response);
+  });
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
+}
+
+/** The sign-in requests only, ignoring the provider's startup refresh. */
+function loginCalls(fetchMock: { mock: { calls: unknown[][] } }) {
+  return fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/auth/login"));
 }
 
 /** Renders the page inside a router that reveals where a successful sign-in lands. */
@@ -87,7 +115,7 @@ describe("LoginPage", () => {
 
       expect(screen.getByText("Email is required")).toBeDefined();
       expect(screen.getByText("Password is required")).toBeDefined();
-      expect(fetchMock).not.toHaveBeenCalled();
+      expect(loginCalls(fetchMock)).toHaveLength(0);
     });
 
     it("rejects a malformed address before the network", async () => {
@@ -100,7 +128,7 @@ describe("LoginPage", () => {
       await user.click(submitButton());
 
       expect(screen.getByText("Enter a valid email address")).toBeDefined();
-      expect(fetchMock).not.toHaveBeenCalled();
+      expect(loginCalls(fetchMock)).toHaveLength(0);
     });
 
     it("marks the invalid field for assistive technology", async () => {
@@ -124,8 +152,9 @@ describe("LoginPage", () => {
       await user.type(passwordField(), PASSWORD);
       await user.click(submitButton());
 
-      await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
-      expect(JSON.parse(fetchMock.mock.calls[0]![1].body)).toEqual({ email: EMAIL, password: PASSWORD });
+      await waitFor(() => expect(loginCalls(fetchMock)).toHaveLength(1));
+      const [, init] = loginCalls(fetchMock)[0]! as [string, { body: string }];
+      expect(JSON.parse(init.body)).toEqual({ email: EMAIL, password: PASSWORD });
     });
 
     it("lands on the dashboard", async () => {
@@ -146,9 +175,19 @@ describe("LoginPage", () => {
       const pending = new Promise((resolve) => {
         release = resolve;
       });
-      const fetchMock = vi.fn().mockReturnValue(
-        pending.then(() => ({ ok: true, status: 200, json: () => Promise.resolve(successBody) }) as unknown as Response),
-      );
+      const fetchMock = vi.fn((url: string) => {
+        if (String(url).endsWith("/auth/refresh")) {
+          return Promise.resolve({
+            ok: false,
+            status: 401,
+            json: () => Promise.resolve(unauthenticatedRefreshBody),
+          } as Response);
+        }
+        // Held open so the submitting state is observable.
+        return pending.then(
+          () => ({ ok: true, status: 200, json: () => Promise.resolve(successBody) }) as unknown as Response,
+        );
+      });
       vi.stubGlobal("fetch", fetchMock);
       renderLogin();
 
@@ -160,7 +199,7 @@ describe("LoginPage", () => {
       expect(submitting).toHaveProperty("disabled", true);
 
       await user.click(submitting);
-      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(loginCalls(fetchMock)).toHaveLength(1);
 
       release(undefined);
       expect(await screen.findByText("Dashboard reached")).toBeDefined();

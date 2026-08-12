@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { AuthProvider } from "@/features/auth/AuthProvider";
 import { DashboardPage } from "@/pages/dashboard/DashboardPage";
@@ -35,10 +35,12 @@ function renderDashboard(initialSession: Session | null) {
 }
 
 describe("ProtectedRoute", () => {
-  it("sends an unauthenticated visitor to the sign-in page", () => {
+  // The redirect now waits for the startup refresh (ADR-012): until it
+  // settles, "not authenticated" only means "not yet known".
+  it("sends an unauthenticated visitor to the sign-in page", async () => {
     renderDashboard(null);
 
-    expect(screen.getByText("Sign-in page")).toBeDefined();
+    expect(await screen.findByText("Sign-in page")).toBeDefined();
     expect(screen.queryByText(/welcome/i)).toBeNull();
   });
 
@@ -46,6 +48,41 @@ describe("ProtectedRoute", () => {
     renderDashboard(session);
 
     expect(screen.getByRole("heading", { name: "Welcome, Ada Lovelace" })).toBeDefined();
+  });
+
+  /*
+    The flicker this slice removes. Redirecting before the refresh answers
+    would bounce a signed-in user to /login on every reload, then bounce them
+    back — so while the restore runs, neither the destination nor the sign-in
+    page may render.
+  */
+  it("shows neither the page nor the sign-in redirect while restoring", () => {
+    renderDashboard(null);
+
+    expect(screen.queryByText("Sign-in page")).toBeNull();
+    expect(screen.queryByRole("heading", { name: /welcome/i })).toBeNull();
+    expect(screen.getByRole("status")).toBeDefined();
+  });
+
+  it("renders the protected page once the refresh restores a session", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            success: true,
+            data: { user: session.user, accessToken: "RESTORED_ACCESS_TOKEN", expiresIn: 900 },
+          }),
+      } as Response),
+    );
+
+    renderDashboard(null);
+
+    expect(await screen.findByRole("heading", { name: "Welcome, Ada Lovelace" })).toBeDefined();
+    expect(screen.queryByText("Sign-in page")).toBeNull();
+    vi.unstubAllGlobals();
   });
 });
 

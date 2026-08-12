@@ -32,6 +32,14 @@ export interface LoginResult {
   expiresIn: number;
 }
 
+/**
+ * Refresh answers with the same three fields login does (ADR-012 §8), which
+ * is what lets a reloaded tab learn who it is without a second round trip.
+ * Aliased rather than redeclared so the two can never drift apart here while
+ * agreeing on the server.
+ */
+export type RefreshResult = LoginResult;
+
 export interface LoginCredentials {
   email: string;
   password: string;
@@ -87,24 +95,23 @@ function isSuccessEnvelope<T>(body: unknown): body is SuccessEnvelope<T> {
 }
 
 /**
- * Signs in an organization user.
+ * POSTs to an auth endpoint and unwraps the envelope, raising `AuthApiError`
+ * for every failure — transport, server-described, or unrecognized.
  *
- * Resolves with the access token and the user's identity. The refresh token
- * is NOT returned here and never could be — it arrives as an `HttpOnly`
- * cookie the browser stores and this code cannot read, which is the point of
- * the flag.
+ * Shared by login and refresh so envelope handling exists once. The two
+ * endpoints answer with the same shape (ADR-012 §8); handling it twice would
+ * be two places for that agreement to rot.
  */
-export async function login(credentials: LoginCredentials): Promise<LoginResult> {
+async function postAuth<T>(path: string, init: RequestInit = {}): Promise<T> {
   let response: Response;
 
   try {
-    response = await fetch(`${AUTH_BASE}/login`, {
+    response = await fetch(`${AUTH_BASE}${path}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       // Sends and accepts the refresh cookie. Same-origin already implies
       // this, but stating it keeps the call correct if the API ever moves.
       credentials: "same-origin",
-      body: JSON.stringify(credentials),
+      ...init,
     });
   } catch {
     // The original error is not attached: a transport failure's message can
@@ -121,9 +128,41 @@ export async function login(credentials: LoginCredentials): Promise<LoginResult>
     throw new AuthApiError(UNEXPECTED_RESPONSE, GENERIC_FAILURE_MESSAGE, response.status);
   }
 
-  if (!isSuccessEnvelope<LoginResult>(body)) {
+  if (!isSuccessEnvelope<T>(body)) {
     throw new AuthApiError(UNEXPECTED_RESPONSE, GENERIC_FAILURE_MESSAGE, response.status);
   }
 
   return body.data;
+}
+
+/**
+ * Signs in an organization user.
+ *
+ * Resolves with the access token and the user's identity. The refresh token
+ * is NOT returned here and never could be — it arrives as an `HttpOnly`
+ * cookie the browser stores and this code cannot read, which is the point of
+ * the flag.
+ */
+export async function login(credentials: LoginCredentials): Promise<LoginResult> {
+  return postAuth<LoginResult>("/login", {
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(credentials),
+  });
+}
+
+/**
+ * Exchanges the refresh cookie for a new access token and the session owner's
+ * identity (ADR-012).
+ *
+ * Sends no body and no Authorization header: the credential is the cookie and
+ * only the cookie, and the server refuses a token supplied any other way
+ * (ADR-012 §1). This code cannot read or send that cookie itself — the
+ * browser attaches it because the request is same-origin and under the
+ * cookie's `Path` scope.
+ *
+ * A 401 here is the ordinary answer for a visitor who simply is not signed
+ * in, not an exceptional condition. Callers decide what that means.
+ */
+export async function refresh(): Promise<RefreshResult> {
+  return postAuth<RefreshResult>("/refresh");
 }

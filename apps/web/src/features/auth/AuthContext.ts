@@ -11,9 +11,11 @@ import type { AuthenticatedUser } from "./authApi";
  * long-lived credential is the `HttpOnly` refresh cookie, which this code
  * cannot read by design.
  *
- * The consequence is real and intentional: a full page reload clears the
- * session and returns the user to /login. Rehydrating it silently is what
- * the refresh endpoint is for, and that slice has not been built.
+ * A full page reload therefore still wipes the session — that has not
+ * changed and must not. What changed is what happens next: the provider asks
+ * the refresh endpoint to mint a new access token from the cookie the browser
+ * kept (ADR-012), so the reload is invisible to the user without the token
+ * ever having been stored anywhere a script could read it.
  */
 export interface Session {
   user: AuthenticatedUser;
@@ -23,8 +25,27 @@ export interface Session {
 export interface AuthContextValue {
   session: Session | null;
   isAuthenticated: boolean;
+  /**
+   * True while the startup refresh is still in flight.
+   *
+   * Consumers that gate on `isAuthenticated` MUST check this first. Before the
+   * restore settles, "not authenticated" only means "not yet known", and
+   * acting on it is what sends a signed-in user to /login for a moment on
+   * every reload.
+   *
+   * Kept as its own flag rather than folded into a status enum: `session` and
+   * this are the two independent facts, and a third derived representation
+   * would be one more thing that can disagree with them.
+   */
+  isRestoring: boolean;
   signIn: (session: Session) => void;
   signOut: () => void;
+  /**
+   * Performs a request carrying the access token, refreshing and retrying once
+   * if it has expired. Rejects — after clearing the session — when the refresh
+   * itself fails.
+   */
+  authorizedFetch: (path: string, init?: RequestInit) => Promise<Response>;
 }
 
 /**

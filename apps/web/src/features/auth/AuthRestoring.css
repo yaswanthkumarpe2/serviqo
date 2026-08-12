@@ -1,0 +1,47 @@
+/*
+  The startup-restore placeholder.
+
+  Held at opacity 0 for the first 250ms so a fast refresh — the ordinary case —
+  is never seen. Only a restore slow enough to be worth explaining fades in.
+  The delay is on opacity, not motion, so it behaves the same for someone who
+  has asked for reduced motion; the fade itself is what that preference drops.
+*/
+
+.authRestoring {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: var(--canvas);
+
+  opacity: 0;
+  animation: authRestoringIn 200ms ease-out 250ms forwards;
+}
+
+.authRestoring__mark {
+  display: inline-flex;
+  width: 34px;
+  height: 34px;
+  color: var(--em-600);
+}
+
+.authRestoring__text {
+  margin: 0;
+  color: var(--text-3);
+  font-size: 14px;
+}
+
+@keyframes authRestoringIn {
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .authRestoring {
+    /* Still withheld for the same quarter second, then simply present. */
+    animation: authRestoringIn 1ms linear 250ms forwards;
+  }
+}

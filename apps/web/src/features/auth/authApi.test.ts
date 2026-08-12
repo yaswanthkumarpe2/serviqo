@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { AuthApiError, NETWORK_ERROR, UNEXPECTED_RESPONSE, login } from "./authApi";
+import { AuthApiError, NETWORK_ERROR, UNEXPECTED_RESPONSE, login, refresh } from "./authApi";
 
 const credentials = { email: "ada@example.com", password: "DO_NOT_LEAK_THIS_PASSWORD" };
 
@@ -117,5 +117,69 @@ describe("login", () => {
     );
 
     await expect(login(credentials)).rejects.toMatchObject({ code: UNEXPECTED_RESPONSE, status: 502 });
+  });
+});
+
+describe("refresh", () => {
+  it("posts to the versioned refresh path", async () => {
+    const fetchMock = mockFetch(200, successBody);
+
+    await refresh();
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe("/api/v1/auth/refresh");
+    expect(init.method).toBe("POST");
+  });
+
+  // ADR-012 §1: the credential is the cookie and only the cookie. A body or a
+  // bearer header would be a second place to look for one.
+  it("sends no body and no headers", async () => {
+    const fetchMock = mockFetch(200, successBody);
+
+    await refresh();
+
+    const [, init] = fetchMock.mock.calls[0]!;
+    expect(init.body).toBeUndefined();
+    expect(init.headers).toBeUndefined();
+  });
+
+  it("sends credentials so the browser attaches the refresh cookie", async () => {
+    const fetchMock = mockFetch(200, successBody);
+
+    await refresh();
+
+    expect(fetchMock.mock.calls[0]![1].credentials).toBe("same-origin");
+  });
+
+  it("unwraps the same shape login returns", async () => {
+    mockFetch(200, successBody);
+
+    await expect(refresh()).resolves.toEqual(successBody.data);
+  });
+
+  // The ordinary answer for a browser that is simply not signed in.
+  it("surfaces the server's refusal code on a 401", async () => {
+    mockFetch(401, {
+      success: false,
+      error: { code: "INVALID_REFRESH_TOKEN", message: "Refresh token is invalid or expired" },
+    });
+
+    await expect(refresh()).rejects.toMatchObject({ code: "INVALID_REFRESH_TOKEN", status: 401 });
+  });
+
+  it("names a transport failure without echoing its message", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch http://internal-host:3001")));
+
+    const error = await refresh().catch((err: unknown) => err);
+
+    expect((error as AuthApiError).code).toBe(NETWORK_ERROR);
+    expect((error as AuthApiError).message).not.toContain("internal-host");
+  });
+
+  it("rejects a non-envelope body rather than trusting it", async () => {
+    mockFetch(200, { accessToken: "not-our-shape" });
+
+    await expect(refresh()).rejects.toMatchObject({ code: UNEXPECTED_RESPONSE });
   });
 });
