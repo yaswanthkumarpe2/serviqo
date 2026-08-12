@@ -39,7 +39,15 @@ export interface AuthContextValue {
    */
   isRestoring: boolean;
   signIn: (session: Session) => void;
-  signOut: () => void;
+  /**
+   * Ends the session: local state first, then the server (ADR-013).
+   *
+   * The returned promise settles when the server call does, but callers are
+   * not required to await it — authentication state is already cleared by the
+   * time it is handed back, so a protected route redirects on the very next
+   * render rather than after a round trip.
+   */
+  signOut: () => Promise<void>;
   /**
    * Performs a request carrying the access token, refreshing and retrying once
    * if it has expired. Rejects — after clearing the session — when the refresh

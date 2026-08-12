@@ -35,8 +35,14 @@ export function DashboardPage() {
   // the component honest rather than asserting non-null.
   if (session === null) return null;
 
+  /**
+   * Not awaited, and that is the point (ADR-013): `signOut` clears the session
+   * before it returns, so leaving is immediate and the request to revoke it
+   * settles on its own. Only the sign-in state is touched — nothing else on
+   * the page is reset.
+   */
   function handleSignOut() {
-    signOut();
+    void signOut();
     navigate("/login", { replace: true });
   }
 

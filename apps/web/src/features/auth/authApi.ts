@@ -166,3 +166,20 @@ export async function login(credentials: LoginCredentials): Promise<LoginResult>
 export async function refresh(): Promise<RefreshResult> {
   return postAuth<RefreshResult>("/refresh");
 }
+
+/**
+ * Ends the current session on the server and clears the refresh cookie
+ * (ADR-013).
+ *
+ * Like refresh, the credential is the cookie the browser attaches — there is
+ * no body and no token to pass, because this code cannot read the one that
+ * matters.
+ *
+ * Resolves with nothing. The endpoint answers 200 on every path, including
+ * one that revoked nothing, so there is no outcome to report and deliberately
+ * nothing for a caller to branch on (§1). A rejection here means the request
+ * did not arrive at all.
+ */
+export async function logout(): Promise<void> {
+  await postAuth<Record<string, never>>("/logout");
+}

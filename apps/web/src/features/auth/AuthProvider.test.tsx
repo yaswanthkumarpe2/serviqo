@@ -224,7 +224,90 @@ describe("AuthProvider session handling", () => {
 
     expect(phase()).toBe("anonymous");
     expect(who()).toBe("nobody");
-    expect(fetchMock).toHaveBeenCalledOnce();
+    // The startup restore, then logout — and nothing that would restore it.
+    expect(refreshCallsIn(fetchMock)).toHaveLength(1);
+  });
+
+  // ---- logout (ADR-013) ----
+
+  it("signing out asks the server to end the session", async () => {
+    const user = userEvent.setup();
+    const fetchMock = stubFetch(200, refreshSuccess);
+    renderProvider();
+    await waitFor(() => expect(phase()).toBe("authenticated"));
+
+    await user.click(screen.getByRole("button", { name: /sign out/i }));
+
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/auth/logout"))).toBe(true),
+    );
+  });
+
+  // The credential is the cookie; there is nothing for this call to send.
+  it("sends no body and no Authorization header when logging out", async () => {
+    const user = userEvent.setup();
+    const fetchMock = stubFetch(200, refreshSuccess);
+    renderProvider();
+    await waitFor(() => expect(phase()).toBe("authenticated"));
+
+    await user.click(screen.getByRole("button", { name: /sign out/i }));
+
+    const logoutCall = await waitFor(() => {
+      const call = fetchMock.mock.calls.find(([url]) => String(url).endsWith("/auth/logout"));
+      expect(call).toBeDefined();
+      return call!;
+    });
+    const init = logoutCall[1] as RequestInit;
+    expect(init.method).toBe("POST");
+    expect(init.body).toBeUndefined();
+    expect(init.headers).toBeUndefined();
+    expect(init.credentials).toBe("same-origin");
+  });
+
+  /*
+    Local state is cleared before the request settles, so leaving never waits
+    on the network — and a failed request must not strand someone in a session
+    they asked to end (ADR-013 consequences).
+  */
+  it("clears the session even when the logout request fails", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (String(url).endsWith("/auth/logout")) return Promise.reject(new TypeError("Failed to fetch"));
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(refreshSuccess) } as Response);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderProvider();
+    await waitFor(() => expect(phase()).toBe("authenticated"));
+
+    await user.click(screen.getByRole("button", { name: /sign out/i }));
+
+    expect(phase()).toBe("anonymous");
+    expect(who()).toBe("nobody");
+  });
+
+  it("clears the session before the server answers", async () => {
+    const user = userEvent.setup();
+    let releaseLogout: (value: unknown) => void = () => undefined;
+    const pending = new Promise((resolve) => {
+      releaseLogout = resolve;
+    });
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (String(url).endsWith("/auth/logout")) {
+        return pending.then(
+          () => ({ ok: true, status: 200, json: () => Promise.resolve({ success: true, data: {} }) }) as Response,
+        );
+      }
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(refreshSuccess) } as Response);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderProvider();
+    await waitFor(() => expect(phase()).toBe("authenticated"));
+
+    await user.click(screen.getByRole("button", { name: /sign out/i }));
+
+    // The request has not answered yet, and the session is already gone.
+    expect(phase()).toBe("anonymous");
+    releaseLogout(undefined);
   });
 
   // ADR-011 §1: the access token is memory-only, and this is the assertion

@@ -126,4 +126,62 @@ describe("DashboardPage", () => {
     expect(screen.getByText("Sign-in page")).toBeDefined();
     expect(screen.queryByRole("heading", { name: /welcome/i })).toBeNull();
   });
+
+  // ---- logout (ADR-013) ----
+
+  it("signing out asks the server to end the session", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ success: true, data: {} }),
+    } as Response);
+    vi.stubGlobal("fetch", fetchMock);
+    renderDashboard(session);
+
+    await user.click(screen.getByRole("button", { name: /sign out/i }));
+
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/api/v1/auth/logout"))).toBe(true);
+    vi.unstubAllGlobals();
+  });
+
+  /*
+    The redirect must not wait on the network. `signOut` clears local state
+    before its request settles, so the guard re-renders immediately.
+  */
+  it("redirects before the logout request answers", async () => {
+    const user = userEvent.setup();
+    let release: (value: unknown) => void = () => undefined;
+    const pending = new Promise((resolve) => {
+      release = resolve;
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) =>
+        String(url).endsWith("/auth/logout")
+          ? pending.then(() => ({ ok: true, status: 200, json: () => Promise.resolve({ success: true, data: {} }) }))
+          : Promise.resolve({ ok: false, status: 401, json: () => Promise.resolve({ success: false, error: {} }) }),
+      ),
+    );
+    renderDashboard(session);
+
+    await user.click(screen.getByRole("button", { name: /sign out/i }));
+
+    expect(screen.getByText("Sign-in page")).toBeDefined();
+    release(undefined);
+    vi.unstubAllGlobals();
+  });
+
+  // A failed request must not strand someone in a session they asked to end.
+  it("still signs out when the logout request fails", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+    renderDashboard(session);
+
+    await user.click(screen.getByRole("button", { name: /sign out/i }));
+
+    expect(screen.getByText("Sign-in page")).toBeDefined();
+    expect(screen.queryByRole("heading", { name: /welcome/i })).toBeNull();
+    vi.unstubAllGlobals();
+  });
 });

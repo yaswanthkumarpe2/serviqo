@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { AuthContext } from "./AuthContext";
-import { refresh } from "./authApi";
+import { logout, refresh } from "./authApi";
 import { authorizedRequest } from "./authorizedRequest";
 
 import type { Session } from "./AuthContext";
@@ -111,13 +111,31 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
   );
 
   /**
-   * Drops the in-memory token. The refresh cookie is `HttpOnly`, so this
-   * cannot clear it — only the server can, and the endpoint that does is the
-   * logout slice. Until then the cookie outlives the session it belonged to,
-   * which means this tab could restore itself on the next reload.
+   * Ends the session (ADR-013).
+   *
+   * Local state goes first, deliberately. The person has asked to leave, and
+   * clearing synchronously means `ProtectedRoute` redirects on the next render
+   * instead of after a network round trip — so signing out never feels like it
+   * is waiting on anything.
+   *
+   * The server call then revokes the session and clears the `HttpOnly` cookie,
+   * which this code cannot touch itself. That is the half that makes signing
+   * out survive a reload.
    */
-  const signOut = useCallback(() => {
+  const signOut = useCallback(async (): Promise<void> => {
     applySession(null);
+
+    try {
+      await logout();
+    } catch {
+      /*
+        Best effort, and the right failure mode: the alternative is refusing to
+        sign someone out because the network is down. The local session is
+        already gone; the cookie may outlive it and restore this browser on the
+        next reload, which is a worse outcome than a hung button but a better
+        one than being unable to leave.
+      */
+    }
   }, [applySession]);
 
   const authorizedFetch = useCallback(

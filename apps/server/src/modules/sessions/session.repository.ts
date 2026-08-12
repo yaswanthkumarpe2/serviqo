@@ -128,7 +128,14 @@ export const sessionRepository = {
     ).select(SENSITIVE_FIELDS);
   },
 
-  /** Revokes one session (future logout). Already-revoked sessions keep their original timestamp. */
+  /**
+   * Revokes one session, and only that one — the logout endpoint's whole job
+   * (ADR-013 §6).
+   *
+   * The `revokedAt: null` filter is what makes a second logout a no-op rather
+   * than an overwrite: already-revoked sessions keep their original timestamp,
+   * which is the "when" ADR-004 §7 wanted that field to record.
+   */
   async revokeById(id: ObjectIdLike): Promise<SessionDocument | null> {
     return SessionModel.findOneAndUpdate(
       { _id: id, revokedAt: null },

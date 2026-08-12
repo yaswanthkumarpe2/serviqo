@@ -7,6 +7,7 @@ import { clearRefreshCookieOptions, refreshCookieOptions } from "./refreshToken"
 
 import type { LoginInput, RegisterInput, ResendVerificationInput, VerifyEmailInput } from "./auth.validation";
 import type { LoginService } from "./login.service";
+import type { LogoutService } from "./logout.service";
 import type { RefreshService } from "./refresh.service";
 import type { RegistrationService } from "./registration.service";
 import type { VerificationService } from "./verification.service";
@@ -17,6 +18,7 @@ export interface AuthControllerDependencies {
   verificationService: VerificationService;
   loginService: LoginService;
   refreshService: RefreshService;
+  logoutService: LogoutService;
 }
 
 /**
@@ -32,6 +34,7 @@ export function createAuthController({
   verificationService,
   loginService,
   refreshService,
+  logoutService,
 }: AuthControllerDependencies) {
   // Safe to assert in both handlers: validateBody replaced req.body with the
   // route's schema output before either could run.
@@ -126,5 +129,30 @@ export function createAuthController({
     }
   };
 
-  return { register, resendVerification, verifyEmail, login, refresh };
+  /**
+   * Ends the current session (ADR-013).
+   *
+   * No try/catch and no branch: the service resolves on every path, so the
+   * cookie is cleared and the envelope written unconditionally. That IS the
+   * idempotency — a second logout is not a failed logout, and answering
+   * differently would confirm which session ids are real (§1).
+   *
+   * The cookie is cleared even when nothing was revoked. Removing the
+   * browser's credential is the part of signing out the browser owns, and it
+   * is correct whether or not the server had a session to end.
+   *
+   * `data` is deliberately a constant. ADR-008 §1 reserved 204 for bodies
+   * whose *contents* would vary with internal state; a body that says the same
+   * thing to everyone is not a channel, so the standard envelope costs nothing
+   * here (§2).
+   */
+  const logout: RequestHandler = async (req, res) => {
+    await logoutService.logout(readCookie(req.headers.cookie, REFRESH_COOKIE_NAME), req.log);
+
+    res.clearCookie(REFRESH_COOKIE_NAME, clearRefreshCookieOptions());
+
+    success(res, {});
+  };
+
+  return { register, resendVerification, verifyEmail, login, refresh, logout };
 }
