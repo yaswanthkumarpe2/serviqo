@@ -1,6 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { AuthApiError, NETWORK_ERROR, UNEXPECTED_RESPONSE, login, logout, refresh } from "./authApi";
+import {
+  AuthApiError,
+  NETWORK_ERROR,
+  UNEXPECTED_RESPONSE,
+  login,
+  logout,
+  logoutAllDevices,
+  refresh,
+} from "./authApi";
 
 const credentials = { email: "ada@example.com", password: "DO_NOT_LEAK_THIS_PASSWORD" };
 
@@ -231,5 +239,63 @@ describe("logout", () => {
 
     expect((error as AuthApiError).code).toBe(NETWORK_ERROR);
     expect((error as AuthApiError).message).not.toContain("internal-host");
+  });
+});
+
+describe("logoutAllDevices", () => {
+  const logoutAllBody = { success: true, data: {} };
+
+  it("posts to the versioned logout-all path", async () => {
+    const fetchMock = mockFetch(200, logoutAllBody);
+
+    await logoutAllDevices();
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe("/api/v1/auth/logout-all");
+    expect(init.method).toBe("POST");
+  });
+
+  // ADR-014 §3: the credential is the cookie and only the cookie.
+  it("sends no body and no headers", async () => {
+    const fetchMock = mockFetch(200, logoutAllBody);
+
+    await logoutAllDevices();
+
+    const [, init] = fetchMock.mock.calls[0]!;
+    expect(init.body).toBeUndefined();
+    expect(init.headers).toBeUndefined();
+  });
+
+  it("sends credentials so the browser attaches the refresh cookie", async () => {
+    const fetchMock = mockFetch(200, logoutAllBody);
+
+    await logoutAllDevices();
+
+    expect(fetchMock.mock.calls[0]![1].credentials).toBe("same-origin");
+  });
+
+  it("resolves with nothing", async () => {
+    mockFetch(200, logoutAllBody);
+
+    await expect(logoutAllDevices()).resolves.toBeUndefined();
+  });
+
+  it("rejects only when the request could not be made", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch http://internal-host:3001")));
+
+    const error = await logoutAllDevices().catch((err: unknown) => err);
+
+    expect((error as AuthApiError).code).toBe(NETWORK_ERROR);
+    expect((error as AuthApiError).message).not.toContain("internal-host");
+  });
+
+  // It must not reach the single-session endpoint by accident.
+  it("never calls the single-session logout path", async () => {
+    const fetchMock = mockFetch(200, logoutAllBody);
+
+    await logoutAllDevices();
+
+    expect(fetchMock.mock.calls.every(([url]) => !String(url).endsWith("/auth/logout"))).toBe(true);
   });
 });

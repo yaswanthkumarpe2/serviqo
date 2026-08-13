@@ -32,6 +32,33 @@
   color: var(--text-2);
 }
 
+/*
+  Deliberately quieter than the Sign out button beside it. Signing out of every
+  device affects machines the person cannot see, so it reads as a secondary
+  choice rather than a second primary one — no border, no fill, no emerald.
+*/
+.dash__signOutAll {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text-3);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.dash__signOutAll:hover {
+  color: var(--text);
+}
+
+.dash__signOutAll:focus-visible {
+  outline: 2px solid var(--em-600);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
 .dash__main {
   flex: 1;
   width: 100%;

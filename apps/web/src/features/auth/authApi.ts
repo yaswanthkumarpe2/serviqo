@@ -183,3 +183,16 @@ export async function refresh(): Promise<RefreshResult> {
 export async function logout(): Promise<void> {
   await postAuth<Record<string, never>>("/logout");
 }
+
+/**
+ * Ends every session this user holds, including the one making the request,
+ * and clears the refresh cookie (ADR-014).
+ *
+ * Same shape as `logout` — the cookie is the credential, there is no body, and
+ * the endpoint answers 200 on every path. It reports no count of what it
+ * revoked, deliberately: that is a fact about the account rather than about
+ * this request (§2).
+ */
+export async function logoutAllDevices(): Promise<void> {
+  await postAuth<Record<string, never>>("/logout-all");
+}

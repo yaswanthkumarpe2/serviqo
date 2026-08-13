@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { AuthContext } from "./AuthContext";
-import { logout, refresh } from "./authApi";
+import { logout, logoutAllDevices, refresh } from "./authApi";
 import { authorizedRequest } from "./authorizedRequest";
 
 import type { Session } from "./AuthContext";
@@ -138,6 +138,28 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
     }
   }, [applySession]);
 
+  /**
+   * Ends every session this user holds, on every device (ADR-014).
+   *
+   * Mirrors `signOut` exactly — local state first so the redirect is
+   * immediate, then the request. The difference is what a failure costs: a
+   * failed `signOut` leaves one stale cookie, while a failed `signOutAll`
+   * leaves the OTHER devices signed in, which is the opposite of what was
+   * asked. The local session still clears, because refusing to sign someone
+   * out of the browser in front of them helps nobody.
+   */
+  const signOutAllDevices = useCallback(async (): Promise<void> => {
+    applySession(null);
+
+    try {
+      await logoutAllDevices();
+    } catch {
+      // Swallowed for the same reason `signOut` swallows, and with a worse
+      // consequence — recorded in ADR-014's consequences as this slice's
+      // weakest point, since the dashboard has no error surface to show it.
+    }
+  }, [applySession]);
+
   const authorizedFetch = useCallback(
     (path: string, init: RequestInit = {}) =>
       authorizedRequest(path, init, {
@@ -154,9 +176,10 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
       isRestoring,
       signIn,
       signOut,
+      signOutAllDevices,
       authorizedFetch,
     }),
-    [session, isRestoring, signIn, signOut, authorizedFetch],
+    [session, isRestoring, signIn, signOut, signOutAllDevices, authorizedFetch],
   );
 
   return <AuthContext value={value}>{children}</AuthContext>;

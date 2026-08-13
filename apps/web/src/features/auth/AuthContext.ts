@@ -49,6 +49,12 @@ export interface AuthContextValue {
    */
   signOut: () => Promise<void>;
   /**
+   * Ends every session this user holds, on every device (ADR-014), including
+   * the one calling. Clears local state before the request settles, exactly
+   * like `signOut`.
+   */
+  signOutAllDevices: () => Promise<void>;
+  /**
    * Performs a request carrying the access token, refreshing and retrying once
    * if it has expired. Rejects — after clearing the session — when the refresh
    * itself fails.

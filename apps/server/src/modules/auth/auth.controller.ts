@@ -8,6 +8,7 @@ import { clearRefreshCookieOptions, refreshCookieOptions } from "./refreshToken"
 import type { LoginInput, RegisterInput, ResendVerificationInput, VerifyEmailInput } from "./auth.validation";
 import type { LoginService } from "./login.service";
 import type { LogoutService } from "./logout.service";
+import type { LogoutAllService } from "./logoutAll.service";
 import type { RefreshService } from "./refresh.service";
 import type { RegistrationService } from "./registration.service";
 import type { VerificationService } from "./verification.service";
@@ -19,6 +20,7 @@ export interface AuthControllerDependencies {
   loginService: LoginService;
   refreshService: RefreshService;
   logoutService: LogoutService;
+  logoutAllService: LogoutAllService;
 }
 
 /**
@@ -35,6 +37,7 @@ export function createAuthController({
   loginService,
   refreshService,
   logoutService,
+  logoutAllService,
 }: AuthControllerDependencies) {
   // Safe to assert in both handlers: validateBody replaced req.body with the
   // route's schema output before either could run.
@@ -154,5 +157,25 @@ export function createAuthController({
     success(res, {});
   };
 
-  return { register, resendVerification, verifyEmail, login, refresh, logout };
+  /**
+   * Ends every session the user holds, including this one (ADR-014).
+   *
+   * Shaped exactly like `logout` above, and deliberately so: same
+   * always-succeeds contract, same unconditional cookie clear, same constant
+   * body. Answering differently would make the two endpoints disagree about a
+   * question they answer identically (§1).
+   *
+   * The number of sessions revoked is NOT in the response. It is a fact about
+   * the account — how many devices this person had signed in — and a body that
+   * varies with internal state is the channel ADR-008 §1 closed (§2).
+   */
+  const logoutAll: RequestHandler = async (req, res) => {
+    await logoutAllService.logoutAll(readCookie(req.headers.cookie, REFRESH_COOKIE_NAME), req.log);
+
+    res.clearCookie(REFRESH_COOKIE_NAME, clearRefreshCookieOptions());
+
+    success(res, {});
+  };
+
+  return { register, resendVerification, verifyEmail, login, refresh, logout, logoutAll };
 }

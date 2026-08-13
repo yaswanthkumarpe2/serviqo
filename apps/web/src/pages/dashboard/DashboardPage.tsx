@@ -28,7 +28,7 @@ const SAMPLE_STATS: StatCard[] = [
 ];
 
 export function DashboardPage() {
-  const { session, signOut } = useAuth();
+  const { session, signOut, signOutAllDevices } = useAuth();
   const navigate = useNavigate();
 
   // ProtectedRoute guarantees a session before this renders; the guard keeps
@@ -46,6 +46,16 @@ export function DashboardPage() {
     navigate("/login", { replace: true });
   }
 
+  /**
+   * Ends every session, everywhere (ADR-014). Same shape as the button above,
+   * and reaches /login the same way — the only difference is how much it
+   * revokes on the server.
+   */
+  function handleSignOutAllDevices() {
+    void signOutAllDevices();
+    navigate("/login", { replace: true });
+  }
+
   return (
     <div className="dash">
       <header className="dash__bar">
@@ -57,6 +67,15 @@ export function DashboardPage() {
         </div>
         <div className="dash__barRight">
           <span className="dash__who">{session.user.name}</span>
+          {/*
+            The wider action is a plain link-style control rather than a second
+            button of equal weight: it ends sessions on devices that are not in
+            front of the person clicking, so it should not sit one mis-click
+            away from the ordinary one.
+          */}
+          <button type="button" className="dash__signOutAll" onClick={handleSignOutAllDevices}>
+            Sign out of all devices
+          </button>
           <Button variant="secondary" size="sm" onClick={handleSignOut}>
             Sign out
           </Button>

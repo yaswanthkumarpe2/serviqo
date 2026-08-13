@@ -121,7 +121,7 @@ describe("DashboardPage", () => {
     const user = userEvent.setup();
     renderDashboard(session);
 
-    await user.click(screen.getByRole("button", { name: /sign out/i }));
+    await user.click(screen.getByRole("button", { name: /^sign out$/i }));
 
     expect(screen.getByText("Sign-in page")).toBeDefined();
     expect(screen.queryByRole("heading", { name: /welcome/i })).toBeNull();
@@ -139,7 +139,7 @@ describe("DashboardPage", () => {
     vi.stubGlobal("fetch", fetchMock);
     renderDashboard(session);
 
-    await user.click(screen.getByRole("button", { name: /sign out/i }));
+    await user.click(screen.getByRole("button", { name: /^sign out$/i }));
 
     expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/api/v1/auth/logout"))).toBe(true);
     vi.unstubAllGlobals();
@@ -165,7 +165,7 @@ describe("DashboardPage", () => {
     );
     renderDashboard(session);
 
-    await user.click(screen.getByRole("button", { name: /sign out/i }));
+    await user.click(screen.getByRole("button", { name: /^sign out$/i }));
 
     expect(screen.getByText("Sign-in page")).toBeDefined();
     release(undefined);
@@ -178,10 +178,103 @@ describe("DashboardPage", () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
     renderDashboard(session);
 
-    await user.click(screen.getByRole("button", { name: /sign out/i }));
+    await user.click(screen.getByRole("button", { name: /^sign out$/i }));
 
     expect(screen.getByText("Sign-in page")).toBeDefined();
     expect(screen.queryByRole("heading", { name: /welcome/i })).toBeNull();
     vi.unstubAllGlobals();
+  });
+  // ---- logout all devices (ADR-014) ----
+
+  describe("signing out of all devices", () => {
+    const allDevicesButton = () => screen.getByRole("button", { name: /sign out of all devices/i });
+
+    function stubOk() {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ success: true, data: {} }),
+      } as Response);
+      vi.stubGlobal("fetch", fetchMock);
+      return fetchMock;
+    }
+
+    it("offers the control alongside the ordinary sign out", () => {
+      renderDashboard(session);
+
+      expect(allDevicesButton()).toBeDefined();
+      expect(screen.getByRole("button", { name: /^sign out$/i })).toBeDefined();
+    });
+
+    it("calls the logout-all endpoint", async () => {
+      const user = userEvent.setup();
+      const fetchMock = stubOk();
+      renderDashboard(session);
+
+      await user.click(allDevicesButton());
+
+      expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/api/v1/auth/logout-all"))).toBe(true);
+      vi.unstubAllGlobals();
+    });
+
+    // The two controls must not be wired to each other's endpoint.
+    it("does not call the single-session logout endpoint", async () => {
+      const user = userEvent.setup();
+      const fetchMock = stubOk();
+      renderDashboard(session);
+
+      await user.click(allDevicesButton());
+
+      expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/api/v1/auth/logout"))).toBe(false);
+      vi.unstubAllGlobals();
+    });
+
+    it("clears the session and returns to the sign-in page", async () => {
+      const user = userEvent.setup();
+      stubOk();
+      renderDashboard(session);
+
+      await user.click(allDevicesButton());
+
+      expect(screen.getByText("Sign-in page")).toBeDefined();
+      expect(screen.queryByRole("heading", { name: /welcome/i })).toBeNull();
+      vi.unstubAllGlobals();
+    });
+
+    // No partially authenticated state: the redirect does not wait on the wire.
+    it("redirects before the request answers", async () => {
+      const user = userEvent.setup();
+      let release: (value: unknown) => void = () => undefined;
+      const pending = new Promise((resolve) => {
+        release = resolve;
+      });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockImplementation((url: string) =>
+          String(url).endsWith("/auth/logout-all")
+            ? pending.then(() => ({ ok: true, status: 200, json: () => Promise.resolve({ success: true, data: {} }) }))
+            : Promise.resolve({ ok: false, status: 401, json: () => Promise.resolve({ success: false, error: {} }) }),
+        ),
+      );
+      renderDashboard(session);
+
+      await user.click(allDevicesButton());
+
+      expect(screen.getByText("Sign-in page")).toBeDefined();
+      release(undefined);
+      vi.unstubAllGlobals();
+    });
+
+    it("still signs the browser out when the request fails", async () => {
+      const user = userEvent.setup();
+      vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+      renderDashboard(session);
+
+      await user.click(allDevicesButton());
+
+      expect(screen.getByText("Sign-in page")).toBeDefined();
+      expect(screen.queryByRole("heading", { name: /welcome/i })).toBeNull();
+      vi.unstubAllGlobals();
+    });
   });
 });

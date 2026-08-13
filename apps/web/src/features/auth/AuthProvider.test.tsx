@@ -37,7 +37,7 @@ function stubFetch(status: number, body: unknown) {
 
 /** Renders the provider's state as text so assertions read it from the DOM. */
 function AuthStateProbe() {
-  const { session, isAuthenticated, isRestoring, signOut } = useAuth();
+  const { session, isAuthenticated, isRestoring, signOut, signOutAllDevices } = useAuth();
 
   return (
     <div>
@@ -45,6 +45,9 @@ function AuthStateProbe() {
       <p data-testid="who">{session?.user.email ?? "nobody"}</p>
       <button type="button" onClick={signOut}>
         Sign out
+      </button>
+      <button type="button" onClick={signOutAllDevices}>
+        Sign out of all devices
       </button>
     </div>
   );
@@ -220,7 +223,7 @@ describe("AuthProvider session handling", () => {
     renderProvider();
     await waitFor(() => expect(phase()).toBe("authenticated"));
 
-    await user.click(screen.getByRole("button", { name: /sign out/i }));
+    await user.click(screen.getByRole("button", { name: /^sign out$/i }));
 
     expect(phase()).toBe("anonymous");
     expect(who()).toBe("nobody");
@@ -236,7 +239,7 @@ describe("AuthProvider session handling", () => {
     renderProvider();
     await waitFor(() => expect(phase()).toBe("authenticated"));
 
-    await user.click(screen.getByRole("button", { name: /sign out/i }));
+    await user.click(screen.getByRole("button", { name: /^sign out$/i }));
 
     await waitFor(() =>
       expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith("/auth/logout"))).toBe(true),
@@ -250,7 +253,7 @@ describe("AuthProvider session handling", () => {
     renderProvider();
     await waitFor(() => expect(phase()).toBe("authenticated"));
 
-    await user.click(screen.getByRole("button", { name: /sign out/i }));
+    await user.click(screen.getByRole("button", { name: /^sign out$/i }));
 
     const logoutCall = await waitFor(() => {
       const call = fetchMock.mock.calls.find(([url]) => String(url).endsWith("/auth/logout"));
@@ -279,7 +282,7 @@ describe("AuthProvider session handling", () => {
     renderProvider();
     await waitFor(() => expect(phase()).toBe("authenticated"));
 
-    await user.click(screen.getByRole("button", { name: /sign out/i }));
+    await user.click(screen.getByRole("button", { name: /^sign out$/i }));
 
     expect(phase()).toBe("anonymous");
     expect(who()).toBe("nobody");
@@ -303,7 +306,7 @@ describe("AuthProvider session handling", () => {
     renderProvider();
     await waitFor(() => expect(phase()).toBe("authenticated"));
 
-    await user.click(screen.getByRole("button", { name: /sign out/i }));
+    await user.click(screen.getByRole("button", { name: /^sign out$/i }));
 
     // The request has not answered yet, and the session is already gone.
     expect(phase()).toBe("anonymous");
@@ -396,5 +399,129 @@ describe("AuthProvider single-flight refresh", () => {
 
     // Signing the user out is what makes ProtectedRoute redirect to /login.
     await waitFor(() => expect(phase()).toBe("anonymous"));
+  });
+});
+
+describe("AuthProvider logout-all (ADR-014)", () => {
+  const clickSignOutAll = async (user: ReturnType<typeof userEvent.setup>) =>
+    user.click(screen.getByRole("button", { name: /sign out of all devices/i }));
+
+  const logoutAllCallsIn = (fetchMock: ReturnType<typeof vi.fn>) =>
+    fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/auth/logout-all"));
+
+  it("asks the server to end every session", async () => {
+    const user = userEvent.setup();
+    const fetchMock = stubFetch(200, refreshSuccess);
+    renderProvider();
+    await waitFor(() => expect(phase()).toBe("authenticated"));
+
+    await clickSignOutAll(user);
+
+    await waitFor(() => expect(logoutAllCallsIn(fetchMock)).toHaveLength(1));
+  });
+
+  it("clears the local session", async () => {
+    const user = userEvent.setup();
+    stubFetch(200, refreshSuccess);
+    renderProvider();
+    await waitFor(() => expect(phase()).toBe("authenticated"));
+
+    await clickSignOutAll(user);
+
+    expect(phase()).toBe("anonymous");
+    expect(who()).toBe("nobody");
+  });
+
+  // The credential is the cookie; there is nothing for this call to send.
+  it("sends no body and no Authorization header", async () => {
+    const user = userEvent.setup();
+    const fetchMock = stubFetch(200, refreshSuccess);
+    renderProvider();
+    await waitFor(() => expect(phase()).toBe("authenticated"));
+
+    await clickSignOutAll(user);
+
+    const call = await waitFor(() => {
+      const found = logoutAllCallsIn(fetchMock)[0];
+      expect(found).toBeDefined();
+      return found!;
+    });
+    const init = call[1] as RequestInit;
+    expect(init.method).toBe("POST");
+    expect(init.body).toBeUndefined();
+    expect(init.headers).toBeUndefined();
+    expect(init.credentials).toBe("same-origin");
+  });
+
+  // Local state clears first, so leaving never waits on the network.
+  it("clears the session before the server answers", async () => {
+    const user = userEvent.setup();
+    let release: (value: unknown) => void = () => undefined;
+    const pending = new Promise((resolve) => {
+      release = resolve;
+    });
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (String(url).endsWith("/auth/logout-all")) {
+        return pending.then(
+          () => ({ ok: true, status: 200, json: () => Promise.resolve({ success: true, data: {} }) }) as Response,
+        );
+      }
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(refreshSuccess) } as Response);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderProvider();
+    await waitFor(() => expect(phase()).toBe("authenticated"));
+
+    await clickSignOutAll(user);
+
+    expect(phase()).toBe("anonymous");
+    release(undefined);
+  });
+
+  /*
+    A failed request leaves the OTHER devices signed in, which is the opposite
+    of what was asked — but refusing to sign out the browser in front of the
+    person helps nobody (ADR-014 consequences).
+  */
+  it("still clears the local session when the request fails", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (String(url).endsWith("/auth/logout-all")) return Promise.reject(new TypeError("Failed to fetch"));
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(refreshSuccess) } as Response);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderProvider();
+    await waitFor(() => expect(phase()).toBe("authenticated"));
+
+    await clickSignOutAll(user);
+
+    expect(phase()).toBe("anonymous");
+    expect(who()).toBe("nobody");
+  });
+
+  // The two controls must not be wired to each other's endpoint.
+  it("does not call the single-session logout endpoint", async () => {
+    const user = userEvent.setup();
+    const fetchMock = stubFetch(200, refreshSuccess);
+    renderProvider();
+    await waitFor(() => expect(phase()).toBe("authenticated"));
+
+    await clickSignOutAll(user);
+
+    await waitFor(() => expect(logoutAllCallsIn(fetchMock)).toHaveLength(1));
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/auth/logout"))).toHaveLength(0);
+  });
+
+  it("leaves the session restorable by a fresh sign-in", async () => {
+    const user = userEvent.setup();
+    stubFetch(200, refreshSuccess);
+    renderProvider();
+    await waitFor(() => expect(phase()).toBe("authenticated"));
+
+    await clickSignOutAll(user);
+    expect(phase()).toBe("anonymous");
+
+    // Nothing about signing out everywhere should poison later sign-ins.
+    expect(who()).toBe("nobody");
   });
 });
