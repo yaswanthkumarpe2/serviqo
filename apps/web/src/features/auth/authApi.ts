@@ -50,6 +50,39 @@ export interface CurrentUser {
   createdAt: string;
 }
 
+/**
+ * One organization the caller belongs to, and their standing in it
+ * (ADR-017 §9).
+ *
+ * The server lists only organizations the caller can actually enter — active
+ * memberships in active organizations — so every entry here is a valid
+ * switcher option rather than one that 404s when chosen.
+ */
+export interface CurrentUserMembership {
+  membershipId: string;
+  /** From the database. Display only — it authorizes nothing client-side. */
+  role: string;
+  organization: {
+    id: string;
+    name: string;
+    slug: string;
+    status: string;
+  };
+}
+
+/**
+ * The `/me` payload: who the caller is, and where they work.
+ *
+ * `memberships` is a LIST and never a selection — the server has no notion of
+ * a "current" organization. The client chooses, and the server re-proves that
+ * choice on every request (ADR-017 §1, §10).
+ */
+export interface CurrentUserResult {
+  user: CurrentUser;
+  /** Empty for a user who has registered and not yet onboarded. Never fabricated. */
+  memberships: CurrentUserMembership[];
+}
+
 export interface LoginResult {
   user: AuthenticatedUser;
   accessToken: string;
@@ -259,7 +292,7 @@ type AuthorizedFetch = (path: string, init?: RequestInit) => Promise<Response>;
  * error is rethrown untouched: wrapping it would hide which of the two
  * happened from the only code that has to tell them apart.
  */
-export async function fetchCurrentUser(authorizedFetch: AuthorizedFetch): Promise<CurrentUser> {
+export async function fetchCurrentUser(authorizedFetch: AuthorizedFetch): Promise<CurrentUserResult> {
   let response: Response;
 
   try {
@@ -270,9 +303,10 @@ export async function fetchCurrentUser(authorizedFetch: AuthorizedFetch): Promis
     throw new AuthApiError(NETWORK_ERROR, GENERIC_NETWORK_MESSAGE, 0);
   }
 
-  // Nested under `user` exactly as login and refresh nest theirs, so the
-  // envelope's `data` stays a place a second field could be added later.
-  const { user } = await unwrapEnvelope<{ user: unknown }>(response);
+  // `memberships` is a sibling of `user`, exactly as the server nests them —
+  // a membership is a fact about a relationship, not an attribute of the
+  // person (ADR-017 §9).
+  const { user, memberships } = await unwrapEnvelope<{ user: unknown; memberships?: unknown }>(response);
 
   /*
     `isSuccessEnvelope` proves the envelope, not its contents — a body of
@@ -285,7 +319,17 @@ export async function fetchCurrentUser(authorizedFetch: AuthorizedFetch): Promis
     throw new AuthApiError(UNEXPECTED_RESPONSE, GENERIC_FAILURE_MESSAGE, response.status);
   }
 
-  return user;
+  /*
+    Every entry is validated rather than trusted, and anything malformed is
+    dropped instead of failing the whole response: a switcher missing one
+    option is a far better outcome than a dashboard that will not load. The
+    user's identity is load-bearing and is checked strictly above; the
+    membership list is not.
+  */
+  return {
+    user,
+    memberships: Array.isArray(memberships) ? memberships.filter(isCurrentUserMembership) : [],
+  };
 }
 
 /** Narrows on the fields that are actually rendered; the rest are the server's business. */
@@ -294,5 +338,18 @@ function isCurrentUser(value: unknown): value is CurrentUser {
   const candidate = value as Partial<CurrentUser>;
   return (
     typeof candidate.id === "string" && typeof candidate.name === "string" && typeof candidate.email === "string"
+  );
+}
+
+function isCurrentUserMembership(value: unknown): value is CurrentUserMembership {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<CurrentUserMembership>;
+  const organization = candidate.organization;
+  return (
+    typeof candidate.role === "string" &&
+    typeof organization === "object" &&
+    organization !== null &&
+    typeof organization.id === "string" &&
+    typeof organization.name === "string"
   );
 }

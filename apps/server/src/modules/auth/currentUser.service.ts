@@ -1,7 +1,11 @@
 import { InvalidAccessTokenError } from "../../lib/errors";
 import { logger } from "../../lib/logger";
+import { membershipRepository } from "../memberships/membership.repository";
+import { organizationRepository } from "../organizations/organization.repository";
 import { userRepository } from "../users/user.repository";
 
+import type { MembershipRole } from "../memberships/membership.model";
+import type { OrganizationStatus } from "../organizations/organization.model";
 import type { UserDocument, UserStatus } from "../users/user.model";
 import type { AccessTokenPrincipal } from "./accessToken";
 import type { AuthLogger } from "./authLogging";
@@ -29,9 +33,10 @@ import type { AuthLogger } from "./authLogging";
  * has already proved it owns. Aliasing them would mean a field added for one
  * appears in the other.
  *
- * No `organizationId` and no `role`: nothing creates a `Membership` yet, so
- * the field would be null for every caller, and "current organization" is not
- * a concept this architecture has (ADR-015 §9).
+ * No `organizationId` and no `role` ON THIS TYPE, still. Memberships are a
+ * sibling of the user in the response rather than fields on it, because a
+ * membership is a fact about a relationship and not an attribute of the
+ * person — the same reason `User` carries no `organizationId` (ADR-010 §3).
  */
 export interface CurrentUser {
   id: string;
@@ -52,8 +57,46 @@ export interface CurrentUser {
   createdAt: Date;
 }
 
+/**
+ * One organization the caller belongs to, and their standing in it
+ * (ADR-017 §9).
+ *
+ * Minimal on purpose: `id`, `name`, `slug`, `status`. No timestamps, no
+ * internal fields, nothing about other members. A switcher needs a label, an
+ * address, and an id.
+ */
+export interface CurrentUserMembership {
+  membershipId: string;
+  role: MembershipRole;
+  organization: {
+    id: string;
+    name: string;
+    slug: string;
+    /**
+     * Always `"active"` today — only active organizations are listed. Kept
+     * for ADR-015 §10's reason: a client that reads it survives a future
+     * state being allowed through, where one that assumed "listed implies
+     * active" would have to be found and changed.
+     */
+    status: OrganizationStatus;
+  };
+}
+
+/**
+ * The whole `/me` payload: who the caller is, and where they work.
+ *
+ * A LIST, never a selection. There is no `currentOrganizationId` here,
+ * because the server has no notion of "current" — the client chooses and the
+ * server re-proves that choice on every request (ADR-017 §1, §10).
+ */
+export interface CurrentUserResult {
+  user: CurrentUser;
+  /** Empty for a user who has registered and not yet onboarded. Never fabricated. */
+  memberships: CurrentUserMembership[];
+}
+
 export interface CurrentUserService {
-  getCurrentUser(principal: AccessTokenPrincipal, log?: AuthLogger): Promise<CurrentUser>;
+  getCurrentUser(principal: AccessTokenPrincipal, log?: AuthLogger): Promise<CurrentUserResult>;
 }
 
 /** The same message every other refusal on this route carries (ADR-015 §6). */
@@ -79,9 +122,66 @@ function toCurrentUser(user: UserDocument): CurrentUser {
   };
 }
 
+/**
+ * The caller's memberships, with the organization each one points at
+ * (ADR-017 §9).
+ *
+ * Uses `findByUser` — the listing lookup, never the authorization one. This
+ * request names no organization, so there is nothing to authorize; it asks
+ * "which do I belong to", and `userId` is the complete scope (ADR-017 §4).
+ *
+ * Applies the same gates `requireOrganization` applies, so the list contains
+ * only organizations the caller can actually enter: an entry for a suspended
+ * tenant, or for a membership still `invited`, would be a switcher option
+ * that 404s the moment it is chosen.
+ *
+ * The organizations are fetched one by one rather than with a single `$in`.
+ * At the scale a person's membership list reaches — a handful, and dozens at
+ * the extreme — the round trips are cheap, and `organizationRepository` has
+ * no bulk method to add speculatively (its own comment: "nothing in the
+ * codebase needs them yet"). A user with hundreds of memberships would make
+ * this worth revisiting; none exists.
+ */
+async function loadMemberships(userId: string): Promise<CurrentUserMembership[]> {
+  const memberships = await membershipRepository.findByUser(userId);
+
+  const entries: CurrentUserMembership[] = [];
+
+  for (const membership of memberships) {
+    if (membership.status !== "active") continue;
+
+    const organization = await organizationRepository.findById(membership.organizationId.toString());
+    // Null is reachable: ADR-016 §3 accepts an inert membership pointing at
+    // an organization whose write failed. It is skipped rather than reported.
+    if (organization === null || organization.status !== "active") continue;
+
+    entries.push({
+      membershipId: membership._id.toString(),
+      role: membership.role,
+      organization: {
+        id: organization._id.toString(),
+        name: organization.name,
+        slug: organization.slug,
+        status: organization.status,
+      },
+    });
+  }
+
+  /*
+    Deterministic order (ADR-017 §9). Mongo promises none, and a switcher
+    that reshuffles between loads is one people mis-click. By name for the
+    reader, then by id to break ties — two organizations may share a display
+    name (ADR-016 consequences).
+  */
+  return entries.sort(
+    (a, b) =>
+      a.organization.name.localeCompare(b.organization.name) || a.organization.id.localeCompare(b.organization.id),
+  );
+}
+
 export function createCurrentUserService(): CurrentUserService {
   return {
-    async getCurrentUser(principal: AccessTokenPrincipal, log: AuthLogger = logger): Promise<CurrentUser> {
+    async getCurrentUser(principal: AccessTokenPrincipal, log: AuthLogger = logger): Promise<CurrentUserResult> {
       const { userId, sessionId } = principal;
 
       const user = await userRepository.findById(userId);
@@ -113,9 +213,20 @@ export function createCurrentUserService(): CurrentUserService {
         throw new InvalidAccessTokenError(GENERIC_FAILURE_MESSAGE);
       }
 
-      log.info({ event: "auth.me.succeeded", userId, sessionId }, "Current user resolved");
+      const memberships = await loadMemberships(userId);
 
-      return toCurrentUser(user);
+      /*
+        The COUNT is logged; the organizations are not. How many tenants a
+        person belongs to is operationally useful when a switcher misbehaves,
+        while their names and ids in every /me line would put tenant data in
+        the log on every dashboard load (ADR-016 §9's reasoning).
+      */
+      log.info(
+        { event: "auth.me.succeeded", userId, sessionId, membershipCount: memberships.length },
+        "Current user resolved",
+      );
+
+      return { user: toCurrentUser(user), memberships };
     },
   };
 }

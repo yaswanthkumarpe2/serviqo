@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { AuthApiError, fetchCurrentUser } from "./authApi";
 import { useAuth } from "./useAuth";
 
-import type { CurrentUser } from "./authApi";
+import type { CurrentUser, CurrentUserMembership } from "./authApi";
 
 /**
  * Loads the signed-in account from `GET /auth/me` (ADR-015).
@@ -16,6 +16,14 @@ import type { CurrentUser } from "./authApi";
 
 export interface CurrentUserState {
   user: CurrentUser | null;
+  /**
+   * The organizations the caller belongs to (ADR-017 §9).
+   *
+   * Empty while loading and empty for a user who has onboarded nothing —
+   * those two are told apart by `isLoading`, not by this being null. Every
+   * entry is one the server confirmed the caller can enter.
+   */
+  memberships: CurrentUserMembership[];
   /** True until the first answer arrives. Nothing real is known before it settles. */
   isLoading: boolean;
   /**
@@ -30,7 +38,12 @@ const GENERIC_FAILURE_MESSAGE = "Could not load your account. Please try again."
 
 export function useCurrentUser(): CurrentUserState {
   const { authorizedFetch, signOut } = useAuth();
-  const [state, setState] = useState<CurrentUserState>({ user: null, isLoading: true, error: null });
+  const [state, setState] = useState<CurrentUserState>({
+    user: null,
+    memberships: [],
+    isLoading: true,
+    error: null,
+  });
 
   /**
    * Guards the one load per mount.
@@ -54,7 +67,7 @@ export function useCurrentUser(): CurrentUserState {
       unmount is a no-op in React 18+.
     */
     void fetchCurrentUser(authorizedFetch)
-      .then((user) => setState({ user, isLoading: false, error: null }))
+      .then(({ user, memberships }) => setState({ user, memberships, isLoading: false, error: null }))
       .catch((error: unknown) => {
         /*
           A 401 here has already been through `authorizedRequest`'s one
@@ -72,14 +85,14 @@ export function useCurrentUser(): CurrentUserState {
         */
         if (error instanceof AuthApiError && error.status === 401) {
           void signOut();
-          setState({ user: null, isLoading: false, error: null });
+          setState({ user: null, memberships: [], isLoading: false, error: null });
           return;
         }
 
         // Anything else is worth showing. The message is this client's own —
         // a server message is display text, and a transport error's can name
         // internal hosts.
-        setState({ user: null, isLoading: false, error: GENERIC_FAILURE_MESSAGE });
+        setState({ user: null, memberships: [], isLoading: false, error: GENERIC_FAILURE_MESSAGE });
       });
   }, [authorizedFetch, signOut]);
 

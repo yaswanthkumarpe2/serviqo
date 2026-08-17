@@ -3,9 +3,13 @@ import mongoose from "mongoose";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { InvalidAccessTokenError } from "../../lib/errors";
+import { MembershipModel } from "../memberships/membership.model";
+import { OrganizationModel } from "../organizations/organization.model";
 import { UserModel } from "../users/user.model";
 import { createCurrentUserService } from "./currentUser.service";
 
+import type { MembershipRole, MembershipStatus } from "../memberships/membership.model";
+import type { OrganizationStatus } from "../organizations/organization.model";
 import type { UserDocument } from "../users/user.model";
 import type { AccessTokenPrincipal } from "./accessToken";
 import type { AuthLogger } from "./authLogging";
@@ -59,10 +63,18 @@ describe("currentUserService", () => {
     mongoServer = await MongoMemoryServer.create();
     await mongoose.connect(mongoServer.getUri());
     await UserModel.init();
+    // The membership tests below rely on real index behaviour (one membership
+    // per user per organization, one owner per organization).
+    await OrganizationModel.init();
+    await MembershipModel.init();
   });
 
   afterEach(async () => {
-    await UserModel.deleteMany({});
+    await Promise.all([
+      UserModel.deleteMany({}),
+      OrganizationModel.deleteMany({}),
+      MembershipModel.deleteMany({}),
+    ]);
   });
 
   afterAll(async () => {
@@ -74,7 +86,7 @@ describe("currentUserService", () => {
     it("returns the user the principal names", async () => {
       const user = await seedUser();
 
-      const current = await service.getCurrentUser(principalFor(user));
+      const { user: current } = await service.getCurrentUser(principalFor(user));
 
       expect(current.id).toBe(user._id.toString());
       expect(current.name).toBe("Ada Lovelace");
@@ -84,7 +96,7 @@ describe("currentUserService", () => {
     it("returns the account's state and timestamps", async () => {
       const user = await seedUser();
 
-      const current = await service.getCurrentUser(principalFor(user));
+      const { user: current } = await service.getCurrentUser(principalFor(user));
 
       expect(current.status).toBe("active");
       expect(current.emailVerifiedAt).toBeInstanceOf(Date);
@@ -100,7 +112,7 @@ describe("currentUserService", () => {
       const user = await seedUser();
       await UserModel.updateOne({ _id: user._id }, { $set: { name: "Ada King" } });
 
-      const current = await service.getCurrentUser(principalFor(user));
+      const { user: current } = await service.getCurrentUser(principalFor(user));
 
       expect(current.name).toBe("Ada King");
     });
@@ -110,7 +122,7 @@ describe("currentUserService", () => {
     it("returns exactly the approved fields and nothing else", async () => {
       const user = await seedUser();
 
-      const current = await service.getCurrentUser(principalFor(user));
+      const { user: current } = await service.getCurrentUser(principalFor(user));
 
       expect(Object.keys(current).sort()).toEqual([
         "createdAt",
@@ -125,7 +137,7 @@ describe("currentUserService", () => {
     it("exposes no credential, lockout, or internal persistence field", async () => {
       const user = await seedUser({ failedLoginAttempts: 3, lockedUntil: new Date(Date.now() + 60_000) });
 
-      const current = await service.getCurrentUser(principalFor(user));
+      const { user: current } = await service.getCurrentUser(principalFor(user));
       const serialized = JSON.stringify(current);
 
       for (const field of [
@@ -145,13 +157,16 @@ describe("currentUserService", () => {
       expect(serialized).not.toContain("$argon2");
     });
 
-    // ADR-015 §9: nothing creates a Membership, so an organization field would
-    // be null for every caller — and "current organization" is not a concept
-    // this architecture has.
-    it("carries no organization or role", async () => {
+    /*
+      Memberships are a SIBLING of the user in the response, not fields on it
+      (ADR-017 §9): a membership is a fact about a relationship rather than an
+      attribute of the person, the same reason `User` carries no
+      `organizationId` (ADR-010 §3).
+    */
+    it("carries no organization or role on the user itself", async () => {
       const user = await seedUser();
 
-      const current = await service.getCurrentUser(principalFor(user));
+      const { user: current } = await service.getCurrentUser(principalFor(user));
 
       expect(current).not.toHaveProperty("organizationId");
       expect(current).not.toHaveProperty("organization");
@@ -273,6 +288,203 @@ describe("currentUserService", () => {
 
     await expect(
       service.getCurrentUser({ userId: user._id.toString(), sessionId: SESSION_ID }),
-    ).resolves.toMatchObject({ email: EMAIL });
+    ).resolves.toMatchObject({ user: { email: EMAIL } });
+  });
+
+  // ---- memberships (ADR-017 §9) ----
+
+  describe("memberships", () => {
+    /** Creates an organization and puts `user` in it. */
+    async function joinOrganization(
+      user: UserDocument,
+      name: string,
+      slug: string,
+      overrides: { role?: MembershipRole; membershipStatus?: MembershipStatus; orgStatus?: OrganizationStatus } = {},
+    ) {
+      const organization = await OrganizationModel.create({
+        name,
+        slug,
+        status: overrides.orgStatus ?? "active",
+      });
+      const membership = await MembershipModel.create({
+        userId: user._id,
+        organizationId: organization._id,
+        role: overrides.role ?? "owner",
+        status: overrides.membershipStatus ?? "active",
+      });
+      return { organization, membership };
+    }
+
+    it("returns an empty list for a user who belongs to nothing", async () => {
+      const user = await seedUser();
+
+      const { memberships } = await service.getCurrentUser(principalFor(user));
+
+      // Empty, never a fabricated organization and never null dressed as one.
+      expect(memberships).toEqual([]);
+    });
+
+    it("returns the one organization a user belongs to", async () => {
+      const user = await seedUser();
+      const { organization, membership } = await joinOrganization(user, "Acme Corp", "acme-corp");
+
+      const { memberships } = await service.getCurrentUser(principalFor(user));
+
+      expect(memberships).toHaveLength(1);
+      expect(memberships[0]).toEqual({
+        membershipId: membership._id.toString(),
+        role: "owner",
+        organization: {
+          id: organization._id.toString(),
+          name: "Acme Corp",
+          slug: "acme-corp",
+          status: "active",
+        },
+      });
+    });
+
+    it("returns every organization a user belongs to", async () => {
+      const user = await seedUser();
+      await joinOrganization(user, "Acme", "acme", { role: "owner" });
+      await joinOrganization(user, "Globex", "globex", { role: "agent" });
+      await joinOrganization(user, "Initech", "initech", { role: "supervisor" });
+
+      const { memberships } = await service.getCurrentUser(principalFor(user));
+
+      expect(memberships).toHaveLength(3);
+      expect(memberships.map((m) => m.organization.name)).toEqual(["Acme", "Globex", "Initech"]);
+      expect(memberships.map((m) => m.role)).toEqual(["owner", "agent", "supervisor"]);
+    });
+
+    /*
+      The isolation property, stated directly: one user's list must contain
+      nothing belonging to another.
+    */
+    it("returns only the caller's own memberships", async () => {
+      const ada = await seedUser({ email: "ada@example.com" });
+      const grace = await seedUser({ email: "grace@example.com" });
+      await joinOrganization(ada, "Ada Org", "ada-org");
+      await joinOrganization(grace, "Grace Org", "grace-org");
+
+      const adaResult = await service.getCurrentUser(principalFor(ada));
+      const graceResult = await service.getCurrentUser(principalFor(grace));
+
+      expect(adaResult.memberships.map((m) => m.organization.slug)).toEqual(["ada-org"]);
+      expect(graceResult.memberships.map((m) => m.organization.slug)).toEqual(["grace-org"]);
+    });
+
+    it("does not list an organization a different user owns", async () => {
+      const ada = await seedUser({ email: "ada@example.com" });
+      const grace = await seedUser({ email: "grace@example.com" });
+      await joinOrganization(grace, "Grace Only", "grace-only");
+
+      const { memberships } = await service.getCurrentUser(principalFor(ada));
+
+      expect(memberships).toEqual([]);
+    });
+
+    // The same gates requireOrganization applies, so no entry can 404 when
+    // the switcher selects it (ADR-017 §9).
+    it.each([
+      ["an invited membership", { membershipStatus: "invited" as MembershipStatus }],
+      ["a suspended membership", { membershipStatus: "suspended" as MembershipStatus }],
+      ["a suspended organization", { orgStatus: "suspended" as OrganizationStatus }],
+    ])("omits %s", async (_label, overrides) => {
+      const user = await seedUser();
+      await joinOrganization(user, "Hidden", "hidden", overrides);
+
+      const { memberships } = await service.getCurrentUser(principalFor(user));
+
+      expect(memberships).toEqual([]);
+    });
+
+    it("lists the reachable organizations and omits the unreachable ones together", async () => {
+      const user = await seedUser();
+      await joinOrganization(user, "Reachable", "reachable");
+      await joinOrganization(user, "Suspended Org", "suspended-org", { orgStatus: "suspended" });
+      await joinOrganization(user, "Invited", "invited", { membershipStatus: "invited" });
+
+      const { memberships } = await service.getCurrentUser(principalFor(user));
+
+      expect(memberships.map((m) => m.organization.slug)).toEqual(["reachable"]);
+    });
+
+    /*
+      ADR-016 §3 accepts an inert membership pointing at an organization whose
+      write failed. It must be skipped rather than crash the payload.
+    */
+    it("skips a membership whose organization does not exist", async () => {
+      const user = await seedUser();
+      const { organization } = await joinOrganization(user, "Doomed", "doomed");
+      await OrganizationModel.deleteOne({ _id: organization._id });
+
+      const { memberships } = await service.getCurrentUser(principalFor(user));
+
+      expect(memberships).toEqual([]);
+    });
+
+    // Mongo promises no order; a switcher that reshuffles is one people
+    // mis-click (ADR-017 §9).
+    it("orders deterministically by organization name", async () => {
+      const user = await seedUser();
+      await joinOrganization(user, "Zebra", "zebra");
+      await joinOrganization(user, "Alpha", "alpha");
+      await joinOrganization(user, "Mango", "mango");
+
+      const first = await service.getCurrentUser(principalFor(user));
+      const second = await service.getCurrentUser(principalFor(user));
+
+      expect(first.memberships.map((m) => m.organization.name)).toEqual(["Alpha", "Mango", "Zebra"]);
+      expect(second.memberships.map((m) => m.organization.name)).toEqual(
+        first.memberships.map((m) => m.organization.name),
+      );
+    });
+
+    it("exposes only the approved organization fields", async () => {
+      const user = await seedUser();
+      await joinOrganization(user, "Acme", "acme");
+
+      const { memberships } = await service.getCurrentUser(principalFor(user));
+
+      expect(Object.keys(memberships[0]!).sort()).toEqual(["membershipId", "organization", "role"]);
+      expect(Object.keys(memberships[0]!.organization).sort()).toEqual(["id", "name", "slug", "status"]);
+    });
+
+    it("exposes no permission list", async () => {
+      const user = await seedUser();
+      await joinOrganization(user, "Acme", "acme");
+
+      const { memberships } = await service.getCurrentUser(principalFor(user));
+
+      // A permission list in a payload invites a client to authorize itself
+      // from it (ADR-017 §10).
+      expect(memberships[0]).not.toHaveProperty("permissions");
+      expect(JSON.stringify(memberships)).not.toContain("organization.read");
+    });
+
+    it("reports no current or active organization", async () => {
+      const user = await seedUser();
+      await joinOrganization(user, "Acme", "acme");
+
+      const result = await service.getCurrentUser(principalFor(user));
+
+      // The server has no notion of "current"; the client chooses and the
+      // server re-proves that choice per request (ADR-017 §1).
+      expect(result).not.toHaveProperty("currentOrganizationId");
+      expect(result).not.toHaveProperty("activeOrganizationId");
+      expect(Object.keys(result).sort()).toEqual(["memberships", "user"]);
+    });
+
+    it("logs the membership count and not the organizations", async () => {
+      const user = await seedUser();
+      await joinOrganization(user, "Zzyzx Confidential", "zzyzx");
+      const logger = createCapturingLogger();
+
+      await service.getCurrentUser(principalFor(user), logger.log);
+
+      expect(logger.serialized()).toContain("membershipCount");
+      expect(logger.serialized()).not.toContain("Zzyzx Confidential");
+      expect(logger.serialized()).not.toContain("zzyzx");
+    });
   });
 });

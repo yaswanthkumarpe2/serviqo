@@ -18,11 +18,17 @@ export interface CreateMembershipInput {
  *
  * Tenant-safety note: authorization-related lookups go through
  * findByUserAndOrganization(userId, organizationId), which proves the
- * relationship against BOTH identities in a single indexed query. There
- * is deliberately no findByUser(userId) here that a caller could follow
- * with in-memory filtering — that shape invites "fetch everything, then
- * filter", which is exactly how cross-tenant leaks happen. The future
- * requireOrganization middleware depends on this method.
+ * relationship against BOTH identities in a single indexed query.
+ * `requireOrganization` depends on this method (ADR-017 §3).
+ *
+ * This file originally recorded that findByUser(userId) would deliberately
+ * not exist, because a caller could follow it with in-memory filtering —
+ * "fetch everything, then filter" being exactly how cross-tenant leaks
+ * happen. It exists now, for `/me`'s membership list, and the prohibition it
+ * was written for is unchanged: findByUser answers "which organizations does
+ * this caller belong to" and MUST NOT be used to authorize a request that
+ * already names one. ADR-017 §4 records why listing is safe where filtering
+ * is not — see the method's own comment below.
  *
  * findByOrganization requires organizationId explicitly; there is no
  * unscoped findAllMemberships().
@@ -47,11 +53,47 @@ export const membershipRepository = {
     return MembershipModel.findById(id);
   },
 
+  /**
+   * THE authorization lookup (ADR-017 §3).
+   *
+   * Proves the relationship against both identities in a single indexed
+   * query, so the caller receives a document or `null` and has no comparison
+   * left to write by hand. `requireOrganization` uses this and may not use
+   * `findByUser` below — "fetch this user's memberships, then check in
+   * JavaScript whether one matches" is a comparison whose failure modes are
+   * all quiet: an ObjectId compared to a string, a `.find()` whose result is
+   * never checked, or a `status` gate forgotten on the row that matched.
+   */
   async findByUserAndOrganization(
     userId: ObjectIdLike,
     organizationId: ObjectIdLike,
   ): Promise<MembershipDocument | null> {
     return MembershipModel.findOne({ userId, organizationId });
+  },
+
+  /**
+   * The caller's own memberships, for listing them back to that caller
+   * (ADR-017 §4).
+   *
+   * NEVER FOR AUTHORIZATION. Proving access to one organization goes through
+   * `findByUserAndOrganization` above; this method exists so `/me` can answer
+   * "which organizations do I belong to", and a request that already names an
+   * organization must not be answered by fetching all of them and searching.
+   *
+   * This is the method the header of this file said would not exist, and the
+   * prohibition it was written for still holds. What that warned against was
+   * fetching broadly and filtering in memory. Here `userId` IS the complete
+   * scope: it is the prefix of the `{ userId: 1, organizationId: 1 }` unique
+   * index, the result set is by construction exactly the caller's own rows,
+   * nothing is filtered afterwards, and the caller is the subject of every
+   * document returned.
+   *
+   * Sorted by `organizationId` so the order is stable across calls — Mongo
+   * makes no promise otherwise, and a switcher that reshuffles between loads
+   * is a switcher people mis-click.
+   */
+  async findByUser(userId: ObjectIdLike): Promise<MembershipDocument[]> {
+    return MembershipModel.find({ userId }).sort({ organizationId: 1 });
   },
 
   async findByOrganization(organizationId: ObjectIdLike): Promise<MembershipDocument[]> {

@@ -48,6 +48,27 @@ function jsonResponse(status: number, body: unknown): Response {
   } as Response;
 }
 
+/** One membership as `/auth/me` reports it (ADR-017 §9). */
+export interface StubMembership {
+  membershipId: string;
+  role: string;
+  organization: { id: string; name: string; slug: string; status: string };
+}
+
+/** Builds a membership without restating the organization shape each time. */
+export function stubMembership(
+  id: string,
+  name: string,
+  role = "owner",
+  status = "active",
+): StubMembership {
+  return {
+    membershipId: `m-${id}`,
+    role,
+    organization: { id, name, slug: name.toLowerCase().replace(/[^a-z0-9]+/g, "-"), status },
+  };
+}
+
 export interface StubAuthFetchOptions {
   /** How `/auth/me` answers. `"ok"` returns `currentUser`; `401` exercises the refusal path. */
   me?: "ok" | 401;
@@ -55,6 +76,11 @@ export interface StubAuthFetchOptions {
   refresh?: "ok" | 401;
   /** Overrides the user `/auth/me` reports, for tests that assert on the identity itself. */
   currentUser?: Partial<typeof CURRENT_USER>;
+  /**
+   * What `/auth/me` reports for `memberships`. Defaults to none — the state a
+   * user who has registered and not onboarded is actually in (ADR-017 §9).
+   */
+  memberships?: StubMembership[];
 }
 
 /**
@@ -64,9 +90,37 @@ export interface StubAuthFetchOptions {
  * `logout` and `logout-all` always succeed: no test in this suite is about
  * them failing except the ones that stub `fetch` themselves.
  */
-export function stubAuthFetch({ me = "ok", refresh = "ok", currentUser = {} }: StubAuthFetchOptions = {}) {
+export function stubAuthFetch({
+  me = "ok",
+  refresh = "ok",
+  currentUser = {},
+  memberships = [],
+}: StubAuthFetchOptions = {}) {
   const fetchMock = vi.fn().mockImplementation((url: string) => {
     const path = String(url);
+
+    /*
+      Organization context (ADR-017 §8). Answers 200 for any organization the
+      stubbed `/me` listed, and 404 for anything else — which is exactly what
+      the server does for a tenant the caller is not an active member of, and
+      is deliberately indistinguishable from one that does not exist.
+    */
+    const contextMatch = /\/api\/v1\/organizations\/([^/?]+)$/.exec(path);
+    if (contextMatch) {
+      const requested = decodeURIComponent(contextMatch[1]!);
+      const membership = memberships.find((m) => m.organization.id === requested);
+      return Promise.resolve(
+        membership
+          ? jsonResponse(200, {
+              success: true,
+              data: { organization: { ...membership.organization, createdAt: "2026-08-17T10:00:00.000Z" }, role: membership.role },
+            })
+          : jsonResponse(404, {
+              success: false,
+              error: { code: "NOT_FOUND", message: "Organization not found" },
+            }),
+      );
+    }
 
     if (path.endsWith("/auth/refresh")) {
       return Promise.resolve(
@@ -82,7 +136,10 @@ export function stubAuthFetch({ me = "ok", refresh = "ok", currentUser = {} }: S
     if (path.endsWith("/auth/me")) {
       return Promise.resolve(
         me === "ok"
-          ? jsonResponse(200, { success: true, data: { user: { ...CURRENT_USER, ...currentUser } } })
+          ? jsonResponse(200, {
+              success: true,
+              data: { user: { ...CURRENT_USER, ...currentUser }, memberships },
+            })
           : jsonResponse(401, UNAUTHENTICATED),
       );
     }

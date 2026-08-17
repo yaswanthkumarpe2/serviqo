@@ -5,6 +5,7 @@ import { BrandMark } from "@/components/ui/icons";
 import { useAuth } from "@/features/auth/useAuth";
 import { useCurrentUser } from "@/features/auth/useCurrentUser";
 import { CreateOrganizationForm } from "@/features/organizations/CreateOrganizationForm";
+import { OrganizationSwitcher } from "@/features/organizations/OrganizationSwitcher";
 
 import "./DashboardPage.css";
 
@@ -33,7 +34,7 @@ const SAMPLE_STATS: StatCard[] = [
 
 export function DashboardPage() {
   const { session, signOut, signOutAllDevices } = useAuth();
-  const { user, isLoading, error } = useCurrentUser();
+  const { user, memberships, isLoading, error } = useCurrentUser();
   const navigate = useNavigate();
 
   // ProtectedRoute guarantees a session before this renders; the guard keeps
@@ -129,11 +130,17 @@ export function DashboardPage() {
         </section>
 
         {/*
-          Real, and the only thing on this page that writes (ADR-016 §10).
-          It is placed above the sample metrics deliberately: a workspace with
-          no organization has exactly one useful action, and burying it under
+          Organization context (ADR-017 §10), then creation. Both are real and
+          sit above the sample metrics deliberately: a workspace with no
+          organization has exactly one useful action, and burying it under
           placeholder figures would invert that.
+
+          Rendered only once `/me` has settled — a switcher that appears empty
+          and then fills in reads as "you have no organizations", which is the
+          one thing it must not say while it does not yet know.
         */}
+        {!isLoading && user !== null && <OrganizationSwitcher memberships={memberships} />}
+
         <CreateOrganizationForm />
 
         <section aria-labelledby="dash-stats-heading">

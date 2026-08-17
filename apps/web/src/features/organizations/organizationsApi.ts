@@ -65,3 +65,40 @@ export async function createOrganization(
 
   return unwrapEnvelope<CreateOrganizationResult>(response);
 }
+
+/** The active organization and the caller's server-confirmed role in it. */
+export interface OrganizationContextResult {
+  organization: CreatedOrganization;
+  /**
+   * Resolved by the server from the database on this request (ADR-017 §5).
+   *
+   * This is the authoritative answer, not the one the switcher displayed
+   * from `/me`. They agree today; if they ever disagree, this is the one that
+   * decides what the caller may do.
+   */
+  role: string;
+}
+
+/**
+ * Reads one organization the caller belongs to (ADR-017 §8).
+ *
+ * The tenant is a path segment, which is the only place the server reads it
+ * from — a body or query value is never consulted (ADR-017 §1). A caller who
+ * is not an active member of an active organization receives a 404 that says
+ * nothing about whether the organization exists.
+ */
+export async function fetchOrganizationContext(
+  authorizedFetch: AuthorizedFetch,
+  organizationId: string,
+): Promise<OrganizationContextResult> {
+  let response: Response;
+
+  try {
+    response = await authorizedFetch(`${ORGANIZATIONS_BASE}/${encodeURIComponent(organizationId)}`);
+  } catch (error) {
+    if (error instanceof AuthApiError) throw error;
+    throw new AuthApiError(NETWORK_ERROR, GENERIC_NETWORK_MESSAGE, 0);
+  }
+
+  return unwrapEnvelope<OrganizationContextResult>(response);
+}

@@ -198,12 +198,20 @@ export function createAuthController({
    * which is the stronger guarantee (ADR-015 §11).
    */
   const me: RequestHandler = async (req, res) => {
-    const user = await currentUserService.getCurrentUser(req.principal!, req.log);
+    const { user, memberships } = await currentUserService.getCurrentUser(req.principal!, req.log);
 
-    // No token of any kind in the response. This is a read of identity, not a
-    // credential endpoint, and minting one here would be a third way to obtain
-    // an access token that bypasses both login and refresh (ADR-015 §12).
-    success(res, { user });
+    /*
+      `memberships` is a sibling of `user`, not a field on it (ADR-017 §9): a
+      membership is a fact about a relationship rather than an attribute of
+      the person. It is a list and never a selection — the server has no
+      notion of a "current" organization, and inventing one here would put
+      authorization state in a payload the client could act on unproved.
+
+      No token of any kind in the response. This is a read of identity, not a
+      credential endpoint, and minting one here would be a third way to obtain
+      an access token that bypasses both login and refresh (ADR-015 §12).
+    */
+    success(res, { user, memberships });
   };
 
   return { register, resendVerification, verifyEmail, login, refresh, logout, logoutAll, me };

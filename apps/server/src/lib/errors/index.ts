@@ -143,6 +143,44 @@ export class InvalidAccessTokenError extends AppError {
 }
 
 /**
+ * The caller may not reach this organization — and deliberately does not
+ * learn which of several reasons applies (ADR-017 §6).
+ *
+ * The organization does not exist, is suspended, the caller is not a member,
+ * their membership is still `invited`, or it has been `suspended`: one
+ * response, one message, one status.
+ *
+ * A `403` here would confirm the organization exists, turning any
+ * authenticated account into an oracle for which tenant ids are real — and,
+ * with a guessable slug, for whether a named company uses Serviqo. That is
+ * the enumeration reasoning ADR-009 §1, ADR-011 §3, ADR-012 §3 and ADR-015 §6
+ * each applied in turn, and a tenant's existence is the kind of fact
+ * SECURITY.md §2 keeps inside its own boundary.
+ *
+ * Contrast `InsufficientPermissionError` below, which answers a caller whose
+ * membership is already proved.
+ */
+export class OrganizationNotAccessibleError extends AppError {
+  readonly httpStatus = 404;
+  readonly code = "NOT_FOUND";
+}
+
+/**
+ * The caller is a member of this organization, and their role does not hold
+ * the permission this route requires (ADR-017 §6).
+ *
+ * Specific, unlike every other refusal in this file, and safely so:
+ * `requireOrganization` has already proved membership by the time this can be
+ * raised, so the caller demonstrably knows the organization exists and works
+ * there. Withholding "your role cannot do this" from them would disclose
+ * nothing and only make the product confusing.
+ */
+export class InsufficientPermissionError extends AppError {
+  readonly httpStatus = 403;
+  readonly code = "INSUFFICIENT_PERMISSION";
+}
+
+/**
  * Every slug derived from a submitted organization name was already taken or
  * reserved, within the bounded number of attempts onboarding will make
  * (ADR-016 §7).

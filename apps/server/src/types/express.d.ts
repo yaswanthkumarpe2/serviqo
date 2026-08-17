@@ -1,5 +1,21 @@
 import type { logger } from "../lib/logger";
 import type { AccessTokenPrincipal } from "../modules/auth/accessToken";
+import type { MembershipRole } from "../modules/memberships/membership.model";
+
+/**
+ * The active organization and the caller's standing in it, established by
+ * `requireOrganization` (ADR-017 §5).
+ *
+ * `role` is read from the `Membership` document on this request. It is not a
+ * token claim (ADR-011 §2), not session state (ADR-004 §8), and never
+ * client-supplied — which is what makes a revoked role take effect
+ * immediately rather than at token expiry.
+ */
+export interface OrganizationContext {
+  organizationId: string;
+  role: MembershipRole;
+  membershipId: string;
+}
 
 declare global {
   namespace Express {
@@ -13,6 +29,11 @@ declare global {
        * stops a handler assuming it otherwise (ADR-015 consequences).
        */
       principal?: AccessTokenPrincipal;
+      /**
+       * Which tenant this request is about, set by `requireOrganization` and
+       * by nothing else. Optional for the same reason `principal` is.
+       */
+      organizationContext?: OrganizationContext;
     }
   }
 }
