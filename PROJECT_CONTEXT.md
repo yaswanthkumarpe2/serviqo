@@ -170,15 +170,25 @@ The project uses a monorepo architecture:
 - **Never trust frontend-supplied identifiers.**
 
 ## 23. Current State
-**Phase 0 is complete.** 
-Currently, **ONLY** design reference files exist (landing page prototype, design tokens, design direction document). 
-- There is NO production React app.
-- There is NO backend.
-- There is NO database.
+**Phases 0–1 are complete. Phase 2 (authentication and organization onboarding) is substantially complete.**
+
+Built and verified:
+- React + TypeScript + Vite frontend (`apps/web`), including the marketing landing page, sign-in, and an authenticated dashboard.
+- Node + Express + TypeScript backend (`apps/server`) on MongoDB via Mongoose.
+- Persistence models: `User`, `Organization`, `Membership`, `Session`, `AccountToken`.
+- Authentication: registration, email verification, login, refresh-token rotation with reuse detection, logout, logout-all, and access-token verification behind `GET /api/v1/auth/me`.
+- Organization onboarding: `POST /api/v1/organizations` creates a tenant and its owner `Membership` (see [ADR-016](./docs/decisions/016-organization-onboarding-and-the-first-membership.md)).
+
+Not built yet:
+- There is NO `Customer`, `Conversation`, `Message`, or `Ticket` model.
 - There is NO Socket.IO implementation.
-- There is NO Redis caching.
-- There is NO AI or RAG infrastructure.
-*All features described in the Vision are strictly PLANNED, not implemented.*
+- There is NO Redis caching or presence.
+- There is NO AI, RAG, or Catalogue infrastructure.
+- There is NO embeddable widget.
+- There is NO rate limiting — see the deployment gate in §22 and [ADR-007 §13](./docs/decisions/007-registration-flow-and-account-enumeration.md).
+- RBAC roles are stored on `Membership` but no permission enforcement middleware exists yet.
+
+*Everything else described in the Vision remains PLANNED, not implemented. Architectural decisions are recorded in `docs/decisions/`.*
 
 ## 24. Development Phases
 0. **Phase 0:** Repository Initialization & Design Reference Setup (COMPLETED)

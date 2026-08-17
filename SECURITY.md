@@ -62,4 +62,13 @@ As a multi-tenant SaaS, isolation is paramount.
 - We maintain a minimal dependency surface area to reduce potential supply chain vulnerabilities.
 
 ## 11. Current Status
-**Important Note:** These are architectural principles and planned security measures. The platform is currently in early development (Phase 0). No independent security audit or compliance certification (e.g., SOC2, ISO27001, HIPAA) is claimed or currently exists.
+**Important Note:** These are architectural principles and planned security measures, and most remain planned. No independent security audit or compliance certification (e.g., SOC2, ISO27001, HIPAA) is claimed or currently exists.
+
+Implemented today: Argon2id password hashing, short-lived access tokens with refresh-token rotation and reuse detection, `HttpOnly`/`SameSite=Strict`/`Path`-scoped refresh cookies, server-side session revocation (single and all-device), bearer access-token verification with issuer/audience pinning, Zod request validation at the HTTP boundary, structured logging with request IDs, and safe error responses.
+
+Not yet implemented, and load-bearing for the sections above:
+- **Rate limiting** (§3) — the ADR-007 §13 deployment gate still stands: authentication endpoints must not be exposed outside local development until it exists. Organization creation is now covered by that gate too.
+- **RBAC enforcement** (§4) — roles are stored on `Membership`, but no permission middleware consumes them yet.
+- **Tenant isolation at the repository layer** (§2) — the pattern is established for the models that exist; no tenant-owned resource models (`Customer`, `Conversation`) have been built.
+- **Security headers and CORS** (§6) — neither `helmet` nor `cors` is installed.
+- **Audit logging** (§9), **file upload validation** (§5), and **AI security** (§8) — no implementation.

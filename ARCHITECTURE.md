@@ -149,4 +149,10 @@ Visibility into system health and performance is crucial for the platform's reli
 - **Health Checks**: Standardized endpoints for orchestrator/load balancer health verifications.
 
 ## 13. Current State
-**Phase 0 Complete.** The repository structure is fully established. Design reference files (tokens, UI direction, prototype) are preserved in the `reference/` directory. No implementation code exists yet.
+**Phases 0–1 complete; Phase 2 substantially complete.**
+
+`apps/web` and `apps/server` are both implemented and tested. The backend runs on Express + Mongoose with `User`, `Organization`, `Membership`, `Session`, and `AccountToken` persisted, a full organization-user authentication surface (registration, verification, login, refresh rotation, logout, logout-all, `GET /api/v1/auth/me`), and organization onboarding (`POST /api/v1/organizations`).
+
+Sections 5–11 above describe the **target** architecture. The parts not yet built are Socket.IO (§6), Redis (§5), the AI subsystem (§9), and the automation engine (§10); the domain modules listed in §4 exist only for auth, users, organizations, memberships, sessions, and account tokens. `packages/*`, `infrastructure/`, `scripts/`, and `tests/` in §2 are planned locations that do not exist yet — the monorepo currently contains `apps/`, `docs/`, and `reference/` only.
+
+Architectural decisions are recorded in `docs/decisions/`.

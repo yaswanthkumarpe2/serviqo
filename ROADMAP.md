@@ -16,11 +16,14 @@ Note that phases may be adjusted when technically justified. Each phase follows:
   - Verified responsive behavior at desktop/tablet/mobile against the approved reference
   - Routing deferred — Phase 1 ships a single marketing route with no router dependency yet
 
-- 🔲 **Phase 2: Authentication + Organization onboarding**
-  - User registration and login flows
-  - JWT-based authentication mechanism
-  - Organization (Tenant) creation process
-  - Initial database models for Users and Organizations
+- 🟡 **Phase 2: Authentication + Organization onboarding** (substantially complete)
+  - ✅ Database models: `User`, `Organization`, `Membership`, `Session`, `AccountToken`
+  - ✅ Registration, email verification, and login
+  - ✅ JWT access tokens with refresh-token rotation and reuse detection ([ADR-004](./docs/decisions/004-refresh-token-rotation-and-reuse-detection.md), [ADR-011](./docs/decisions/011-login-and-session-issuance.md), [ADR-012](./docs/decisions/012-refresh-token-rotation-endpoint.md))
+  - ✅ Logout and logout-all ([ADR-013](./docs/decisions/013-logout-and-session-revocation.md), [ADR-014](./docs/decisions/014-logout-all-devices.md))
+  - ✅ Access-token verification and `GET /api/v1/auth/me` ([ADR-015](./docs/decisions/015-access-token-verification-and-current-user.md))
+  - ✅ Organization creation with its owner membership ([ADR-016](./docs/decisions/016-organization-onboarding-and-the-first-membership.md))
+  - 🔲 Organization context on `/me`, and rate limiting (the [ADR-007 §13](./docs/decisions/007-registration-flow-and-account-enumeration.md) deployment gate)
 
 - 🔲 **Phase 3: User / Team / Role management**
   - Implement RBAC (Owner, Admin, Supervisor, Agent) — organization users only (ADR-010)
