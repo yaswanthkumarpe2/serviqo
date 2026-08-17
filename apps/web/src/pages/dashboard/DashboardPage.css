@@ -33,6 +33,21 @@
 }
 
 /*
+  Holds the name's place in the bar while /me is in flight, so the sign-out
+  controls do not shift sideways when it arrives. Deliberately blank rather
+  than a shimmer: it sits beside two real controls, and an animated bar next
+  to them reads as a fourth thing happening.
+*/
+.dash__who--loading {
+  display: inline-block;
+  width: 96px;
+  height: 1em;
+  border-radius: 4px;
+  background: var(--border);
+  opacity: 0.5;
+}
+
+/*
   Deliberately quieter than the Sign out button beside it. Signing out of every
   device affects machines the person cannot see, so it reads as a secondary
   choice rather than a second primary one — no border, no fill, no emerald.
@@ -83,6 +98,64 @@
   font-size: 13px;
   color: var(--text-2);
 }
+
+/*
+  The welcome block while /me loads. Sized to the text it replaces so the page
+  does not jump when the real name lands — the shapes below match
+  .dash__title and .dash__email including their margins.
+*/
+.dash__identityLoading {
+  display: flex;
+  flex-direction: column;
+}
+
+.dash__skeleton {
+  display: block;
+  border-radius: 5px;
+  background: var(--border);
+  opacity: 0.55;
+}
+
+.dash__skeleton--title {
+  width: 260px;
+  max-width: 70%;
+  height: 31px;
+  margin: 10px 0 6px;
+}
+
+.dash__skeleton--email {
+  width: 190px;
+  max-width: 55%;
+  height: 18px;
+}
+
+/*
+  Only reachable for a non-401 failure — the network, or an unreadable
+  response. A 401 signs the user out and never renders here.
+*/
+.dash__identityError {
+  margin: 10px 0 6px;
+  font-size: 14px;
+  color: var(--text-2);
+}
+
+/* Announced to a screen reader, invisible to everyone else. */
+.dash__srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/*
+  The skeletons are static fills, so there is nothing to disable for reduced
+  motion — stated because the next person will look for it.
+*/
 
 .dash__statsHead {
   display: flex;

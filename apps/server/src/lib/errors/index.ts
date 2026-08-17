@@ -118,3 +118,26 @@ export class InvalidRefreshTokenError extends AppError {
   readonly httpStatus = 401;
   readonly code = "INVALID_REFRESH_TOKEN";
 }
+
+/**
+ * A request did not present a usable access token — and deliberately does not
+ * say which part failed (ADR-015 §6).
+ *
+ * Absent header, malformed header, wrong scheme, bad signature, expired,
+ * wrong issuer, wrong audience, a user who no longer exists, and a disabled
+ * account all raise this one error with one message.
+ *
+ * "Expired" is the tempting exception and is refused with the rest: the
+ * legitimate client already knows its own expiry, so the distinction helps
+ * only whoever is probing with a token they were not given — to them,
+ * "expired" confirms it was once real. "No such user" and "disabled" are
+ * withheld for the reason ADR-011 §6 withheld a disabled account from a
+ * caller holding its password; confirming it to one holding a token is
+ * strictly worse.
+ *
+ * The first error in this file thrown by middleware rather than a service.
+ */
+export class InvalidAccessTokenError extends AppError {
+  readonly httpStatus = 401;
+  readonly code = "INVALID_ACCESS_TOKEN";
+}

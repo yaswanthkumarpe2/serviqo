@@ -1,8 +1,9 @@
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import { AuthProvider } from "@/features/auth/AuthProvider";
+import { stubAuthFetch } from "@/features/auth/testing/stubAuthFetch";
 import { AppRoutes } from "@/routes/AppRoutes";
 
 import type { Session } from "@/features/auth/AuthContext";
@@ -21,6 +22,24 @@ function renderAt(path: string, initialSession: Session | null = null) {
     </MemoryRouter>,
   );
 }
+
+/** The dashboard's welcome heading, once `/me` has answered (ADR-015). */
+const welcome = () => screen.findByRole("heading", { name: "Welcome, Ada Lovelace" });
+
+/**
+ * Anonymous by default here, unlike ProtectedRoute's suite: most cases below
+ * are about where an unauthenticated visitor lands. The ones that need a
+ * session say so.
+ *
+ * Deliberately no `vi.unstubAllGlobals()` teardown. `tests/setup.ts` installs
+ * `matchMedia` once at module load — the landing page reads it during render —
+ * so unstubbing between tests would remove it for every test after the first.
+ * `fetch` needs no teardown either: setup re-stubs it before each test, and
+ * this hook overrides that.
+ */
+beforeEach(() => {
+  stubAuthFetch({ refresh: 401 });
+});
 
 describe("AppRoutes", () => {
   it("keeps the landing page at /", () => {
@@ -52,17 +71,21 @@ describe("AppRoutes", () => {
     expect(await screen.findByRole("heading", { name: /sign in to serviqo/i })).toBeDefined();
   });
 
-  it("serves the dashboard once a session exists", () => {
+  it("serves the dashboard once a session exists", async () => {
+    stubAuthFetch();
+
     renderAt("/dashboard", session);
 
-    expect(screen.getByRole("heading", { name: "Welcome, Ada Lovelace" })).toBeDefined();
+    expect(await welcome()).toBeDefined();
   });
 
   // Landing on the form you have already completed is a dead end.
-  it("sends an authenticated visitor away from /login", () => {
+  it("sends an authenticated visitor away from /login", async () => {
+    stubAuthFetch();
+
     renderAt("/login", session);
 
-    expect(screen.getByRole("heading", { name: "Welcome, Ada Lovelace" })).toBeDefined();
+    expect(await welcome()).toBeDefined();
   });
 
   it("returns an unknown path to the landing page", () => {
@@ -94,40 +117,21 @@ describe("AppRoutes", () => {
   });
 
   describe("when the refresh restores a session", () => {
-    function stubRestoredSession() {
-      vi.stubGlobal(
-        "fetch",
-        vi.fn().mockResolvedValue({
-          ok: true,
-          status: 200,
-          json: () =>
-            Promise.resolve({
-              success: true,
-              data: { user: session.user, accessToken: "RESTORED_ACCESS_TOKEN", expiresIn: 900 },
-            }),
-        } as Response),
-      );
-    }
-
-    afterEach(() => {
-      vi.unstubAllGlobals();
-    });
-
     // Reloading the dashboard is the case this whole slice exists for.
     it("keeps a reloaded visitor on /dashboard", async () => {
-      stubRestoredSession();
+      stubAuthFetch();
 
       renderAt("/dashboard");
 
-      expect(await screen.findByRole("heading", { name: "Welcome, Ada Lovelace" })).toBeDefined();
+      expect(await welcome()).toBeDefined();
     });
 
     it("sends a restored visitor away from /login without showing the form", async () => {
-      stubRestoredSession();
+      stubAuthFetch();
 
       renderAt("/login");
 
-      expect(await screen.findByRole("heading", { name: "Welcome, Ada Lovelace" })).toBeDefined();
+      expect(await welcome()).toBeDefined();
       expect(screen.queryByRole("heading", { name: /sign in to serviqo/i })).toBeNull();
     });
   });

@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/Button";
 import { BrandMark } from "@/components/ui/icons";
 import { useAuth } from "@/features/auth/useAuth";
+import { useCurrentUser } from "@/features/auth/useCurrentUser";
 
 import "./DashboardPage.css";
 
@@ -10,9 +11,11 @@ import "./DashboardPage.css";
  * Placeholder workspace shell. It exists to prove the session round trip —
  * sign in, land somewhere authenticated, sign out — and nothing more.
  *
- * The metrics below are SAMPLE VALUES, labelled as such in the UI. No
- * conversation, ticket, or queue model exists yet, and CONTRIBUTING.md
- * requires demo data to say so rather than imply a working feature.
+ * The IDENTITY on this page is real: it comes from `GET /auth/me` (ADR-015),
+ * not from the login response and not from anything hardcoded. The METRICS
+ * below are SAMPLE VALUES, labelled as such in the UI. No conversation,
+ * ticket, or queue model exists yet, and CONTRIBUTING.md requires demo data
+ * to say so rather than imply a working feature.
  */
 
 interface StatCard {
@@ -29,6 +32,7 @@ const SAMPLE_STATS: StatCard[] = [
 
 export function DashboardPage() {
   const { session, signOut, signOutAllDevices } = useAuth();
+  const { user, isLoading, error } = useCurrentUser();
   const navigate = useNavigate();
 
   // ProtectedRoute guarantees a session before this renders; the guard keeps
@@ -66,7 +70,16 @@ export function DashboardPage() {
           Serviqo
         </div>
         <div className="dash__barRight">
-          <span className="dash__who">{session.user.name}</span>
+          {/*
+            Nothing stands in for the name while it loads. A placeholder that
+            reads like a person — "there", the login response's copy — would be
+            fake identity, which is the thing this slice removed.
+          */}
+          {user === null ? (
+            <span className="dash__who dash__who--loading" aria-hidden="true" />
+          ) : (
+            <span className="dash__who">{user.name}</span>
+          )}
           {/*
             The wider action is a plain link-style control rather than a second
             button of equal weight: it ends sessions on devices that are not in
@@ -83,10 +96,35 @@ export function DashboardPage() {
       </header>
 
       <main className="dash__main">
-        <section className="dash__welcome">
+        {/*
+          Three states, and the loading one shows no identity at all rather
+          than a name taken from somewhere else. `aria-busy` tells a screen
+          reader the region is still filling in, and `role="status"` announces
+          it when it does without stealing focus.
+        */}
+        <section className="dash__welcome" aria-busy={isLoading}>
           <p className="eyebrow">Workspace</p>
-          <h1 className="dash__title">Welcome, {session.user.name}</h1>
-          <p className="dash__email">{session.user.email}</p>
+          {isLoading ? (
+            <div className="dash__identityLoading" role="status">
+              <span className="dash__skeleton dash__skeleton--title" />
+              <span className="dash__skeleton dash__skeleton--email" />
+              <span className="dash__srOnly">Loading your account…</span>
+            </div>
+          ) : user !== null ? (
+            <>
+              <h1 className="dash__title">Welcome, {user.name}</h1>
+              <p className="dash__email">{user.email}</p>
+            </>
+          ) : (
+            /*
+              Reached only for a failure that is NOT a 401 — the network, or a
+              response this client could not read. A 401 signs the user out and
+              ProtectedRoute redirects, so this branch never renders for one.
+            */
+            <p className="dash__identityError" role="alert">
+              {error ?? "Could not load your account."}
+            </p>
+          )}
         </section>
 
         <section aria-labelledby="dash-stats-heading">

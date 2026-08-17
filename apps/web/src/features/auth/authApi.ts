@@ -25,6 +25,31 @@ export interface AuthenticatedUser {
   email: string;
 }
 
+/**
+ * The caller's own account, as `GET /auth/me` reports it (ADR-015 §9).
+ *
+ * Wider than `AuthenticatedUser` and deliberately a separate type, matching
+ * the server's split: login says the minimum needed to know a sign-in worked,
+ * while this is the dashboard's view of an account it has already proved it
+ * owns.
+ *
+ * Timestamps are ISO-8601 strings, because that is what JSON carries — the
+ * server's `Date` does not survive the wire, and pretending otherwise here
+ * would be a type that lies.
+ *
+ * No `organizationId` and no `role`: nothing creates a Membership yet, and
+ * "current organization" is not a concept this architecture has. That arrives
+ * with organization onboarding, on its own endpoint.
+ */
+export interface CurrentUser {
+  id: string;
+  name: string;
+  email: string;
+  status: string;
+  emailVerifiedAt: string;
+  createdAt: string;
+}
+
 export interface LoginResult {
   user: AuthenticatedUser;
   accessToken: string;
@@ -95,6 +120,30 @@ function isSuccessEnvelope<T>(body: unknown): body is SuccessEnvelope<T> {
 }
 
 /**
+ * Turns a response into its `data`, or raises `AuthApiError`.
+ *
+ * Split out from `postAuth` when `/me` became the first GET: the envelope is
+ * the API's shape rather than any one verb's, and a second copy of this is a
+ * second place for the agreement to rot.
+ */
+async function unwrapEnvelope<T>(response: Response): Promise<T> {
+  const body: unknown = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    if (isFailureEnvelope(body)) {
+      throw new AuthApiError(body.error.code, body.error.message, response.status, body.error.details ?? []);
+    }
+    throw new AuthApiError(UNEXPECTED_RESPONSE, GENERIC_FAILURE_MESSAGE, response.status);
+  }
+
+  if (!isSuccessEnvelope<T>(body)) {
+    throw new AuthApiError(UNEXPECTED_RESPONSE, GENERIC_FAILURE_MESSAGE, response.status);
+  }
+
+  return body.data;
+}
+
+/**
  * POSTs to an auth endpoint and unwraps the envelope, raising `AuthApiError`
  * for every failure — transport, server-described, or unrecognized.
  *
@@ -119,20 +168,7 @@ async function postAuth<T>(path: string, init: RequestInit = {}): Promise<T> {
     throw new AuthApiError(NETWORK_ERROR, GENERIC_NETWORK_MESSAGE, 0);
   }
 
-  const body: unknown = await response.json().catch(() => null);
-
-  if (!response.ok) {
-    if (isFailureEnvelope(body)) {
-      throw new AuthApiError(body.error.code, body.error.message, response.status, body.error.details ?? []);
-    }
-    throw new AuthApiError(UNEXPECTED_RESPONSE, GENERIC_FAILURE_MESSAGE, response.status);
-  }
-
-  if (!isSuccessEnvelope<T>(body)) {
-    throw new AuthApiError(UNEXPECTED_RESPONSE, GENERIC_FAILURE_MESSAGE, response.status);
-  }
-
-  return body.data;
+  return unwrapEnvelope<T>(response);
 }
 
 /**
@@ -195,4 +231,61 @@ export async function logout(): Promise<void> {
  */
 export async function logoutAllDevices(): Promise<void> {
   await postAuth<Record<string, never>>("/logout-all");
+}
+
+/** The provider's `authorizedFetch` — the only thing that can present an access token. */
+type AuthorizedFetch = (path: string, init?: RequestInit) => Promise<Response>;
+
+/**
+ * Reads the caller's own account (ADR-015).
+ *
+ * The first call in this client whose credential is the access token rather
+ * than the refresh cookie, which is why it goes through `authorizedFetch`
+ * rather than `fetch`: that wrapper attaches the in-memory token, and on a 401
+ * refreshes once and replays once (ADR-012 §4). Calling `fetch` here would
+ * present no credential at all.
+ *
+ * Two failures reach the caller and mean different things. An `AuthApiError`
+ * with status 401 is a refusal that survived the retry — the account is no
+ * longer being served, so this browser is not signed in. A rejection from the
+ * refresh itself arrives already having cleared the session, and the same
+ * error is rethrown untouched: wrapping it would hide which of the two
+ * happened from the only code that has to tell them apart.
+ */
+export async function fetchCurrentUser(authorizedFetch: AuthorizedFetch): Promise<CurrentUser> {
+  let response: Response;
+
+  try {
+    response = await authorizedFetch(`${AUTH_BASE}/me`);
+  } catch (error) {
+    // The refresh behind the retry failed, and it already described itself.
+    if (error instanceof AuthApiError) throw error;
+    throw new AuthApiError(NETWORK_ERROR, GENERIC_NETWORK_MESSAGE, 0);
+  }
+
+  // Nested under `user` exactly as login and refresh nest theirs, so the
+  // envelope's `data` stays a place a second field could be added later.
+  const { user } = await unwrapEnvelope<{ user: unknown }>(response);
+
+  /*
+    `isSuccessEnvelope` proves the envelope, not its contents — a body of
+    `{ success: true, data: {} }` satisfies it and would hand back
+    `undefined` typed as a CurrentUser, which then crashes wherever the name
+    is read. The identity this returns is the one thing the dashboard cannot
+    render without, so it is checked rather than asserted.
+  */
+  if (!isCurrentUser(user)) {
+    throw new AuthApiError(UNEXPECTED_RESPONSE, GENERIC_FAILURE_MESSAGE, response.status);
+  }
+
+  return user;
+}
+
+/** Narrows on the fields that are actually rendered; the rest are the server's business. */
+function isCurrentUser(value: unknown): value is CurrentUser {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<CurrentUser>;
+  return (
+    typeof candidate.id === "string" && typeof candidate.name === "string" && typeof candidate.email === "string"
+  );
 }

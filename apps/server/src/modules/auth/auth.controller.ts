@@ -6,6 +6,7 @@ import { RefreshRejectedError } from "./refresh.service";
 import { clearRefreshCookieOptions, refreshCookieOptions } from "./refreshToken";
 
 import type { LoginInput, RegisterInput, ResendVerificationInput, VerifyEmailInput } from "./auth.validation";
+import type { CurrentUserService } from "./currentUser.service";
 import type { LoginService } from "./login.service";
 import type { LogoutService } from "./logout.service";
 import type { LogoutAllService } from "./logoutAll.service";
@@ -21,6 +22,7 @@ export interface AuthControllerDependencies {
   refreshService: RefreshService;
   logoutService: LogoutService;
   logoutAllService: LogoutAllService;
+  currentUserService: CurrentUserService;
 }
 
 /**
@@ -38,6 +40,7 @@ export function createAuthController({
   refreshService,
   logoutService,
   logoutAllService,
+  currentUserService,
 }: AuthControllerDependencies) {
   // Safe to assert in both handlers: validateBody replaced req.body with the
   // route's schema output before either could run.
@@ -177,5 +180,31 @@ export function createAuthController({
     success(res, {});
   };
 
-  return { register, resendVerification, verifyEmail, login, refresh, logout, logoutAll };
+  /**
+   * Reports the caller's own identity (ADR-015).
+   *
+   * The only handler here whose credential is an access token rather than the
+   * refresh cookie, and the only one that reads `req.principal` — which
+   * `requireAccessToken` has already established, so reaching this line means
+   * a signature Serviqo produced said who is calling.
+   *
+   * `principal` is asserted rather than guarded: the route mounts the
+   * middleware that sets it, and a guard here would imply this handler is
+   * reachable without one. If that ever became true, the assertion failing
+   * loudly is the better outcome.
+   *
+   * Nothing is read from the request. No body, no query, no path parameter —
+   * a `userId` the client supplied is not rejected, it is never consulted,
+   * which is the stronger guarantee (ADR-015 §11).
+   */
+  const me: RequestHandler = async (req, res) => {
+    const user = await currentUserService.getCurrentUser(req.principal!, req.log);
+
+    // No token of any kind in the response. This is a read of identity, not a
+    // credential endpoint, and minting one here would be a third way to obtain
+    // an access token that bypasses both login and refresh (ADR-015 §12).
+    success(res, { user });
+  };
+
+  return { register, resendVerification, verifyEmail, login, refresh, logout, logoutAll, me };
 }

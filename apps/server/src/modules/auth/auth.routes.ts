@@ -1,8 +1,10 @@
 import { Router } from "express";
 
+import { requireAccessToken } from "../../middleware/requireAccessToken";
 import { validateBody } from "../../middleware/validate";
 import { createAuthController } from "./auth.controller";
 import { loginSchema, registerSchema, resendVerificationSchema, verifyEmailSchema } from "./auth.validation";
+import { createCurrentUserService } from "./currentUser.service";
 import { createLoginService } from "./login.service";
 import { createLogoutService } from "./logout.service";
 import { createLogoutAllService } from "./logoutAll.service";
@@ -36,6 +38,7 @@ export function createAuthRouter({ emailProvider }: AuthRouterDependencies): Rou
     refreshService: createRefreshService(),
     logoutService: createLogoutService(),
     logoutAllService: createLogoutAllService(),
+    currentUserService: createCurrentUserService(),
   });
 
   router.post("/register", validateBody(registerSchema), controller.register);
@@ -48,6 +51,12 @@ export function createAuthRouter({ emailProvider }: AuthRouterDependencies): Rou
   router.post("/refresh", controller.refresh);
   router.post("/logout", controller.logout);
   router.post("/logout-all", controller.logoutAll);
+  // Serviqo's first protected route, and the reason `requireAccessToken`
+  // exists (ADR-015). The middleware is visible here for the same reason the
+  // schemas above are: "is this route protected?" is answered by reading this
+  // file. No `validateBody` — the caller's identity comes from the token and
+  // the database, and there is no input to validate (ADR-015 §11).
+  router.get("/me", requireAccessToken, controller.me);
 
   return router;
 }

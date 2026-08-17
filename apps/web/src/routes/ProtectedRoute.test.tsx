@@ -1,9 +1,10 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AuthProvider } from "@/features/auth/AuthProvider";
+import { stubAuthFetch } from "@/features/auth/testing/stubAuthFetch";
 import { DashboardPage } from "@/pages/dashboard/DashboardPage";
 import { ProtectedRoute } from "@/routes/ProtectedRoute";
 
@@ -34,20 +35,41 @@ function renderDashboard(initialSession: Session | null) {
   );
 }
 
+/**
+ * The dashboard now loads its identity from `/me` (ADR-015), so every test
+ * that renders it makes a request the blanket 401 in `tests/setup.ts` cannot
+ * answer. Individual tests below still override this when the point is what
+ * happens on a specific failure.
+ *
+ * Deliberately no `vi.unstubAllGlobals()` teardown: `tests/setup.ts` installs
+ * `matchMedia` once at module load, and unstubbing between tests would remove
+ * it. `fetch` needs none — setup re-stubs it before each test, and this hook
+ * overrides that.
+ */
+beforeEach(() => {
+  stubAuthFetch();
+});
+
+/** The welcome heading, once `/me` has answered. */
+const welcome = () => screen.findByRole("heading", { name: "Welcome, Ada Lovelace" });
+
 describe("ProtectedRoute", () => {
   // The redirect now waits for the startup refresh (ADR-012): until it
   // settles, "not authenticated" only means "not yet known".
   it("sends an unauthenticated visitor to the sign-in page", async () => {
+    // No cookie to restore from, which is what an anonymous browser gets.
+    stubAuthFetch({ refresh: 401 });
+
     renderDashboard(null);
 
     expect(await screen.findByText("Sign-in page")).toBeDefined();
     expect(screen.queryByText(/welcome/i)).toBeNull();
   });
 
-  it("renders the protected page when a session exists", () => {
+  it("renders the protected page when a session exists", async () => {
     renderDashboard(session);
 
-    expect(screen.getByRole("heading", { name: "Welcome, Ada Lovelace" })).toBeDefined();
+    expect(await welcome()).toBeDefined();
   });
 
   /*
@@ -57,6 +79,8 @@ describe("ProtectedRoute", () => {
     page may render.
   */
   it("shows neither the page nor the sign-in redirect while restoring", () => {
+    stubAuthFetch({ refresh: 401 });
+
     renderDashboard(null);
 
     expect(screen.queryByText("Sign-in page")).toBeNull();
@@ -65,32 +89,20 @@ describe("ProtectedRoute", () => {
   });
 
   it("renders the protected page once the refresh restores a session", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: () =>
-          Promise.resolve({
-            success: true,
-            data: { user: session.user, accessToken: "RESTORED_ACCESS_TOKEN", expiresIn: 900 },
-          }),
-      } as Response),
-    );
-
+    // The default stub restores a session AND answers /me, which is the whole
+    // reload path: cookie -> access token -> identity.
     renderDashboard(null);
 
-    expect(await screen.findByRole("heading", { name: "Welcome, Ada Lovelace" })).toBeDefined();
+    expect(await welcome()).toBeDefined();
     expect(screen.queryByText("Sign-in page")).toBeNull();
-    vi.unstubAllGlobals();
   });
 });
 
 describe("DashboardPage", () => {
-  it("shows the signed-in user's name and email", () => {
+  it("shows the signed-in user's name and email", async () => {
     renderDashboard(session);
 
-    expect(screen.getByRole("heading", { name: "Welcome, Ada Lovelace" })).toBeDefined();
+    expect(await welcome()).toBeDefined();
     expect(screen.getByText("ada@example.com")).toBeDefined();
   });
 
@@ -111,8 +123,9 @@ describe("DashboardPage", () => {
     expect(screen.getByText(/these figures are placeholders/i)).toBeDefined();
   });
 
-  it("never renders the access token", () => {
+  it("never renders the access token", async () => {
     const { container } = renderDashboard(session);
+    await welcome();
 
     expect(container.textContent).not.toContain(session.accessToken);
   });
