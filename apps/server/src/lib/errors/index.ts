@@ -143,6 +143,28 @@ export class InvalidAccessTokenError extends AppError {
 }
 
 /**
+ * The caller has made too many requests for the class of endpoint they are
+ * using (ADR-018 §6).
+ *
+ * One message for every limiter class. It names no limit, no window, no
+ * route class, and no remaining budget — those are facts about Serviqo's
+ * defences rather than about this caller, the same reasoning that kept the
+ * required permission out of ADR-017 §6's 403.
+ *
+ * It also discloses nothing about accounts. The credential limiter is keyed
+ * by IP and never by submitted email (ADR-018 §5), so this response is
+ * identical whether the address in the body exists or not.
+ *
+ * `Retry-After` and `RateLimit` headers accompany it. Those are standards-
+ * track, they let an honest client back off instead of hammering, and the
+ * window length is not a secret — an attacker learns it by waiting.
+ */
+export class TooManyRequestsError extends AppError {
+  readonly httpStatus = 429;
+  readonly code = "TOO_MANY_REQUESTS";
+}
+
+/**
  * The caller may not reach this organization — and deliberately does not
  * learn which of several reasons applies (ADR-017 §6).
  *

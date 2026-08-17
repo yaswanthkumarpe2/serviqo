@@ -19,10 +19,40 @@ As a multi-tenant SaaS, isolation is paramount.
 - Implementing short-lived access tokens (JWT).
 - Secure refresh-token rotation to maintain sessions without permanent credentials.
 - Password hashing using Argon2id (memory-hard, OWASP-recommended default).
-- Strict rate limiting on all authentication-related endpoints to prevent brute-force attacks.
-  - **Deployment gate (not yet implemented):** authentication endpoints must not be exposed outside local development until authentication rate limiting is implemented. This covers staging, public demos, tunnel/ngrok-style exposure, shared environments, and production. See [ADR-007 §13](docs/decisions/007-registration-flow-and-account-enumeration.md).
+- Strict rate limiting on all authentication-related endpoints to prevent brute-force attacks — **implemented** in five classes, see [ADR-018](docs/decisions/018-rate-limiting-and-security-headers.md) §3.
+  - **Deployment gate — PARTIALLY RELEASED.** ADR-007 §13's blanket prohibition is lifted for **single-node** deployments and restated for everything else. Read the table in §3a below before deploying.
 - Robust session and device management, allowing users to view and revoke active sessions.
 - Server-side session revocation capabilities.
+
+## 3a. Deployment gate status
+
+Rate limiting exists and is correct for a single process. Two prerequisites
+remain, and both are about **where** the process runs rather than about the
+policy.
+
+| Deployment shape | Status | Why |
+|---|---|---|
+| Local development, one process | ✅ Released | Every request reaches the process holding the counters. |
+| Single-node staging or production, no proxy | ✅ Released | Same. |
+| **Any deployment behind a reverse proxy / load balancer** | ⛔ **Blocked** | `trust proxy` is off, so `req.ip` is the proxy's address and every client shares one bucket — a self-inflicted outage (ADR-018 §7). |
+| **Multi-node (Phase 8 onward)** | ⛔ **Blocked** | Counters live in process memory, so N nodes grant N× the intended budget and a restart resets everything (ADR-018 §2). |
+
+**Before deploying behind a proxy**, both of these must be done:
+
+1. Set Express's `trust proxy` to the exact number of trusted hops, or to
+   the proxy's address — **never `true`**, which trusts the whole chain and
+   lets any client forge `X-Forwarded-For` to buy a fresh limit budget.
+2. Verify `req.ip` reports the real client address, not the proxy's.
+
+**Before going multi-node**, the limiter needs a shared store. The seam is
+prepared: every limiter is built in `lib/rateLimit` and takes its store from
+one place, so a Redis-backed store is a constructor argument rather than a
+rewrite. Redis is deliberately not installed today (ADR-018 §1–2).
+
+The limits themselves are documented with their justification in ADR-018 §3.
+The credential class deliberately shares its numbers with the account
+lockout policy in `config/constants.ts`; changing one without the other puts
+them back into disagreement.
 
 ## 4. Authorization / RBAC
 - A centralized permission system governs all actions.
@@ -36,8 +66,9 @@ As a multi-tenant SaaS, isolation is paramount.
 - Files are stored using generated, unpredictable UUID names, completely disregarding user-supplied filenames to prevent path traversal and other exploits.
 
 ## 6. API Security
-- Global and route-specific rate limiting.
-- Implementation of secure HTTP headers (CORS, CSP, X-Frame-Options, Strict-Transport-Security, X-Content-Type-Options).
+- Global and route-specific rate limiting — **implemented** (§3, §3a).
+- Secure HTTP headers — **implemented** via `helmet`, configured for a JSON API rather than for documents: `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`, `Cross-Origin-Resource-Policy: same-origin`, HSTS in production only, and `X-Powered-By` removed. See [ADR-018](docs/decisions/018-rate-limiting-and-security-headers.md) §9.
+  - **CORS is deliberately absent** until the widget slice. The header policy above applies to **API responses**; the future embeddable widget serves an HTML document that must be framed by tenant sites, so it needs its own headers rather than inheriting `frame-ancestors 'none'`.
 - Safe error responses: Stack traces and internal server details are never exposed to the client.
 - Request IDs are generated for every request to enable secure, traceable logging without exposing sensitive data.
 
@@ -66,9 +97,10 @@ As a multi-tenant SaaS, isolation is paramount.
 
 Implemented today: Argon2id password hashing, short-lived access tokens with refresh-token rotation and reuse detection, `HttpOnly`/`SameSite=Strict`/`Path`-scoped refresh cookies, server-side session revocation (single and all-device), bearer access-token verification with issuer/audience pinning, Zod request validation at the HTTP boundary, structured logging with request IDs, and safe error responses.
 
+Also implemented: five-class rate limiting (§3, §3a), security response headers via `helmet` (§6), and RBAC enforcement through `requireOrganization` / `requirePermission` with per-request role resolution from the database (§4).
+
 Not yet implemented, and load-bearing for the sections above:
-- **Rate limiting** (§3) — the ADR-007 §13 deployment gate still stands: authentication endpoints must not be exposed outside local development until it exists. Organization creation is now covered by that gate too.
-- **RBAC enforcement** (§4) — roles are stored on `Membership`, but no permission middleware consumes them yet.
+- **A shared rate-limit store and proxy configuration** (§3a) — the two remaining deployment blockers.
+- **CORS** (§6) — `cors` is not installed. Every caller is same-origin today; the widget slice owns this, with a per-tenant allowed-origin list rather than a blanket policy (ADR-010 §9).
 - **Tenant isolation at the repository layer** (§2) — the pattern is established for the models that exist; no tenant-owned resource models (`Customer`, `Conversation`) have been built.
-- **Security headers and CORS** (§6) — neither `helmet` nor `cors` is installed.
 - **Audit logging** (§9), **file upload validation** (§5), and **AI security** (§8) — no implementation.

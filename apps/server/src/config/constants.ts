@@ -130,6 +130,85 @@ export const REFRESH_COOKIE_NAME = "serviqo_refresh";
  */
 export const REFRESH_COOKIE_PATH = "/api/v1/auth";
 
+// ---- rate limiting (ADR-018 §3) ----
+//
+// These live here rather than in `lib/rateLimit` for this file's stated
+// ownership rule — more than one layer needs them: the limiter enforces
+// them and the tests assert against them. They are also fixed policy in
+// exactly the sense this file's header describes, so a misconfigured
+// deployment cannot widen a security limit through the environment.
+//
+// No number here is invented. Each is either taken from a value the
+// codebase already committed to, or is a judgement stated in ADR-018 §3.
+
+/**
+ * Credential endpoints: register, login, resend-verification, verify-email.
+ *
+ * Deliberately the SAME numbers as `LOGIN_MAX_FAILED_ATTEMPTS` and
+ * `LOGIN_LOCK_DURATION_MS` above. Those already encode the approved answer
+ * to "how many credential attempts is too many, and for how long"; a
+ * different pair here would mean the per-IP limit and the per-account
+ * lockout (ADR-011 §7) disagreed about one policy.
+ *
+ * Changing the lockout constants without revisiting these puts them back
+ * into disagreement.
+ *
+ * This also bounds the denial-of-service ADR-007 §13 named: `POST /register`
+ * spends ~19 MiB and ~100 ms of Argon2id per call on an unauthenticated
+ * path.
+ */
+export const CREDENTIAL_LIMIT = LOGIN_MAX_FAILED_ATTEMPTS;
+export const CREDENTIAL_WINDOW_MS = LOGIN_LOCK_DURATION_MS;
+
+/**
+ * Session endpoints: refresh, logout, logout-all.
+ *
+ * A legitimate tab refreshes about once per `ACCESS_TOKEN_TTL_MS`, plus once
+ * per page load. Sixty allows heavy reloading across several tabs and still
+ * bounds a loop.
+ *
+ * Not a guessing defence — refresh secrets are `REFRESH_SECRET_BYTES` of
+ * entropy, so guessing is already infeasible. This bounds volume on an
+ * endpoint that performs a database write per call.
+ */
+export const SESSION_LIMIT = 60;
+export const SESSION_WINDOW_MS = 15 * 60 * 1000;
+
+/**
+ * Authenticated writes: currently `POST /organizations`.
+ *
+ * ADR-016 §2 recorded the vector precisely — "an authenticated user can
+ * create organizations in a loop. That is a rate-limiting concern, and rate
+ * limiting is the next slice." Thirty tenants in an hour is far past
+ * anything a person does, and far below what a script wants.
+ */
+export const AUTHENTICATED_WRITE_LIMIT = 30;
+export const AUTHENTICATED_WRITE_WINDOW_MS = 60 * 60 * 1000;
+
+/**
+ * Authenticated reads: `GET /auth/me`, `GET /organizations/:organizationId`.
+ *
+ * A dashboard mount costs two calls, so 300 allows roughly 150 page loads
+ * per window per user. This class catches a runaway client or a scraper
+ * rather than an attacker — these reads are cheap and already authorized.
+ */
+export const AUTHENTICATED_READ_LIMIT = 300;
+export const AUTHENTICATED_READ_WINDOW_MS = 15 * 60 * 1000;
+
+/**
+ * Every request under `/api/v1`, keyed by IP.
+ *
+ * A blunt volume bound covering what the specific classes cannot: requests
+ * refused before any class applies. Hammering `GET /auth/me` with no token
+ * produces a 401 from `requireAccessToken` and never reaches the user-keyed
+ * read limiter, so without this it would be unlimited.
+ *
+ * Set high enough that it never fires before a specific class does for
+ * honest traffic.
+ */
+export const GLOBAL_API_LIMIT = 1000;
+export const GLOBAL_API_WINDOW_MS = 15 * 60 * 1000;
+
 // ---- session metadata ----
 
 /**
