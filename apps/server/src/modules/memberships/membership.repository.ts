@@ -57,4 +57,31 @@ export const membershipRepository = {
   async findByOrganization(organizationId: ObjectIdLike): Promise<MembershipDocument[]> {
     return MembershipModel.find({ organizationId });
   },
+
+  /**
+   * Removes exactly one membership, by its own `_id`.
+   *
+   * SOLE PERMITTED USE: undoing a membership the SAME request created
+   * moments earlier, when the write that was supposed to follow it failed
+   * (ADR-016 §4). Onboarding writes the owner membership before the
+   * organization so that a tenant can never exist unowned; this is what
+   * cleans up when the organization write then fails.
+   *
+   * Deliberately not a general `delete(filter)` and deliberately keyed on
+   * `_id` rather than `{ userId, organizationId }` — it cannot be aimed at a
+   * membership the caller did not just create, and it cannot remove a person
+   * from an organization. Revoking access is a different operation with
+   * different authorization, and it belongs to the team-management slice.
+   *
+   * The same narrowness rule `userRepository` follows, where
+   * `markEmailVerified` and `clearLoginFailures` exist and a general
+   * `update(id, patch)` deliberately does not.
+   *
+   * Returns whether a document was removed, so a caller can tell a
+   * successful compensation from one that found nothing to undo.
+   */
+  async deleteById(id: ObjectIdLike): Promise<boolean> {
+    const { deletedCount } = await MembershipModel.deleteOne({ _id: id });
+    return deletedCount === 1;
+  },
 };

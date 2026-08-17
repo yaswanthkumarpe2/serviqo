@@ -1,6 +1,7 @@
 import { Router } from "express";
 
 import { createAuthRouter } from "../modules/auth/auth.routes";
+import { createOrganizationRouter } from "../modules/organizations/organization.routes";
 
 import type { EmailProvider } from "../lib/email/emailProvider";
 
@@ -21,6 +22,13 @@ export function createApiRouter({ emailProvider }: ApiRouterDependencies): Route
   const router = Router();
 
   router.use("/api/v1/auth", createAuthRouter({ emailProvider }));
+  /*
+    Its own prefix, not a sub-path of /auth. The auth prefix is permanently
+    organization-user authentication (ADR-010 §5); an organization is a
+    tenant resource, and mounting its routes under the credential namespace
+    would blur a boundary that later has to hold against customer traffic.
+  */
+  router.use("/api/v1/organizations", createOrganizationRouter());
 
   return router;
 }

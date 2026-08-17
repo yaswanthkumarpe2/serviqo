@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/Button";
 import { BrandMark } from "@/components/ui/icons";
 import { useAuth } from "@/features/auth/useAuth";
 import { useCurrentUser } from "@/features/auth/useCurrentUser";
+import { CreateOrganizationForm } from "@/features/organizations/CreateOrganizationForm";
 
 import "./DashboardPage.css";
 
@@ -126,6 +127,14 @@ export function DashboardPage() {
             </p>
           )}
         </section>
+
+        {/*
+          Real, and the only thing on this page that writes (ADR-016 §10).
+          It is placed above the sample metrics deliberately: a workspace with
+          no organization has exactly one useful action, and burying it under
+          placeholder figures would invert that.
+        */}
+        <CreateOrganizationForm />
 
         <section aria-labelledby="dash-stats-heading">
           <div className="dash__statsHead">

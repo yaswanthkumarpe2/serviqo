@@ -141,3 +141,21 @@ export class InvalidAccessTokenError extends AppError {
   readonly httpStatus = 401;
   readonly code = "INVALID_ACCESS_TOKEN";
 }
+
+/**
+ * Every slug derived from a submitted organization name was already taken or
+ * reserved, within the bounded number of attempts onboarding will make
+ * (ADR-016 §7).
+ *
+ * Effectively unreachable — it needs many organizations whose names slugify
+ * identically — and named specifically anyway, because the alternative is an
+ * unbounded retry against a contended name, which is a request that never
+ * returns. A caller resolves it by choosing a different name.
+ *
+ * Not an enumeration concern: slugs are public URL segments by construction,
+ * and this endpoint is authenticated besides (ADR-016 §8).
+ */
+export class OrganizationSlugUnavailableError extends AppError {
+  readonly httpStatus = 409;
+  readonly code = "ORGANIZATION_SLUG_UNAVAILABLE";
+}

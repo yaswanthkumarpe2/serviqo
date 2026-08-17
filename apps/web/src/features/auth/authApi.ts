@@ -125,8 +125,15 @@ function isSuccessEnvelope<T>(body: unknown): body is SuccessEnvelope<T> {
  * Split out from `postAuth` when `/me` became the first GET: the envelope is
  * the API's shape rather than any one verb's, and a second copy of this is a
  * second place for the agreement to rot.
+ *
+ * Exported for the same reason it was split out. The organizations client
+ * reads the identical envelope, and duplicating twenty lines of it there
+ * would be that second copy. `AuthApiError` travels with it and is likewise
+ * API-wide rather than auth-specific — the rename to `ApiError`, and the
+ * move of both out of this feature folder, belongs to the slice that adds a
+ * third consumer rather than to this one.
  */
-async function unwrapEnvelope<T>(response: Response): Promise<T> {
+export async function unwrapEnvelope<T>(response: Response): Promise<T> {
   const body: unknown = await response.json().catch(() => null);
 
   if (!response.ok) {

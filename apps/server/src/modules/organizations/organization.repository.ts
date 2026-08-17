@@ -1,9 +1,23 @@
 import { OrganizationModel, normalizeSlug } from "./organization.model";
 import type { OrganizationDocument } from "./organization.model";
+import type { Types } from "mongoose";
 
 export interface CreateOrganizationInput {
   name: string;
   slug: string;
+  /**
+   * Supplied by the caller rather than generated on insert (ADR-016 §3).
+   *
+   * The onboarding service writes the owner `Membership` BEFORE the
+   * organization, so it needs the id to point that membership at. Generating
+   * it here — or letting MongoDB assign it — would force the organization to
+   * be written first, which is the one ordering that can leave a tenant
+   * nobody owns.
+   *
+   * Optional, so a caller with no such requirement keeps the ordinary
+   * behavior and Mongoose assigns one.
+   */
+  _id?: Types.ObjectId;
 }
 
 /**
