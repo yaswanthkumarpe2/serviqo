@@ -11,6 +11,8 @@ import {
   GLOBAL_API_WINDOW_MS,
   SESSION_LIMIT,
   SESSION_WINDOW_MS,
+  WIDGET_SESSION_LIMIT,
+  WIDGET_SESSION_WINDOW_MS,
 } from "../../config/constants";
 import { TooManyRequestsError } from "../errors";
 
@@ -39,7 +41,13 @@ const GENERIC_FAILURE_MESSAGE = "Too many requests. Please wait a few minutes an
  * body — a caller learning which class they tripped learns the shape of the
  * defences (ADR-018 §6).
  */
-export type RateLimitClass = "credential" | "session" | "authenticatedWrite" | "authenticatedRead" | "global";
+export type RateLimitClass =
+  | "credential"
+  | "session"
+  | "authenticatedWrite"
+  | "authenticatedRead"
+  | "widgetSession"
+  | "global";
 
 interface LimiterOptions {
   limitClass: RateLimitClass;
@@ -128,6 +136,13 @@ export interface RateLimiters {
   authenticatedWrite: RequestHandler;
   /** Authenticated reads. Keyed by user. */
   authenticatedRead: RequestHandler;
+  /**
+   * The public widget session endpoint (ADR-019 §11). Keyed by IP — never by
+   * `widgetKey`, which would make one busy tenant's own visitors a shared
+   * outage and hand anyone who read that tenant's page source a
+   * denial-of-service tool aimed at it.
+   */
+  widgetSession: RequestHandler;
   /** Blunt per-IP volume bound over the whole API, including requests that 401. */
   global: RequestHandler;
 }
@@ -156,6 +171,18 @@ export function createRateLimiters(): RateLimiters {
       limit: AUTHENTICATED_READ_LIMIT,
       keyByUser: true,
     }),
+    /*
+      Built by the same factory as every other class, so the widget endpoint
+      takes the same store, the same envelope, the same standards-track
+      headers, and the same safe-fields-only logging. The security gate is not
+      bypassed and there is no ad-hoc limiter (ADR-019 §11) — the endpoint
+      also sits under `/api/v1`, so the `global` bound applies to it too.
+    */
+    widgetSession: createLimiter({
+      limitClass: "widgetSession",
+      windowMs: WIDGET_SESSION_WINDOW_MS,
+      limit: WIDGET_SESSION_LIMIT,
+    }),
     global: createLimiter({
       limitClass: "global",
       windowMs: GLOBAL_API_WINDOW_MS,
@@ -180,6 +207,7 @@ export function createDisabledRateLimiters(): RateLimiters {
     session: passthrough,
     authenticatedWrite: passthrough,
     authenticatedRead: passthrough,
+    widgetSession: passthrough,
     global: passthrough,
   };
 }

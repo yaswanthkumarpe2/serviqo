@@ -203,6 +203,34 @@ export class InsufficientPermissionError extends AppError {
 }
 
 /**
+ * A widget session could not be opened — and deliberately does not say why
+ * (ADR-019 §12).
+ *
+ * Unknown widget key, suspended organization, an organization that no longer
+ * exists, a disallowed `Origin`, and an unparseable one all raise this same
+ * error with the same message.
+ *
+ * Distinguishing "unknown key" from "suspended organization" would confirm to
+ * an unauthenticated prober which keys are real, which is tenant enumeration
+ * through the front door. "Disallowed origin" is the tempting exception —
+ * genuinely useful to a tenant installing the widget on a new domain — and it
+ * is withheld with the rest, because it equally confirms the key is valid to
+ * anyone who scraped one out of a page. Installation diagnostics belong in
+ * the dashboard, where the caller is authenticated and already knows the
+ * tenant exists.
+ *
+ * 403 rather than 404: this endpoint's existence is public by construction,
+ * named in every tenant's page source, so answering 404 would be pretending a
+ * demonstrably present route is absent — an opacity that buys nothing. Not
+ * 401, because there is nothing to authenticate as; a widget key is an
+ * identifier, and no `WWW-Authenticate` challenge would mean anything.
+ */
+export class WidgetSessionRefusedError extends AppError {
+  readonly httpStatus = 403;
+  readonly code = "WIDGET_SESSION_REFUSED";
+}
+
+/**
  * Every slug derived from a submitted organization name was already taken or
  * reserved, within the bounded number of attempts onboarding will make
  * (ADR-016 §7).

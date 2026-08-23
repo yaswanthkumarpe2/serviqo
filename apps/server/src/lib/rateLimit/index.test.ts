@@ -52,7 +52,23 @@ describe("createRateLimiters", () => {
       "credential",
       "global",
       "session",
+      // The sixth class, added for the public widget session endpoint
+      // (ADR-019 §11). ADR-010 §9 ordered it in advance: customer endpoints
+      // are high-volume, anonymous, and unauthenticated by design, so they
+      // cannot share a bound with staff endpoints that per-account lockout
+      // also protects.
+      "widgetSession",
     ]);
+  });
+
+  /*
+    The disabled set must mirror the enabled one exactly, or a route would
+    mount a real limiter under one configuration and `undefined` under the
+    other — the conditional-mount difference `createDisabledRateLimiters`
+    exists to prevent.
+  */
+  it("keeps the disabled set in step with the enabled one", () => {
+    expect(Object.keys(createDisabledRateLimiters()).sort()).toEqual(Object.keys(createRateLimiters()).sort());
   });
 
   /*

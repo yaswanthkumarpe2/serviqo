@@ -42,7 +42,7 @@ Serviqo relies on Centralized Role-Based Access Control (RBAC) with permission-b
 - **Agent:** Standard operator handling conversations and tickets.
 The architecture supports the addition of custom roles in the future; those would be additional organization-user positions.
 
-**Customer is not a role.** A customer is the end-user receiving support — a website visitor who arrives through the chat widget, never registers, never logs in, and holds no Membership. Customers are a separate principal type represented by a future `Customer` model. See [ADR-010](./docs/decisions/010-principal-types-organization-users-and-customers.md).
+**Customer is not a role.** A customer is the end-user receiving support — a website visitor who arrives through the chat widget, never registers, never logs in, and holds no Membership. Customers are a separate principal type represented by the `Customer` model, which **now exists**: tenant-scoped, anonymous-first, with optional name and email, and no password, session, membership, or role of any kind. A visitor's browser holds a stateless widget token issued by `POST /api/v1/widget/session` — a credential system entirely separate from staff authentication. See [ADR-010](./docs/decisions/010-principal-types-organization-users-and-customers.md) and [ADR-019](./docs/decisions/019-customer-principal-and-widget-visitor-identity.md).
 
 ## 6. Authentication Architecture
 Authentication applies to organization users only; customers never authenticate (see §5).
@@ -180,11 +180,11 @@ Built and verified:
 - Organization onboarding: `POST /api/v1/organizations` creates a tenant and its owner `Membership` (see [ADR-016](./docs/decisions/016-organization-onboarding-and-the-first-membership.md)).
 
 Not built yet:
-- There is NO `Customer`, `Conversation`, `Message`, or `Ticket` model.
+- The `Customer` model EXISTS (ADR-019). There is still NO `Conversation`, `Message`, or `Ticket` model.
 - There is NO Socket.IO implementation.
 - There is NO Redis caching or presence.
 - There is NO AI, RAG, or Catalogue infrastructure.
-- There is NO embeddable widget.
+- There is NO embeddable widget UI. The server side of widget IDENTITY exists (`widgetKey`, allowed origins, `POST /api/v1/widget/session`, visitor tokens); no chat bubble, chat window, or embed script does.
 - There is NO rate limiting — see the deployment gate in §22 and [ADR-007 §13](./docs/decisions/007-registration-flow-and-account-enumeration.md).
 - RBAC roles are stored on `Membership` but no permission enforcement middleware exists yet.
 

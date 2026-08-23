@@ -109,6 +109,83 @@ export const ACCESS_TOKEN_AUDIENCE = "serviqo-dashboard";
  */
 export const ACCESS_TOKEN_SECRET_MIN_LENGTH = 32;
 
+// ---- widget visitor token (ADR-019 §8) ----
+//
+// The second credential format in Serviqo, and deliberately not a variant of
+// the first. A widget token says "this browser is that customer, in that
+// tenant" and nothing else — no role, no permission, no staff reach.
+
+/**
+ * Widget-token lifetime.
+ *
+ * Long compared to `ACCESS_TOKEN_TTL_MS`, and that is the decision rather
+ * than an oversight (ADR-019 §6). ADR-010 §6 required a visitor credential to
+ * "survive an entire conversation and probably a return visit". A token that
+ * expires mid-conversation would silently create a SECOND customer for the
+ * same person — the worst available failure, because it looks like it worked.
+ *
+ * The same twenty-four hours `EMAIL_VERIFICATION_TOKEN_TTL_MS` uses. Nothing
+ * can shorten it for a token already issued: widget tokens are stateless and
+ * unrevocable, which this value is therefore the sole bound on
+ * (ADR-019 §14).
+ */
+export const WIDGET_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * JWT `iss` claim — deliberately the SAME string as `ACCESS_TOKEN_ISSUER`,
+ * and written as a reference so the two cannot drift apart by accident
+ * (ADR-019 §8).
+ *
+ * One system issues both credentials, and inventing a second issuer would be
+ * a lie about the topology told to make a table look more different. The
+ * audience below is the discriminator; that is what audience is for.
+ */
+export const WIDGET_TOKEN_ISSUER = ACCESS_TOKEN_ISSUER;
+
+/**
+ * JWT `aud` claim — the principal type this token authenticates.
+ *
+ * The other half of the pair `ACCESS_TOKEN_AUDIENCE` was minted for eleven
+ * slices early (ADR-010 §5). A token carrying one audience can never verify
+ * against a verifier demanding the other, so a visitor credential cannot
+ * reach a staff route and a staff credential cannot reach a widget route.
+ *
+ * It is the weaker of the two separations. The stronger one is that the two
+ * formats are signed with different keys (`JWT_WIDGET_SECRET`), so a staff
+ * token presented here fails at the signature rather than at a claim.
+ */
+export const WIDGET_TOKEN_AUDIENCE = "serviqo-widget";
+
+/**
+ * Minimum length of the widget HS256 signing secret, in characters.
+ *
+ * Deliberately equal to `ACCESS_TOKEN_SECRET_MIN_LENGTH` — HMAC-SHA256's
+ * security is bounded by its key regardless of which credential it signs —
+ * and deliberately named separately, so raising one does not silently raise
+ * the other.
+ */
+export const WIDGET_TOKEN_SECRET_MIN_LENGTH = 32;
+
+// ---- public widget identifier (ADR-019 §9) ----
+
+/**
+ * Bytes of entropy in an organization's `widgetKey` (32 bytes = 256 bits).
+ *
+ * The same width as `REFRESH_SECRET_BYTES`, for a value that is NOT a secret.
+ * A widget key is published in every tenant's page source; the entropy is
+ * there so the key cannot be guessed into, not so it can be kept. It is also
+ * what makes collision retry a branch that never executes (ADR-019 §9).
+ */
+export const WIDGET_KEY_BYTES = 32;
+
+/**
+ * Prefix every widget key carries.
+ *
+ * Self-describing in a log line or a support ticket, and greppable by
+ * secret-scanning tooling that flags high-entropy strings. Three characters.
+ */
+export const WIDGET_KEY_PREFIX = "wk_";
+
 // ---- sessions and the refresh cookie (ADR-011) ----
 
 /**
@@ -194,6 +271,33 @@ export const AUTHENTICATED_WRITE_WINDOW_MS = 60 * 60 * 1000;
  */
 export const AUTHENTICATED_READ_LIMIT = 300;
 export const AUTHENTICATED_READ_WINDOW_MS = 15 * 60 * 1000;
+
+/**
+ * The public widget session endpoint: `POST /widget/session` (ADR-019 §11).
+ *
+ * The sixth class, ordered in advance by ADR-010 §9 — "two limiter classes,
+ * not one" — because customer endpoints are high-volume, anonymous, and
+ * unauthenticated by design, while staff endpoints face a small, known
+ * population that per-account lockout also protects.
+ *
+ * The numbers are `SESSION_LIMIT` and `SESSION_WINDOW_MS` rather than new
+ * ones, because the endpoint has the same shape: unauthenticated, IP-keyed,
+ * exactly one database write per call, and no secret being guessed. Sixty
+ * covers a shared NAT of ordinary size — a visitor needs one session per
+ * browser per `WIDGET_TOKEN_TTL_MS` — while bounding an anonymous
+ * document-creating loop to four per minute.
+ *
+ * NOT the credential class: ten per fifteen minutes is a guessing bound
+ * derived from `LOGIN_MAX_FAILED_ATTEMPTS`, and nothing is guessed here.
+ * Applied to a public widget it would take one small office behind one NAT
+ * to exhaust a tenant's visitors — a self-inflicted outage, not a defence.
+ *
+ * Its own class rather than sharing the session bucket, so widget traffic
+ * cannot exhaust a staff member's refresh budget and staff traffic cannot
+ * exhaust a tenant's visitors.
+ */
+export const WIDGET_SESSION_LIMIT = SESSION_LIMIT;
+export const WIDGET_SESSION_WINDOW_MS = SESSION_WINDOW_MS;
 
 /**
  * Every request under `/api/v1`, keyed by IP.

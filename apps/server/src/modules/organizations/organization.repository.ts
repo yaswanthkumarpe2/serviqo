@@ -51,4 +51,28 @@ export const organizationRepository = {
   async findBySlug(slug: string): Promise<OrganizationDocument | null> {
     return OrganizationModel.findOne({ slug: normalizeSlug(slug) });
   },
+
+  /**
+   * Resolves the tenant a public widget request belongs to (ADR-019 §1).
+   *
+   * THE only way a widget request names an organization. ADR-010 §7 fixed
+   * that `organizationId` is "derived server-side from the widget credential,
+   * never read from the request body", and this method is what makes that
+   * true: an anonymous caller supplies a key, and the server supplies the
+   * tenant.
+   *
+   * The key is passed through unnormalized on purpose. It is a random
+   * base64url string, which is case-SENSITIVE — lowercasing it the way
+   * `findBySlug` lowercases a slug would silently fail to find three quarters
+   * of all keys. There is nothing to canonicalize.
+   *
+   * Served by the partial unique index on `widgetKey`. A `null` or `undefined`
+   * argument cannot reach here through the route (the schema rejects a
+   * malformed key first), and would match nothing if it did: the index is
+   * partial on `$type: "string"`, and no document stores the key as anything
+   * else.
+   */
+  async findByWidgetKey(widgetKey: string): Promise<OrganizationDocument | null> {
+    return OrganizationModel.findOne({ widgetKey });
+  },
 };

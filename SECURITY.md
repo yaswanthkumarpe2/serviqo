@@ -8,7 +8,7 @@ Security is architecture, not final polish. It is built into every layer of the 
 ## 2. Tenant Isolation
 As a multi-tenant SaaS, isolation is paramount.
 - `organizationId` is required on every resource and database model.
-- Repository-layer enforcement ensures queries always filter by the requesting user's organization.
+- Repository-layer enforcement ensures queries always filter by the requesting user's organization. **Implemented** for the first tenant-owned model: `customerRepository` takes `organizationId` as a mandatory argument on every read and write, and exposes no `findAll`, no unscoped `find`, and no `findByEmail` — so "fetch everything, then filter in memory" is not expressible against it rather than merely discouraged ([ADR-019](docs/decisions/019-customer-principal-and-widget-visitor-identity.md) §4). `Conversation` and `Ticket` inherit this pattern.
 - Socket.IO rooms are strictly scoped to organizations.
 - AI/RAG retrieval is logically separated so one tenant's data cannot answer another tenant's queries.
 - File storage paths and access controls are scoped by tenant.
@@ -16,10 +16,12 @@ As a multi-tenant SaaS, isolation is paramount.
 
 ## 3. Authentication
 - Authentication applies to **organization users** only. Customers never authenticate into Serviqo — see [ADR-010](docs/decisions/010-principal-types-organization-users-and-customers.md).
+- Serviqo now runs **two credential systems**, permanently and deliberately ([ADR-019](docs/decisions/019-customer-principal-and-widget-visitor-identity.md) §8). A staff access token and a widget visitor token are separated by two independent controls: **different signing secrets** (`JWT_ACCESS_SECRET` / `JWT_WIDGET_SECRET`) and **different audiences** (`serviqo-dashboard` / `serviqo-widget`). Either alone would be sufficient; both are enforced. The process **refuses to boot** if the two secrets are set to the same value, because that would silently reduce the separation to the audience claim alone.
+- A widget token carries no email, name, role, or permission — it lives in a page Serviqo does not control, readable by any script on that page.
 - Implementing short-lived access tokens (JWT).
 - Secure refresh-token rotation to maintain sessions without permanent credentials.
 - Password hashing using Argon2id (memory-hard, OWASP-recommended default).
-- Strict rate limiting on all authentication-related endpoints to prevent brute-force attacks — **implemented** in five classes, see [ADR-018](docs/decisions/018-rate-limiting-and-security-headers.md) §3.
+- Strict rate limiting on all authentication-related endpoints to prevent brute-force attacks — **implemented** in six classes: the five in [ADR-018](docs/decisions/018-rate-limiting-and-security-headers.md) §3, plus `widgetSession` for the public customer endpoint ([ADR-019](docs/decisions/019-customer-principal-and-widget-visitor-identity.md) §11). Customer traffic is limited separately from staff traffic because it is high-volume, anonymous, and unauthenticated by design, so neither population can exhaust the other's budget.
   - **Deployment gate — PARTIALLY RELEASED.** ADR-007 §13's blanket prohibition is lifted for **single-node** deployments and restated for everything else. Read the table in §3a below before deploying.
 - Robust session and device management, allowing users to view and revoke active sessions.
 - Server-side session revocation capabilities.
@@ -68,7 +70,9 @@ them back into disagreement.
 ## 6. API Security
 - Global and route-specific rate limiting — **implemented** (§3, §3a).
 - Secure HTTP headers — **implemented** via `helmet`, configured for a JSON API rather than for documents: `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`, `Cross-Origin-Resource-Policy: same-origin`, HSTS in production only, and `X-Powered-By` removed. See [ADR-018](docs/decisions/018-rate-limiting-and-security-headers.md) §9.
-  - **CORS is deliberately absent** until the widget slice. The header policy above applies to **API responses**; the future embeddable widget serves an HTML document that must be framed by tenant sites, so it needs its own headers rather than inheriting `frame-ancestors 'none'`.
+  - **CORS is still deliberately absent**, and ADR-019 §13 records why it could not land in the widget-identity slice as ADR-018 §9 expected. A cross-origin `POST` with a JSON content type triggers an `OPTIONS` preflight, and **a preflight carries no request body** — so it carries no `widgetKey`, so the server cannot resolve which tenant's origin list to answer with. Every fix is a decision about the widget's wire protocol, which belongs to the slice that builds the client.
+  - What **did** ship is the enforcing half: a **per-tenant allowed-origin policy**, validated at configuration time and checked on every widget request before any customer is created (ADR-019 §10). Origins reject wildcards, non-http(s) schemes, and anything carrying a path, query, fragment, or userinfo. An empty list means **closed**, never "any origin". No `Access-Control-Allow-Origin` is sent in any value, `*` included.
+  - The header policy above applies to **API responses**; the future embeddable widget serves an HTML document that must be framed by tenant sites, so it needs its own headers rather than inheriting `frame-ancestors 'none'`.
 - Safe error responses: Stack traces and internal server details are never exposed to the client.
 - Request IDs are generated for every request to enable secure, traceable logging without exposing sensitive data.
 
@@ -97,10 +101,13 @@ them back into disagreement.
 
 Implemented today: Argon2id password hashing, short-lived access tokens with refresh-token rotation and reuse detection, `HttpOnly`/`SameSite=Strict`/`Path`-scoped refresh cookies, server-side session revocation (single and all-device), bearer access-token verification with issuer/audience pinning, Zod request validation at the HTTP boundary, structured logging with request IDs, and safe error responses.
 
-Also implemented: five-class rate limiting (§3, §3a), security response headers via `helmet` (§6), and RBAC enforcement through `requireOrganization` / `requirePermission` with per-request role resolution from the database (§4).
+Also implemented: six-class rate limiting (§3, §3a), security response headers via `helmet` (§6), and RBAC enforcement through `requireOrganization` / `requirePermission` with per-request role resolution from the database (§4).
+
+Also implemented (ADR-019): the `Customer` principal as a tenant-owned model with no credential of any kind, a public per-tenant `widgetKey` (256 bits of entropy, unique under a partial index so pre-existing organizations still write), a per-tenant allowed-origin policy that is closed by default, and stateless widget visitor tokens under their own secret and audience. The public `POST /api/v1/widget/session` endpoint is covered by its own rate-limiter class and answers every refusal — unknown key, suspended tenant, disallowed origin — with one opaque `403`, so it cannot be used to enumerate tenants.
 
 Not yet implemented, and load-bearing for the sections above:
 - **A shared rate-limit store and proxy configuration** (§3a) — the two remaining deployment blockers.
-- **CORS** (§6) — `cors` is not installed. Every caller is same-origin today; the widget slice owns this, with a per-tenant allowed-origin list rather than a blanket policy (ADR-010 §9).
-- **Tenant isolation at the repository layer** (§2) — the pattern is established for the models that exist; no tenant-owned resource models (`Customer`, `Conversation`) have been built.
+- **CORS response headers** (§6) — `cors` is not installed. The per-tenant allowed-origin **policy** is implemented and enforced; the `Access-Control-Allow-Origin` header is not sent, because a preflight cannot name the tenant (ADR-019 §13). No browser client exists to read it yet.
+- **A staff surface for `widgetKey` and `allowedOrigins`** — nothing reads a tenant's widget key back to them and nothing lets them configure their origins, so the fields are inert until the widget-installation slice (ADR-019 §14). This is the sharpest limitation of the customer-identity slice.
+- **Widget token revocation** — widget tokens are stateless and valid until they expire (24h). Nothing can shorten that. The authority at stake is one customer's own identity in one tenant, and this becomes reconsiderable when a token grants read access to message history (ADR-019 §14).
 - **Audit logging** (§9), **file upload validation** (§5), and **AI security** (§8) — no implementation.

@@ -3,7 +3,7 @@ import path from "node:path";
 import dotenv from "dotenv";
 import { z } from "zod";
 
-import { ACCESS_TOKEN_SECRET_MIN_LENGTH } from "../../config/constants";
+import { ACCESS_TOKEN_SECRET_MIN_LENGTH, WIDGET_TOKEN_SECRET_MIN_LENGTH } from "../../config/constants";
 
 /**
  * Loaded once from the monorepo root .env — shared with apps/web rather
@@ -73,14 +73,55 @@ const jwtAccessSecretSchema = z
     `JWT_ACCESS_SECRET must be at least ${ACCESS_TOKEN_SECRET_MIN_LENGTH} characters`,
   );
 
-const envSchema = z.object({
-  NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
-  PORT: z.coerce.number().int().positive().default(3001),
-  MONGODB_URI: z.string().min(1, "MONGODB_URI is required"),
-  CLIENT_URL: clientUrlSchema,
-  JWT_ACCESS_SECRET: jwtAccessSecretSchema,
-  LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
-});
+/**
+ * HS256 signing key for widget visitor tokens (ADR-019 §8).
+ *
+ * A SEPARATE key from JWT_ACCESS_SECRET, and that is the point rather than
+ * tidiness. Serviqo issues two credential formats to two principal types, and
+ * distinct keys mean a staff token presented to the widget verifier fails at
+ * the signature rather than at an audience claim — a control that holds even
+ * if a claim check is one day written wrongly.
+ *
+ * Required with no default, like every other signing key here: a fallback
+ * would let a process boot and mint real visitor credentials with a key an
+ * attacker could read out of the source tree.
+ *
+ * The message never echoes the value.
+ */
+const jwtWidgetSecretSchema = z
+  .string()
+  .min(
+    WIDGET_TOKEN_SECRET_MIN_LENGTH,
+    `JWT_WIDGET_SECRET must be at least ${WIDGET_TOKEN_SECRET_MIN_LENGTH} characters`,
+  );
+
+const envSchema = z
+  .object({
+    NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+    PORT: z.coerce.number().int().positive().default(3001),
+    MONGODB_URI: z.string().min(1, "MONGODB_URI is required"),
+    CLIENT_URL: clientUrlSchema,
+    JWT_ACCESS_SECRET: jwtAccessSecretSchema,
+    JWT_WIDGET_SECRET: jwtWidgetSecretSchema,
+    LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
+  })
+  /*
+    The two signing keys must differ, enforced at boot rather than documented
+    (ADR-019 §8).
+
+    A deployment that set both to one value — by copying a line in a .env, or
+    by a secret manager resolving two names to one entry — would have the
+    audience claim as its only remaining separation between a visitor
+    credential and a staff one. That is a configuration mistake which produces
+    no symptom at all until it produces the worst one, so the process refuses
+    to start instead.
+
+    Neither value appears in the message.
+  */
+  .refine((parsed) => parsed.JWT_ACCESS_SECRET !== parsed.JWT_WIDGET_SECRET, {
+    path: ["JWT_WIDGET_SECRET"],
+    message: "JWT_WIDGET_SECRET must not be the same value as JWT_ACCESS_SECRET",
+  });
 
 export type Env = z.infer<typeof envSchema>;
 

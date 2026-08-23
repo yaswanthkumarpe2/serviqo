@@ -2,6 +2,7 @@ import { Router } from "express";
 
 import { createAuthRouter } from "../modules/auth/auth.routes";
 import { createOrganizationRouter } from "../modules/organizations/organization.routes";
+import { createWidgetRouter } from "../modules/widget/widget.routes";
 
 import type { EmailProvider } from "../lib/email/emailProvider";
 import type { RateLimiters } from "../lib/rateLimit";
@@ -44,6 +45,19 @@ export function createApiRouter({ emailProvider, rateLimiters }: ApiRouterDepend
     would blur a boundary that later has to hold against customer traffic.
   */
   router.use("/api/v1/organizations", createOrganizationRouter({ rateLimiters }));
+  /*
+    The customer-facing namespace ADR-010 §5 reserved: "Customer traffic never
+    appears under `/api/v1/auth`." Its own prefix, so the boundary between the
+    two principal types is visible in the URL a request arrives on, and so
+    neither namespace can acquire the other's middleware by being nested
+    inside it.
+
+    The staff refresh cookie is `Path`-scoped to `/api/v1/auth`
+    (`REFRESH_COOKIE_PATH`), which means a browser will never attach it to a
+    request under this prefix — a structural guarantee ADR-010 §8 asked for
+    and this mount point preserves.
+  */
+  router.use("/api/v1/widget", createWidgetRouter({ rateLimiters }));
 
   return router;
 }
