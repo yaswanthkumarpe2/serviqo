@@ -1,6 +1,25 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 /**
+ * `lib/env` calls `dotenv.config()` at module load, which reads the real root
+ * `.env`. That makes this suite non-hermetic in one specific and misleading
+ * way.
+ *
+ * dotenv never overwrites an already-set `process.env` value, but it does
+ * populate one this suite has deliberately DELETED. So every
+ * "rejects a missing value rather than defaulting" case below passes on a
+ * machine with no `.env` and fails on a machine that has one — and
+ * `.env.example` opens with "Copy this file to .env", so the failing machine
+ * is the one that followed the setup instructions.
+ *
+ * Stubbing dotenv makes `process.env` the single source of truth here, which
+ * is what these cases were always meant to assert. Nothing in this file tests
+ * dotenv's file loading; that is dotenv's own responsibility, and asserting it
+ * here would only couple the suite to whatever happens to be on disk.
+ */
+vi.mock("dotenv", () => ({ default: { config: () => ({ parsed: {} }) } }));
+
+/**
  * `lib/env` validates eagerly at module load, so each case re-imports it
  * under a different process.env. `vi.resetModules()` is what makes the
  * re-import actually re-run validation instead of returning a cached module.
