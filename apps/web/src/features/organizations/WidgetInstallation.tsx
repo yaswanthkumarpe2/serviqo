@@ -230,8 +230,8 @@ export function WidgetInstallation({ organizationId }: WidgetInstallationProps) 
           Embed snippet
         </label>
         <p className="widgetInstall__hint widgetInstall__hint--tight">
-          Paste this into your website&rsquo;s HTML. It does nothing yet — the widget loader script ships in a later
-          release — but it already carries your widget key, so it is ready to activate once it does.
+          Paste this into your website&rsquo;s HTML to add live chat. Messaging is still on the way — for now
+          visitors will see a launcher and a ready-to-chat panel.
         </p>
         <textarea
           id="widget-embed-snippet"
