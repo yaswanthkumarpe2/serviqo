@@ -26,11 +26,25 @@ Note that phases may be adjusted when technically justified. Each phase follows:
   - 🔲 Organization context on `/me`, and rate limiting (the [ADR-007 §13](./docs/decisions/007-registration-flow-and-account-enumeration.md) deployment gate)
   - ✅ Widget installation: staff-facing widget key, allowed-origin management, and key rotation ([ADR-020](./docs/decisions/020-widget-installation-configuration-surface.md))
 
-- 🔲 **Phase 3: User / Team / Role management**
-  - Implement RBAC (Owner, Admin, Supervisor, Agent) — organization users only (ADR-010)
-  - Team creation and management
-  - Invitation system for joining organizations
-  - Profile management for users
+- 🟡 **Phase 3: User / Team / Role management** (RBAC, team management and role management complete; invitations and profile management deferred)
+  - ✅ RBAC (Owner, Admin, Supervisor, Agent) — organization users only ([ADR-010](./docs/decisions/010-principal-types-organization-users-and-customers.md), [ADR-017](./docs/decisions/017-organization-context-and-rbac.md))
+  - ✅ Team management — the organization member roster, adding a member, changing a
+    member's role, and removing one, behind `member.read`/`member.manage`
+    ([ADR-027](./docs/decisions/027-team-management-and-membership-lifecycle.md))
+  - ✅ `GET`/`POST`/`PATCH`/`DELETE /api/v1/organizations/:organizationId/members…` —
+    the four member routes, tenant-scoped by membership id ([ADR-027](./docs/decisions/027-team-management-and-membership-lifecycle.md) §1)
+  - ✅ Removing a member releases their conversation assignments and broadcasts
+    `conversation:updated`, closing [ADR-026](./docs/decisions/026-conversation-assignment-and-status.md) §15's
+    stale-assignment limitation ([ADR-027](./docs/decisions/027-team-management-and-membership-lifecycle.md) §10)
+  - ✅ Team Management section in the dashboard — roster, role control, add-member
+    form, confirmed removal, and permission-aware controls
+    ([ADR-027](./docs/decisions/027-team-management-and-membership-lifecycle.md) §16)
+  - 🔲 Ownership transfer — the owner cannot be changed, removed, or demoted by any
+    request ([ADR-027](./docs/decisions/027-team-management-and-membership-lifecycle.md) §7, §18)
+  - 🔲 Suspend / reactivate a membership — `MembershipStatus` supports both; no route sets either
+  - 🔲 Invitation system for joining organizations — needs real email delivery
+    ([ADR-027](./docs/decisions/027-team-management-and-membership-lifecycle.md) §3)
+  - 🔲 Profile management for users
 
 - 🔲 **Phase 4: Customer chat experience**
   - Basic real-time chat interface for customers
@@ -50,7 +64,10 @@ Note that phases may be adjusted when technically justified. Each phase follows:
     without a refresh ([ADR-026](./docs/decisions/026-conversation-assignment-and-status.md))
   - 🟡 Reassignment — an agent releases their own conversation; taking one
     from a colleague is refused for every role and needs its own permission
-    and a notification design (ADR-026 §4, §15)
+    and a notification design (ADR-026 §4, §15). Narrowed by
+    [ADR-027](./docs/decisions/027-team-management-and-membership-lifecycle.md) §10:
+    a colleague who has been removed from the organization no longer strands
+    their queue — removal releases their assignments and broadcasts the change.
   - 🔲 Multi-conversation handling UI
   - 🔲 Customer profile and context panel
   - 🔲 Internal notes for agents
