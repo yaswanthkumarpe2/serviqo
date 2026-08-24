@@ -2,12 +2,14 @@ import { created, success } from "../../lib/response";
 import { OrganizationNotAccessibleError } from "../../lib/errors";
 import { organizationRepository } from "./organization.repository";
 
-import type { CreateOrganizationInput } from "./organization.validation";
+import type { CreateOrganizationInput, ReplaceAllowedOriginsInput } from "./organization.validation";
 import type { OrganizationOnboardingService } from "./organizationOnboarding.service";
+import type { WidgetSettingsService } from "./widgetSettings.service";
 import type { RequestHandler } from "express";
 
 export interface OrganizationControllerDependencies {
   onboardingService: OrganizationOnboardingService;
+  widgetSettingsService: WidgetSettingsService;
 }
 
 /**
@@ -18,7 +20,10 @@ export interface OrganizationControllerDependencies {
  * to the error middleware, which is the single place that turns an error into
  * a response.
  */
-export function createOrganizationController({ onboardingService }: OrganizationControllerDependencies) {
+export function createOrganizationController({
+  onboardingService,
+  widgetSettingsService,
+}: OrganizationControllerDependencies) {
   /**
    * Creates an organization owned by the caller (ADR-016 §1).
    *
@@ -90,5 +95,54 @@ export function createOrganizationController({ onboardingService }: Organization
     });
   };
 
-  return { create, read };
+  /**
+   * Reads the widget key and allowed origins (ADR-020 §2).
+   *
+   * Behind `organization.manage`, not `organization.read` — the route file
+   * is where that choice is made, and this handler trusts it the same way
+   * `read` above trusts `requireOrganization`'s prior proof of membership.
+   */
+  const getWidgetConfig: RequestHandler = async (req, res) => {
+    const context = req.organizationContext!;
+    const settings = await widgetSettingsService.getSettings(context.organizationId);
+    success(res, settings);
+  };
+
+  /**
+   * Replaces the allowed-origins list (ADR-020 §3).
+   *
+   * `req.body` is safe to assert: `validateBody` already normalized and
+   * duplicate-checked every entry against `replaceAllowedOriginsSchema`.
+   */
+  const updateAllowedOrigins: RequestHandler = async (req, res) => {
+    const context = req.organizationContext!;
+    const { allowedOrigins } = req.body as ReplaceAllowedOriginsInput;
+
+    const settings = await widgetSettingsService.replaceAllowedOrigins(
+      context.organizationId,
+      allowedOrigins,
+      { userId: req.principal!.userId },
+      req.log,
+    );
+
+    success(res, settings);
+  };
+
+  /**
+   * Rotates the widget key (ADR-020 §5). The response carries the new key
+   * and nothing about the old one.
+   */
+  const rotateWidgetKey: RequestHandler = async (req, res) => {
+    const context = req.organizationContext!;
+
+    const settings = await widgetSettingsService.rotateWidgetKey(
+      context.organizationId,
+      { userId: req.principal!.userId },
+      req.log,
+    );
+
+    success(res, settings);
+  };
+
+  return { create, read, getWidgetConfig, updateAllowedOrigins, rotateWidgetKey };
 }

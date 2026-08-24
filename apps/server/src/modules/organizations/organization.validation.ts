@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { normalizeOrigin } from "./widgetConfig";
+
 /**
  * Request schemas for the organizations module (ADR-016 §5).
  *
@@ -62,3 +64,60 @@ export const createOrganizationSchema = z.object({
 });
 
 export type CreateOrganizationInput = z.infer<typeof createOrganizationSchema>;
+
+/**
+ * Replacing the allowed-origins list (ADR-020 §3).
+ *
+ * Taken verbatim from ADR-019 §10's own example — "a tenant with fifty
+ * storefronts lists fifty origins" — rather than invented, matching
+ * `config/constants.ts`'s rule that every bound in this codebase is either
+ * derived or explicitly justified.
+ */
+const MAX_ALLOWED_ORIGINS = 50;
+
+/**
+ * Normalizes one entry with the exact function ADR-019 §10 defined and the
+ * model's own setter uses, rather than a second implementation of what an
+ * origin is. A value that is not an origin at all — a path, a query, a
+ * fragment, userinfo, a non-http(s) scheme, or any wildcard — fails here as
+ * a field-level issue, before any database call.
+ */
+const allowedOriginSchema = z.string().transform((value, ctx) => {
+  const normalized = normalizeOrigin(value);
+  if (normalized === null) {
+    ctx.addIssue({
+      code: "custom",
+      message: "must be an http(s) origin with no path, query, fragment, userinfo, or wildcard",
+    });
+    return z.NEVER;
+  }
+  return normalized;
+});
+
+/**
+ * Replacing the whole list, never adding or removing one entry (ADR-020 §3).
+ * The frontend computes the next array locally and sends it whole, so a
+ * dropped request cannot leave a stale entry active the way a lost `DELETE`
+ * could.
+ *
+ * Duplicates are rejected rather than silently deduplicated, checked AFTER
+ * normalization so `https://Shop.example.com` and
+ * `https://shop.example.com/` are caught as the same entry — a boundary that
+ * quietly edited a caller's input is one a caller could not trust to store
+ * what it sent.
+ *
+ * An empty array is valid and means "no website may embed this widget"
+ * (ADR-019 §10) — this endpoint is how a tenant reaches that state on
+ * purpose, not a case rejected here.
+ */
+export const replaceAllowedOriginsSchema = z.object({
+  allowedOrigins: z
+    .array(allowedOriginSchema)
+    .max(MAX_ALLOWED_ORIGINS, `allowedOrigins must contain at most ${MAX_ALLOWED_ORIGINS} entries`)
+    .refine(
+      (origins) => new Set(origins).size === origins.length,
+      "allowedOrigins must not contain duplicate origins",
+    ),
+});
+
+export type ReplaceAllowedOriginsInput = z.infer<typeof replaceAllowedOriginsSchema>;

@@ -252,18 +252,23 @@ export const SESSION_LIMIT = 60;
 export const SESSION_WINDOW_MS = 15 * 60 * 1000;
 
 /**
- * Authenticated writes: currently `POST /organizations`.
+ * Authenticated writes: `POST /organizations`, and, as of ADR-020,
+ * `PUT /organizations/:id/widget-config/origins` and
+ * `POST /organizations/:id/widget-config/rotate-key`.
  *
  * ADR-016 §2 recorded the vector precisely — "an authenticated user can
  * create organizations in a loop. That is a rate-limiting concern, and rate
  * limiting is the next slice." Thirty tenants in an hour is far past
- * anything a person does, and far below what a script wants.
+ * anything a person does, and far below what a script wants. The widget
+ * installation routes reuse this class rather than a new one: staff-
+ * initiated, low-frequency configuration writes with the same shape.
  */
 export const AUTHENTICATED_WRITE_LIMIT = 30;
 export const AUTHENTICATED_WRITE_WINDOW_MS = 60 * 60 * 1000;
 
 /**
- * Authenticated reads: `GET /auth/me`, `GET /organizations/:organizationId`.
+ * Authenticated reads: `GET /auth/me`, `GET /organizations/:organizationId`,
+ * and, as of ADR-020, `GET /organizations/:id/widget-config`.
  *
  * A dashboard mount costs two calls, so 300 allows roughly 150 page loads
  * per window per user. This class catches a runaway client or a scraper

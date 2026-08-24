@@ -25,11 +25,28 @@ import "./OrganizationSwitcher.css";
  * silent.
  */
 
-interface OrganizationSwitcherProps {
-  memberships: CurrentUserMembership[];
+/** The server-confirmed active organization, or `null` while none is confirmed. */
+export interface ActiveOrganizationContext {
+  organizationId: string;
+  role: string;
 }
 
-export function OrganizationSwitcher({ memberships }: OrganizationSwitcherProps) {
+interface OrganizationSwitcherProps {
+  memberships: CurrentUserMembership[];
+  /**
+   * Notified whenever the server-confirmed active organization changes —
+   * on load, on switch, and back to `null` on a refusal (ADR-020's widget
+   * installation section reads it to know which tenant it is configuring).
+   *
+   * A UX convenience for a sibling section to key off of, not a new source
+   * of truth: it only ever carries what this component already fetched from
+   * `GET /organizations/:id`, never a value chosen client-side without the
+   * server's confirmation.
+   */
+  onActiveOrganizationChange?: (context: ActiveOrganizationContext | null) => void;
+}
+
+export function OrganizationSwitcher({ memberships, onActiveOrganizationChange }: OrganizationSwitcherProps) {
   const { authorizedFetch } = useAuth();
 
   /*
@@ -98,6 +115,14 @@ export function OrganizationSwitcher({ memberships }: OrganizationSwitcherProps)
         );
       });
   }, [activeId, authorizedFetch]);
+
+  // A separate effect from the fetch above: this one only forwards what
+  // `context` already settled to, and must not itself trigger a fetch.
+  useEffect(() => {
+    onActiveOrganizationChange?.(
+      context !== null ? { organizationId: context.organization.id, role: context.role } : null,
+    );
+  }, [context, onActiveOrganizationChange]);
 
   // Explicit empty state. A user who has onboarded nothing is the ordinary
   // case, not an error, and the create form beneath is the useful action.

@@ -5,8 +5,9 @@ import { requireOrganization } from "../../middleware/requireOrganization";
 import { requirePermission } from "../../middleware/requirePermission";
 import { validateBody } from "../../middleware/validate";
 import { createOrganizationController } from "./organization.controller";
-import { createOrganizationSchema } from "./organization.validation";
+import { createOrganizationSchema, replaceAllowedOriginsSchema } from "./organization.validation";
 import { createOrganizationOnboardingService } from "./organizationOnboarding.service";
+import { createWidgetSettingsService } from "./widgetSettings.service";
 
 import type { RateLimiters } from "../../lib/rateLimit";
 
@@ -29,6 +30,7 @@ export function createOrganizationRouter({ rateLimiters }: OrganizationRouterDep
 
   const controller = createOrganizationController({
     onboardingService: createOrganizationOnboardingService(),
+    widgetSettingsService: createWidgetSettingsService(),
   });
 
   /*
@@ -79,6 +81,48 @@ export function createOrganizationRouter({ rateLimiters }: OrganizationRouterDep
     requireOrganization,
     requirePermission("organization.read"),
     controller.read,
+  );
+
+  /*
+    Widget installation (ADR-020). All three sit behind `organization.manage`
+    rather than `organization.read`: a role that may not change the widget
+    configuration has no legitimate reason to read the live key either, since
+    reading it is the first step toward installing or sharing it — exactly
+    the action the permission gates.
+
+    Nested under this router rather than given a new prefix: this is
+    organization configuration, a sibling of `GET /:organizationId`, not a
+    member of the public `/api/v1/widget/*` namespace ADR-019 §8 reserved for
+    unauthenticated customer traffic.
+  */
+  router.get(
+    "/:organizationId/widget-config",
+    requireAccessToken,
+    // Read class, keyed by the verified user, placed before tenant
+    // resolution for the same reason `GET /:organizationId` does (ADR-018 §3).
+    rateLimiters.authenticatedRead,
+    requireOrganization,
+    requirePermission("organization.manage"),
+    controller.getWidgetConfig,
+  );
+
+  router.put(
+    "/:organizationId/widget-config/origins",
+    requireAccessToken,
+    rateLimiters.authenticatedWrite,
+    requireOrganization,
+    requirePermission("organization.manage"),
+    validateBody(replaceAllowedOriginsSchema),
+    controller.updateAllowedOrigins,
+  );
+
+  router.post(
+    "/:organizationId/widget-config/rotate-key",
+    requireAccessToken,
+    rateLimiters.authenticatedWrite,
+    requireOrganization,
+    requirePermission("organization.manage"),
+    controller.rotateWidgetKey,
   );
 
   return router;

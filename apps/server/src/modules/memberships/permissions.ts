@@ -29,7 +29,12 @@ import type { MembershipRole } from "./membership.model";
 export type Permission =
   /** Read the organization's own record — every member of a tenant can see the tenant. */
   | "organization.read"
-  /** Change the organization: rename, settings, suspend. No endpoint yet (ADR-017 §8). */
+  /**
+   * Change the organization: rename, settings, suspend. Its first enforcer is
+   * the widget installation surface (ADR-020) — reading the widget key,
+   * replacing allowed origins, and rotating the key. Rename and suspend have
+   * no endpoint yet.
+   */
   | "organization.manage"
   /** See who else works here. No endpoint yet — team management is its own slice. */
   | "member.read"

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { Button } from "@/components/ui/Button";
@@ -6,6 +7,9 @@ import { useAuth } from "@/features/auth/useAuth";
 import { useCurrentUser } from "@/features/auth/useCurrentUser";
 import { CreateOrganizationForm } from "@/features/organizations/CreateOrganizationForm";
 import { OrganizationSwitcher } from "@/features/organizations/OrganizationSwitcher";
+import { WidgetInstallation } from "@/features/organizations/WidgetInstallation";
+
+import type { ActiveOrganizationContext } from "@/features/organizations/OrganizationSwitcher";
 
 import "./DashboardPage.css";
 
@@ -36,6 +40,8 @@ export function DashboardPage() {
   const { session, signOut, signOutAllDevices } = useAuth();
   const { user, memberships, isLoading, error } = useCurrentUser();
   const navigate = useNavigate();
+
+  const [activeOrganization, setActiveOrganization] = useState<ActiveOrganizationContext | null>(null);
 
   // ProtectedRoute guarantees a session before this renders; the guard keeps
   // the component honest rather than asserting non-null.
@@ -139,7 +145,18 @@ export function DashboardPage() {
           and then fills in reads as "you have no organizations", which is the
           one thing it must not say while it does not yet know.
         */}
-        {!isLoading && user !== null && <OrganizationSwitcher memberships={memberships} />}
+        {!isLoading && user !== null && (
+          <OrganizationSwitcher memberships={memberships} onActiveOrganizationChange={setActiveOrganization} />
+        )}
+
+        {/*
+          Keyed by organization id so switching tenants remounts this section
+          fresh (ADR-020) rather than reconciling one tenant's widget key and
+          origins into a component that just finished rendering another's.
+        */}
+        {activeOrganization !== null && (
+          <WidgetInstallation key={activeOrganization.organizationId} organizationId={activeOrganization.organizationId} />
+        )}
 
         <CreateOrganizationForm />
 

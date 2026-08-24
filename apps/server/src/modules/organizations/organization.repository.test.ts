@@ -4,6 +4,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { OrganizationModel } from "./organization.model";
 import { organizationRepository } from "./organization.repository";
+import { isWellFormedWidgetKey } from "./widgetConfig";
 
 describe("Organization persistence", () => {
   let mongoServer: MongoMemoryServer;
@@ -133,5 +134,105 @@ describe("Organization persistence", () => {
   it("excludes __v from normal serialization", async () => {
     const org = await organizationRepository.create({ name: "Version Key", slug: "version-key" });
     expect(org.toJSON()).not.toHaveProperty("__v");
+  });
+
+  // ---- widget installation (ADR-020) ----
+
+  describe("ensureWidgetKey", () => {
+    it("leaves an existing key untouched", async () => {
+      const org = await organizationRepository.create({ name: "Has Key", slug: "has-key" });
+
+      const result = await organizationRepository.ensureWidgetKey(org._id.toString());
+
+      expect(result!.widgetKey).toBe(org.widgetKey);
+    });
+
+    it("mints and persists a key for an organization that has none", async () => {
+      const org = await OrganizationModel.create({ name: "Legacy", slug: "legacy-ensure" });
+      await OrganizationModel.updateOne({ _id: org._id }, { $unset: { widgetKey: "" } });
+
+      const result = await organizationRepository.ensureWidgetKey(org._id.toString());
+
+      expect(isWellFormedWidgetKey(result!.widgetKey!)).toBe(true);
+      const persisted = await OrganizationModel.findById(org._id);
+      expect(persisted!.widgetKey).toBe(result!.widgetKey);
+    });
+
+    it("returns null for an organization that does not exist", async () => {
+      const result = await organizationRepository.ensureWidgetKey(new mongoose.Types.ObjectId().toString());
+      expect(result).toBeNull();
+    });
+  });
+
+  describe("replaceAllowedOrigins", () => {
+    it("replaces the stored list", async () => {
+      const org = await organizationRepository.create({ name: "Origins", slug: "origins-replace" });
+
+      const result = await organizationRepository.replaceAllowedOrigins(org._id.toString(), [
+        "https://shop.example.com",
+      ]);
+
+      expect(result!.allowedOrigins).toEqual(["https://shop.example.com"]);
+    });
+
+    it("runs the model's own setter, so two spellings of one origin cannot both be stored", async () => {
+      const org = await organizationRepository.create({ name: "Canon", slug: "origins-canon" });
+
+      const result = await organizationRepository.replaceAllowedOrigins(org._id.toString(), [
+        "HTTPS://Shop.Example.COM:443/",
+      ]);
+
+      expect(result!.allowedOrigins).toEqual(["https://shop.example.com"]);
+    });
+
+    it("rejects an invalid origin through the model's own validator", async () => {
+      const org = await organizationRepository.create({ name: "Invalid", slug: "origins-invalid" });
+
+      await expect(
+        organizationRepository.replaceAllowedOrigins(org._id.toString(), ["https://*.example.com"]),
+      ).rejects.toThrow(/allowedOrigins/);
+    });
+
+    it("mints a widget key for an organization that had none", async () => {
+      const org = await OrganizationModel.create({ name: "Legacy", slug: "legacy-origins" });
+      await OrganizationModel.updateOne({ _id: org._id }, { $unset: { widgetKey: "" } });
+
+      const result = await organizationRepository.replaceAllowedOrigins(org._id.toString(), []);
+
+      expect(isWellFormedWidgetKey(result!.widgetKey!)).toBe(true);
+    });
+
+    it("returns null for an organization that does not exist", async () => {
+      const result = await organizationRepository.replaceAllowedOrigins(new mongoose.Types.ObjectId().toString(), []);
+      expect(result).toBeNull();
+    });
+  });
+
+  describe("rotateWidgetKey", () => {
+    it("replaces the key with a new, well-formed one", async () => {
+      const org = await organizationRepository.create({ name: "Rotate", slug: "rotate-key" });
+
+      const result = await organizationRepository.rotateWidgetKey(org._id.toString());
+
+      expect(isWellFormedWidgetKey(result!.widgetKey!)).toBe(true);
+      expect(result!.widgetKey).not.toBe(org.widgetKey);
+    });
+
+    it("persists the new key so a later lookup finds it and the old one resolves nothing", async () => {
+      const org = await organizationRepository.create({ name: "Rotate Persist", slug: "rotate-persist" });
+      const oldKey = org.widgetKey!;
+
+      const rotated = await organizationRepository.rotateWidgetKey(org._id.toString());
+
+      expect(await organizationRepository.findByWidgetKey(oldKey)).toBeNull();
+      expect((await organizationRepository.findByWidgetKey(rotated!.widgetKey!))!._id.toString()).toBe(
+        org._id.toString(),
+      );
+    });
+
+    it("returns null for an organization that does not exist", async () => {
+      const result = await organizationRepository.rotateWidgetKey(new mongoose.Types.ObjectId().toString());
+      expect(result).toBeNull();
+    });
   });
 });

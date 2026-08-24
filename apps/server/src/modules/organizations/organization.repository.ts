@@ -1,4 +1,6 @@
 import { OrganizationModel, normalizeSlug } from "./organization.model";
+import { generateWidgetKey } from "./widgetConfig";
+
 import type { OrganizationDocument } from "./organization.model";
 import type { Types } from "mongoose";
 
@@ -74,5 +76,75 @@ export const organizationRepository = {
    */
   async findByWidgetKey(widgetKey: string): Promise<OrganizationDocument | null> {
     return OrganizationModel.findOne({ widgetKey });
+  },
+
+  /**
+   * Returns this organization's widget key, minting one first if it has none
+   * (ADR-019 §9a, ADR-020 §2).
+   *
+   * An organization created before Slice 20 has `widgetKey: null` — a
+   * correct and inert state until a staff member asks for their embed
+   * snippet, which is this call. The mint happens at most once: a fresh
+   * key is generated and persisted only when the stored value is still
+   * `null`, so every later call (and `findByWidgetKey`) sees the same value.
+   */
+  async ensureWidgetKey(organizationId: string): Promise<OrganizationDocument | null> {
+    const organization = await OrganizationModel.findById(organizationId);
+    if (organization === null) return null;
+
+    if (organization.widgetKey === null) {
+      organization.widgetKey = generateWidgetKey();
+      await organization.save();
+    }
+
+    return organization;
+  },
+
+  /**
+   * Replaces the full allowed-origins list, minting a widget key first if
+   * this organization has none (ADR-020 §3, §4).
+   *
+   * Loads the document and assigns rather than `findByIdAndUpdate`. That
+   * distinction is load-bearing here: `allowedOrigins`'s schema-level `set`
+   * transform and `validate` function both run when a `Document` is
+   * assigned and saved, and an update query does not apply SchemaType
+   * setters — writing through one would let two spellings of one origin
+   * reach the database uncanonicalized on this one write path while every
+   * other path still runs the model's own defence against exactly that.
+   */
+  async replaceAllowedOrigins(
+    organizationId: string,
+    allowedOrigins: string[],
+  ): Promise<OrganizationDocument | null> {
+    const organization = await OrganizationModel.findById(organizationId);
+    if (organization === null) return null;
+
+    if (organization.widgetKey === null) {
+      organization.widgetKey = generateWidgetKey();
+    }
+    organization.allowedOrigins = allowedOrigins;
+    await organization.save();
+
+    return organization;
+  },
+
+  /**
+   * Rotates the widget key: mints a new one and overwrites the old one in
+   * place (ADR-020 §5).
+   *
+   * A single stored value rather than a list of currently-valid keys, so
+   * "the old key stops working immediately" is not a revocation list to
+   * check — `findByWidgetKey` simply cannot find the old value from the
+   * moment this `save()` commits, the same way a key-less organization is
+   * simply not reachable through the widget (ADR-019 §9a).
+   */
+  async rotateWidgetKey(organizationId: string): Promise<OrganizationDocument | null> {
+    const organization = await OrganizationModel.findById(organizationId);
+    if (organization === null) return null;
+
+    organization.widgetKey = generateWidgetKey();
+    await organization.save();
+
+    return organization;
   },
 };
