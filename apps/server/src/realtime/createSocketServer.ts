@@ -11,43 +11,63 @@ import { ConversationNotAccessibleError } from "../lib/errors";
 import { logger } from "../lib/logger";
 import { INVALID_TOKEN_MESSAGE, SESSION_REFUSED_MESSAGE } from "../middleware/requireWidgetToken";
 import { conversationRepository } from "../modules/conversations/conversation.repository";
+import { messageEvents } from "../modules/messages/messageEvents";
 import { createMessageService } from "../modules/messages/message.service";
 import { OBJECT_ID_PATTERN, createMessageSchema } from "../modules/widget/widgetConversation.validation";
 import { toConversationResponse, toMessageResponse } from "../modules/widget/widgetResponses";
-import { conversationRoomName } from "./conversationRoom";
+import { conversationRoomName, organizationInboxRoomName } from "./conversationRoom";
 import { SOCKET_EVENTS, safeAck, socketError } from "./realtimeEvents";
-import { authenticateSocketToken } from "./socketAuthentication";
+import { authenticateSocketHandshake } from "./socketAuthentication";
 import { SocketRateLimiter } from "./socketRateLimit";
 
 import type { AuthLogger } from "../modules/auth/authLogging";
+import type { MessageCreatedEvent } from "../modules/messages/messageEvents";
+import type { AgentSocketPrincipal } from "./socketAuthentication";
 import type { WidgetPrincipal } from "../modules/widget/widgetToken";
 import type { ConversationJoinPayload, MessageSendPayload } from "./realtimeEvents";
 import type { Server as HttpServer } from "node:http";
 import type { DefaultEventsMap, Server as IOServer, Socket as IOSocket } from "socket.io";
 
 /**
- * The Socket.IO real-time transport (ADR-023). Attaches to an
- * already-constructed `http.Server` — the same "build without starting"
- * shape `createApp` follows, so `apps/server/tests/socket.realtime.test.ts`
- * can bind an ephemeral port and drive real `socket.io-client` connections
- * with no dependency on `main.ts`.
+ * The Socket.IO real-time transport (ADR-023, extended by ADR-025). Attaches
+ * to an already-constructed `http.Server` — the same "build without starting"
+ * shape `createApp` follows, so the socket suites can bind an ephemeral port
+ * and drive real `socket.io-client` connections with no dependency on
+ * `main.ts`.
+ *
+ * As of ADR-025 this file is also the ONLY subscriber to the message domain
+ * event, and therefore the only place in the codebase that decides who hears
+ * about a message. Services publish; this broadcasts.
  */
 
 /**
- * Everything a socket knows about itself once authenticated. `widgetPrincipal`
- * is set exactly once, at handshake time, from the verified token
+ * Everything a socket knows about itself once authenticated. The principal is
+ * set exactly once, at handshake time, from the verified credential
  * (`socketAuthentication.ts`) — no event handler ever reads identity from a
- * client-supplied payload (ADR-023 §5, §7).
+ * client-supplied payload (ADR-023 §5, §7; ADR-025 §9).
+ *
+ * A discriminated union rather than optional fields on one shape: a customer
+ * socket has no `userId` and an agent socket has no `customerId`, and making
+ * that structural means a handler cannot read the wrong one from the wrong
+ * principal type by forgetting a check.
  */
+type SocketIdentity =
+  | {
+      kind: "widget";
+      principal: WidgetPrincipal;
+      /**
+       * Conversations THIS socket has proven it may join, tracked locally so
+       * `message:send` can refuse a conversation the socket never joined
+       * before any database call (ADR-023 §5). Process-local and never
+       * trusted as a substitute for `messageService.create`'s own ownership
+       * check.
+       */
+      joinedConversationIds: Set<string>;
+    }
+  | { kind: "agent"; principal: AgentSocketPrincipal };
+
 interface SocketData {
-  widgetPrincipal: WidgetPrincipal;
-  /**
-   * Conversations THIS socket has proven it may join, tracked locally so
-   * `message:send` can refuse a conversation the socket never joined before
-   * any database call (ADR-023 §5). Process-local and never trusted as a
-   * substitute for `messageService.create`'s own ownership check.
-   */
-  joinedConversationIds: Set<string>;
+  identity: SocketIdentity;
 }
 
 type AppServer = IOServer<DefaultEventsMap, DefaultEventsMap, DefaultEventsMap, SocketData>;
@@ -73,10 +93,10 @@ export function createSocketServer(httpServer: HttpServer, options: CreateSocket
     serveClient: false,
 
     /*
-      The token is the authorization boundary, not Origin (ADR-023 §9,
+      The credential is the authorization boundary, not Origin (ADR-023 §9,
       mirroring ADR-022 §6 for a second transport). Reflecting any origin
       matches `widgetCorsHeaders.ts`'s own posture; `credentials: false`
-      because the widget token travels in the handshake `auth` payload, never
+      because both token types travel in the handshake `auth` payload, never
       a cookie.
     */
     cors: {
@@ -96,10 +116,36 @@ export function createSocketServer(httpServer: HttpServer, options: CreateSocket
   const messageService = createMessageService();
 
   /*
-    Handshake authentication (ADR-023 §3). Runs before `connection` fires, so
-    a socket with no valid widget token never reaches an event handler at
-    all — the identical "refuse before any handler runs" shape
-    `requireWidgetToken` gives REST routes.
+    THE broadcast (ADR-025 §2, §8). Every `message:new` in Serviqo is emitted
+    from this one subscriber — the socket handler below deliberately does NOT
+    emit after its own send, because that would fire twice for every
+    socket-sent message.
+
+    Two disjoint audiences per message: the conversation room, which holds the
+    customer's own sockets, and the tenant's inbox room, which holds its
+    connected agents. Neither room can contain a socket from another tenant —
+    both names are built from the organization the server itself proved.
+  */
+  const unsubscribe = messageEvents.subscribe((event: MessageCreatedEvent) => {
+    const { organizationId, conversationId, message } = event;
+
+    io.to(conversationRoomName(organizationId, conversationId)).emit(SOCKET_EVENTS.MESSAGE_NEW, message);
+    io.to(organizationInboxRoomName(organizationId)).emit(SOCKET_EVENTS.MESSAGE_NEW, message);
+  });
+
+  /*
+    Tied to the HTTP server's lifecycle rather than left to be tidied by hand
+    (ADR-025 §2): a module-scope emitter with per-instance subscribers is safe
+    only if the subscribers are actually removed, and a leaked one holding a
+    closed `io` is a broadcast into nothing at best.
+  */
+  httpServer.once("close", unsubscribe);
+
+  /*
+    Handshake authentication (ADR-023 §3, ADR-025 §9). Runs before
+    `connection` fires, so a socket with no valid credential never reaches an
+    event handler at all — the identical "refuse before any handler runs"
+    shape `requireWidgetToken` and `requireAccessToken` give REST routes.
   */
   io.use(async (socket, next) => {
     if (rateLimiting) {
@@ -113,56 +159,115 @@ export function createSocketServer(httpServer: HttpServer, options: CreateSocket
       }
     }
 
-    const outcome = await authenticateSocketToken(socket.handshake.auth?.token);
+    const outcome = await authenticateSocketHandshake(socket.handshake.auth);
 
     if (!outcome.ok) {
       /*
-        Safe fields only, never the presented token (ADR-023 §3, mirroring
-        ADR-022 §14): what failed, and — for a session refusal — the
-        server-side organization id the token named.
+        Safe fields only, never the presented token (ADR-023 §3, ADR-025 §9,
+        mirroring ADR-022 §14): what failed, and — for a session refusal — the
+        server-side organization id the credential named.
+
+        The `reason` distinctions exist here, for operators, and nowhere else.
+        `not_a_member` in particular must never reach a client: it would
+        confirm the organization exists (ADR-017 §6).
       */
       logger.info(
         {
           event: outcome.kind === "invalid_token" ? "socket.auth.rejected" : "socket.auth.session_invalid",
           reason: outcome.reason,
-          ...(outcome.kind === "session_refused" ? { organizationId: outcome.organizationId } : {}),
+          ...(outcome.kind === "session_refused" && outcome.organizationId !== undefined
+            ? { organizationId: outcome.organizationId }
+            : {}),
         },
         "Socket handshake refused",
       );
       return next(new Error(outcome.kind === "invalid_token" ? INVALID_TOKEN_MESSAGE : SESSION_REFUSED_MESSAGE));
     }
 
-    socket.data.widgetPrincipal = outcome.principal;
-    socket.data.joinedConversationIds = new Set();
+    socket.data.identity =
+      outcome.kind === "widget"
+        ? { kind: "widget", principal: outcome.principal, joinedConversationIds: new Set() }
+        : { kind: "agent", principal: outcome.principal };
+
     next();
   });
 
   io.on("connection", (socket: AppSocket) => {
-    const { organizationId, customerId } = socket.data.widgetPrincipal;
+    const identity = socket.data.identity;
+
+    if (identity.kind === "agent") {
+      return onAgentConnected(socket, identity.principal);
+    }
+
+    onWidgetConnected(socket, identity.principal);
+  });
+
+  /**
+   * An agent socket (ADR-025 §8).
+   *
+   * It joins its tenant's inbox room immediately and joins nothing else, ever
+   * — there is no agent-side `conversation:join`, and no client event this
+   * socket may emit. An agent that wants to SEND uses the REST route, whose
+   * `requirePermission("conversation.reply")` is the only gate that makes
+   * `senderType: "agent"` reachable; the reply then arrives back here as a
+   * `message.created` event like any other.
+   *
+   * That asymmetry with the widget socket is deliberate: adding an
+   * agent-side send event would mean a second authorization path to the one
+   * write in this slice that creates agent-attributed content, and one path
+   * is easier to prove correct than two.
+   */
+  function onAgentConnected(socket: AppSocket, principal: AgentSocketPrincipal): void {
+    const { organizationId, userId, role } = principal;
+    const socketLog = logger.child({ socketId: socket.id, organizationId, userId });
+
+    void socket.join(organizationInboxRoomName(organizationId));
+
+    // `role` is safe in a log and is not in any response: an operator needs to
+    // know which standing a connection was accepted under.
+    socketLog.info({ event: "socket.agent.connected", role }, "Agent socket connected");
+
+    socket.on("disconnect", (reason: string) => {
+      socketLog.info({ event: "socket.disconnected", reason }, "Socket disconnected");
+    });
+  }
+
+  /** A customer socket — ADR-023's transport, unchanged apart from where the broadcast happens. */
+  function onWidgetConnected(socket: AppSocket, principal: WidgetPrincipal): void {
+    const { organizationId, customerId } = principal;
     const socketLog = logger.child({ socketId: socket.id, organizationId, customerId });
 
     socketLog.info({ event: "socket.connected" }, "Socket connected");
 
     socket.on(SOCKET_EVENTS.CONVERSATION_JOIN, (payload: ConversationJoinPayload, ack: unknown) => {
-      void handleJoin(socket, socketLog, payload, ack);
+      void handleJoin(socket, principal, socketLog, payload, ack);
     });
 
     socket.on(SOCKET_EVENTS.MESSAGE_SEND, (payload: MessageSendPayload, ack: unknown) => {
-      void handleSend(socket, socketLog, payload, ack);
+      void handleSend(socket, principal, socketLog, payload, ack);
     });
 
     socket.on("disconnect", (reason: string) => {
       socketLog.info({ event: "socket.disconnected", reason }, "Socket disconnected");
     });
-  });
+  }
+
+  /** The conversations a widget socket has joined. Asserted because only widget handlers call it. */
+  function joinedConversations(socket: AppSocket): Set<string> {
+    const identity = socket.data.identity;
+    /* c8 ignore next -- unreachable: only onWidgetConnected registers the handlers that call this. */
+    if (identity.kind !== "widget") throw new Error("joinedConversations called for a non-widget socket");
+    return identity.joinedConversationIds;
+  }
 
   async function handleJoin(
     socket: AppSocket,
+    principal: WidgetPrincipal,
     socketLog: AuthLogger,
     payload: ConversationJoinPayload,
     ack: unknown,
   ): Promise<void> {
-    const { organizationId, customerId } = socket.data.widgetPrincipal;
+    const { organizationId, customerId } = principal;
 
     const conversationId = payload?.conversationId;
     if (typeof conversationId !== "string" || !OBJECT_ID_PATTERN.test(conversationId)) {
@@ -181,7 +286,7 @@ export function createSocketServer(httpServer: HttpServer, options: CreateSocket
     }
 
     await socket.join(conversationRoomName(organizationId, conversationId));
-    socket.data.joinedConversationIds.add(conversationId);
+    joinedConversations(socket).add(conversationId);
 
     socketLog.info({ event: "socket.conversation.joined", conversationId }, "Conversation joined");
     safeAck(ack, { ok: true, data: toConversationResponse(conversation) });
@@ -189,11 +294,12 @@ export function createSocketServer(httpServer: HttpServer, options: CreateSocket
 
   async function handleSend(
     socket: AppSocket,
+    principal: WidgetPrincipal,
     socketLog: AuthLogger,
     payload: MessageSendPayload,
     ack: unknown,
   ): Promise<void> {
-    const { organizationId, customerId } = socket.data.widgetPrincipal;
+    const { organizationId, customerId } = principal;
 
     if (rateLimiting && !messageWriteLimiter.check(customerId).allowed) {
       socketLog.info(
@@ -214,7 +320,7 @@ export function createSocketServer(httpServer: HttpServer, options: CreateSocket
       boundary. `messageService.create` below re-proves ownership from the
       database regardless.
     */
-    if (!socket.data.joinedConversationIds.has(conversationId)) {
+    if (!joinedConversations(socket).has(conversationId)) {
       return safeAck(ack, { ok: false, error: socketError("NOT_JOINED") });
     }
 
@@ -226,8 +332,14 @@ export function createSocketServer(httpServer: HttpServer, options: CreateSocket
     try {
       /*
         Reuses `messageService.create` verbatim (ADR-023 §6) — the identical
-        function `widget.controller.ts`'s `createMessage` calls. Persist
-        first, then broadcast from the returned, persisted document.
+        function `widget.controller.ts`'s `createMessage` calls.
+
+        There is deliberately NO `io.to(...).emit(...)` here any more
+        (ADR-025 §2). The service publishes a `message.created` event and the
+        subscriber above broadcasts it; emitting here as well would deliver
+        every socket-sent message twice. The ack still carries the persisted
+        message, and the sender's own client suppresses the duplicate by id
+        (ADR-024 §4).
       */
       const message = await messageService.create(
         organizationId,
@@ -237,10 +349,7 @@ export function createSocketServer(httpServer: HttpServer, options: CreateSocket
         socketLog,
       );
 
-      const response = toMessageResponse(message);
-      io.to(conversationRoomName(organizationId, conversationId)).emit(SOCKET_EVENTS.MESSAGE_NEW, response);
-
-      safeAck(ack, { ok: true, data: response });
+      safeAck(ack, { ok: true, data: toMessageResponse(message) });
     } catch (err) {
       if (err instanceof ConversationNotAccessibleError) {
         // The conversation was joined earlier but is no longer reachable

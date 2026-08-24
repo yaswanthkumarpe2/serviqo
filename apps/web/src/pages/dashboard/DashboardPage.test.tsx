@@ -3,7 +3,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AuthProvider } from "@/features/auth/AuthProvider";
-import { CURRENT_USER, callsTo, stubAuthFetch } from "@/features/auth/testing/stubAuthFetch";
+import { CURRENT_USER, callsTo, stubAuthFetch, stubMembership } from "@/features/auth/testing/stubAuthFetch";
 import { DashboardPage } from "@/pages/dashboard/DashboardPage";
 import { ProtectedRoute } from "@/routes/ProtectedRoute";
 
@@ -307,5 +307,87 @@ describe("DashboardPage sample data", () => {
 
     const welcomeSection = container.querySelector(".dash__welcome");
     expect(welcomeSection?.textContent).not.toMatch(/sample|placeholder/i);
+  });
+});
+
+
+/**
+ * The agent inbox's wiring into the dashboard (ADR-025 §11).
+ *
+ * The inbox's own behaviour is covered in `features/inbox/AgentInbox.test.tsx`
+ * against a fake socket; this file asserts only what the PAGE is responsible
+ * for — that the section appears once an organization is confirmed, and that
+ * it is keyed by that organization so a tenant switch remounts it.
+ */
+describe("DashboardPage agent inbox", () => {
+  /**
+   * Confirming an organization also mounts `WidgetInstallation`, which fetches
+   * `/widget-config`. The shared auth stub does not model that endpoint — no
+   * dashboard test needed it before this one — and its catch-all
+   * `{ data: {} }` gives that component a settings object with no
+   * `allowedOrigins`, which it spreads.
+   *
+   * Answered properly here rather than left to the catch-all, so these tests
+   * exercise the page as the real server presents it. The sibling component's
+   * assumption that the field is always an array is its own concern.
+   */
+  function stubDashboard(memberships: ReturnType<typeof stubMembership>[]) {
+    const base = stubAuthFetch({ memberships });
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (String(url).includes("/widget-config")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ success: true, data: { widgetKey: "wk_test", allowedOrigins: [] } }),
+        } as Response);
+      }
+      if (/\/conversations$/.test(String(url))) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ success: true, data: { conversations: [], nextCursor: null } }),
+        } as Response);
+      }
+      return base(url, init) as Promise<Response>;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  it("renders the inbox once an organization is confirmed", async () => {
+    stubDashboard([stubMembership("org-acme", "Acme")]);
+    renderDashboard();
+    await welcome();
+
+    expect(await screen.findByRole("heading", { name: "Inbox" })).toBeDefined();
+  });
+
+  it("does not render the inbox for a user with no organization", async () => {
+    stubDashboard([]);
+    renderDashboard();
+    await welcome();
+
+    // No tenant is confirmed, so there is nothing an inbox could be scoped
+    // to — rendering an empty one would imply a workspace that does not exist.
+    expect(screen.queryByRole("heading", { name: "Inbox" })).toBeNull();
+  });
+
+  it("requests conversations only for the confirmed organization", async () => {
+    const fetchMock = stubDashboard([stubMembership("org-acme", "Acme")]);
+    renderDashboard();
+    await welcome();
+
+    await screen.findByRole("heading", { name: "Inbox" });
+
+    await waitFor(() => {
+      const inboxCalls = fetchMock.mock.calls
+        .map(([url]) => String(url))
+        .filter((url) => url.includes("/conversations"));
+
+      expect(inboxCalls.length).toBeGreaterThan(0);
+      for (const url of inboxCalls) {
+        expect(url).toContain("/organizations/org-acme/conversations");
+      }
+    });
   });
 });

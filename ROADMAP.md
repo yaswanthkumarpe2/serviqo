@@ -38,31 +38,47 @@ Note that phases may be adjusted when technically justified. Each phase follows:
   - File attachment support in chat
   - Chat history loading
 
-- 🔲 **Phase 5: Agent workspace**
-  - Dashboard for agents to view assigned conversations
-  - Multi-conversation handling UI
-  - Customer profile and context panel
-  - Internal notes for agents
+- 🟡 **Phase 5: Agent workspace** (inbox complete; assignment, context panel and notes deferred)
+  - ✅ Agent Inbox in the dashboard — conversation list, message history,
+    composer, live incoming messages and live agent replies, unread
+    indication, and loading/empty/error/forbidden states ([ADR-025](./docs/decisions/025-agent-inbox-and-live-agent-replies.md))
+  - ✅ `GET`/`POST /api/v1/organizations/:organizationId/conversations…` — the
+    staff-facing surface, behind `conversation.read` / `conversation.reply`
+  - 🔲 Assignment and ownership — every agent currently sees every
+    conversation in their organization; "assigned conversations" needs an
+    assignment model that does not exist
+  - 🔲 Multi-conversation handling UI
+  - 🔲 Customer profile and context panel
+  - 🔲 Internal notes for agents
 
-- 🟡 **Phase 6: Persistent conversations / messages** (persistence/API complete; real-time deferred)
+- 🟡 **Phase 6: Persistent conversations / messages** (persistence, API and delivery complete; archiving deferred)
   - ✅ `Conversation` and `Message` models, one open conversation per customer enforced by a partial unique index ([ADR-022](./docs/decisions/022-persistent-conversations-and-messages.md))
   - ✅ `requireWidgetToken`: the customer-facing authentication and tenant boundary
   - ✅ `POST /api/v1/widget/conversations`, `POST`/`GET /api/v1/widget/conversations/:id/messages` — resolve-or-create, send, and cursor-paginated history
-  - 🔲 Unread message counters — no consumer exists yet (no inbox, no read state)
+  - 🟡 Unread message counters — the inbox shows a session-local indicator
+    (ADR-025 §12); nothing is persisted, because "read" for a conversation
+    several agents share is read-receipt design
   - 🔲 Archiving and closing conversations — `status` supports it; no route sets it yet
-  - 🔲 Delivery of any kind — Phase 7 (Socket.IO) is what makes a sent message visible to anyone but its sender
+  - ✅ Delivery — a message reaches the other party live in both directions,
+    over the Socket.IO transport (ADR-023) and the domain event seam
+    ([ADR-025](./docs/decisions/025-agent-inbox-and-live-agent-replies.md) §2)
 
 - 🚧 **Phase 7: Socket.IO real-time communication**
   - ✅ Server-side Socket.IO configuration (attached to the existing HTTP server)
   - ✅ Widget-JWT handshake authentication; organization- and customer-scoped rooms
   - ✅ Conversation join, customer message send, real-time delivery, disconnect/reconnect
   - ✅ Socket rate limiting and safe (redacted) logging
+  - ✅ Agent handshake authentication and one inbox room per organization —
+    the staff access token verified with the same primitives
+    `requireOrganization` uses, no second auth system ([ADR-025](./docs/decisions/025-agent-inbox-and-live-agent-replies.md) §8, §9)
   - ✅ Client-side socket connection management in the widget UI — message
     list, composer, history over REST, reconnect with re-join and cursor
     catch-up, and id-based duplicate suppression (ADR-024)
+  - ✅ Broadcasting messages produced outside a socket handler — the message
+    service publishes a `message.created` domain event and the socket server
+    subscribes to it, so REST sends and agent replies both broadcast without
+    the producer knowing Socket.IO exists ([ADR-025](./docs/decisions/025-agent-inbox-and-live-agent-replies.md) §2, closing ADR-023 §12)
   - 🔲 Typing indicators and read receipts
-  - 🔲 Broadcasting messages produced outside a socket handler (REST sends, and
-    later agent/AI replies) — see ADR-023 §12 and ADR-024 §11
 
 - 🔲 **Phase 8: Redis presence / scaling / reliability**
   - Agent online/offline presence tracking

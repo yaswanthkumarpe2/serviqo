@@ -11,3 +11,24 @@
 export function conversationRoomName(organizationId: string, conversationId: string): string {
   return `org:${organizationId}:conversation:${conversationId}`;
 }
+
+/**
+ * The agent inbox room (ADR-025 §8). One per organization, holding every
+ * connected agent socket of that tenant.
+ *
+ * Scoped by organization and by NOTHING else, which is what makes
+ * CONTRIBUTING.md's non-negotiable rule structural here rather than
+ * conventional: an agent socket joins the room this function builds from the
+ * organization the server itself proved at handshake time, so there is no
+ * room name a client could cause to be constructed that reaches another
+ * tenant.
+ *
+ * Deliberately not per-conversation. An agent socket joins this room only and
+ * is never added to a conversation room, so "which conversations is this agent
+ * watching?" is not state the server tracks, and the agent's client filters
+ * for display — a UX concern, not a security one, because tenancy was proved
+ * before the socket joined anything.
+ */
+export function organizationInboxRoomName(organizationId: string): string {
+  return `org:${organizationId}:inbox`;
+}

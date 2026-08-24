@@ -1,0 +1,270 @@
+/*
+  The agent inbox (ADR-025 §11).
+
+  Follows CONTRIBUTING.md's design rules exactly: borders rather than
+  shadows, no hardcoded hex anywhere — every colour is a token from
+  `tokens.css`, so light and dark are handled by the token layer rather than
+  by a second set of rules here.
+
+  "One green": emerald appears in precisely two places on this surface — the
+  Send action and the unread indicator — which are two of the four uses that
+  rule permits. The selected row uses the sunk surface and a border, not a
+  green fill.
+*/
+
+.inbox {
+  margin-bottom: 24px;
+  padding: 20px;
+}
+
+.inbox__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.inbox__realtime {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.inbox__state {
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--text-2);
+  line-height: 1.6;
+}
+
+.inbox__state--error {
+  color: var(--danger);
+}
+
+/* Not an error colour: a role that may not read conversations is a
+   configuration fact, not a failure. */
+.inbox__state--forbidden {
+  color: var(--text-2);
+}
+
+.inbox__body {
+  display: grid;
+  /* List beside thread on a workspace-sized screen; stacked below. */
+  grid-template-columns: minmax(200px, 260px) 1fr;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+@media (max-width: 720px) {
+  .inbox__body {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---- conversation list ---- */
+
+.inbox__list {
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  /* Bounded so a busy tenant's list scrolls rather than pushing the
+     composer off the page. */
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.inbox__list ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.inbox__list li + li .inbox__row {
+  border-top: 1px solid var(--border);
+}
+
+.inbox__row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 4px 8px;
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 0;
+  text-align: left;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  transition: background var(--dur-fast) var(--ease-out);
+}
+
+.inbox__row:hover {
+  background: var(--surface-hover);
+}
+
+.inbox__row--selected {
+  background: var(--surface-sunk);
+}
+
+.inbox__rowName {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inbox__rowTime {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.inbox__unread {
+  grid-column: 2;
+  justify-self: end;
+  min-width: 18px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--em-600);
+  color: var(--text-inverse);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-align: center;
+}
+
+/* ---- thread ---- */
+
+.inbox__thread {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.inbox__threadTitle {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.inbox__messages {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.inbox__message {
+  max-width: 80%;
+  padding: 8px 12px;
+  border-radius: var(--r-lg);
+}
+
+/*
+  "Filled is human." Both participants here are people, so both are filled
+  and the distinction is side and weight, not outline — an outlined surface
+  is reserved for AI-originated content, which does not exist yet.
+*/
+.inbox__message--customer {
+  align-self: flex-start;
+  background: var(--surface-sunk);
+  color: var(--text);
+}
+
+.inbox__message--agent {
+  align-self: flex-end;
+  background: var(--em-50);
+  color: var(--em-900);
+}
+
+.inbox__messageBody {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  /* Message bodies are user content and may be multi-line or unbroken. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.inbox__messageMeta {
+  display: flex;
+  gap: 8px;
+  margin: 4px 0 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.inbox__messageSender {
+  font-weight: 500;
+}
+
+/* ---- composer ---- */
+
+.inbox__composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.inbox__input {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.inbox__input:focus-visible {
+  outline: 2px solid var(--em-600);
+  outline-offset: 1px;
+}
+
+.inbox__send {
+  padding: 9px 16px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: var(--em-600);
+  color: var(--text-inverse);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+
+.inbox__send:hover:not(:disabled) {
+  background: var(--em-700);
+}
+
+.inbox__send:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.inbox__srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

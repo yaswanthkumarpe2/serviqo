@@ -5,14 +5,14 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { CustomerModel } from "../modules/customers/customer.model";
 import { OrganizationModel } from "../modules/organizations/organization.model";
 import { issueWidgetToken } from "../modules/widget/widgetToken";
-import { authenticateSocketToken } from "./socketAuthentication";
+import { authenticateSocketHandshake } from "./socketAuthentication";
 
 /**
  * Unit coverage for the socket handshake's authentication core (ADR-023 §3).
  * Mirrors `requireWidgetToken.test.ts` case for case — the two are meant to
  * refuse identically, because they compose the identical primitives.
  */
-describe("authenticateSocketToken", () => {
+describe("authenticateSocketHandshake — the widget branch", () => {
   let mongoServer: MongoMemoryServer;
   let counter = 0;
 
@@ -46,26 +46,29 @@ describe("authenticateSocketToken", () => {
       organizationId: organization._id.toString(),
     });
 
-    const outcome = await authenticateSocketToken(token);
+    const outcome = await authenticateSocketHandshake({ token: token });
 
     expect(outcome).toEqual({
       ok: true,
+      // `kind` discriminates the two principal types the handshake now
+      // resolves (ADR-025 §9); the widget branch's behaviour is unchanged.
+      kind: "widget",
       principal: { customerId: customer._id.toString(), organizationId: organization._id.toString() },
     });
   });
 
   it("refuses a missing token", async () => {
-    const outcome = await authenticateSocketToken(undefined);
+    const outcome = await authenticateSocketHandshake({ token: undefined });
     expect(outcome).toEqual({ ok: false, kind: "invalid_token", reason: "missing_token" });
   });
 
   it("refuses a non-string token", async () => {
-    const outcome = await authenticateSocketToken(12345);
+    const outcome = await authenticateSocketHandshake({ token: 12345 });
     expect(outcome).toEqual({ ok: false, kind: "invalid_token", reason: "missing_token" });
   });
 
   it("refuses a malformed token", async () => {
-    const outcome = await authenticateSocketToken("not.a.jwt");
+    const outcome = await authenticateSocketHandshake({ token: "not.a.jwt" });
     expect(outcome).toEqual({ ok: false, kind: "invalid_token", reason: "invalid_token" });
   });
 
@@ -81,7 +84,7 @@ describe("authenticateSocketToken", () => {
       .setExpirationTime(Math.floor(Date.now() / 1000) - 60 * 60)
       .sign(new TextEncoder().encode(process.env.JWT_WIDGET_SECRET!));
 
-    const outcome = await authenticateSocketToken(expiredToken);
+    const outcome = await authenticateSocketHandshake({ token: expiredToken });
     expect(outcome).toEqual({ ok: false, kind: "invalid_token", reason: "invalid_token" });
   });
 
@@ -97,7 +100,7 @@ describe("authenticateSocketToken", () => {
       .setExpirationTime(Math.floor(Date.now() / 1000) + 3600)
       .sign(new TextEncoder().encode(process.env.JWT_WIDGET_SECRET!));
 
-    const outcome = await authenticateSocketToken(wrongIssuer);
+    const outcome = await authenticateSocketHandshake({ token: wrongIssuer });
     expect(outcome).toEqual({ ok: false, kind: "invalid_token", reason: "invalid_token" });
   });
 
@@ -113,7 +116,7 @@ describe("authenticateSocketToken", () => {
       .setExpirationTime(Math.floor(Date.now() / 1000) + 3600)
       .sign(new TextEncoder().encode(process.env.JWT_WIDGET_SECRET!));
 
-    const outcome = await authenticateSocketToken(wrongAudience);
+    const outcome = await authenticateSocketHandshake({ token: wrongAudience });
     expect(outcome).toEqual({ ok: false, kind: "invalid_token", reason: "invalid_token" });
   });
 
@@ -124,7 +127,7 @@ describe("authenticateSocketToken", () => {
       sessionId: "507f191e810c19729de860ea",
     });
 
-    const outcome = await authenticateSocketToken(token);
+    const outcome = await authenticateSocketHandshake({ token: token });
     expect(outcome).toEqual({ ok: false, kind: "invalid_token", reason: "invalid_token" });
   });
 
@@ -136,7 +139,7 @@ describe("authenticateSocketToken", () => {
     });
     await OrganizationModel.deleteOne({ _id: organization._id });
 
-    const outcome = await authenticateSocketToken(token);
+    const outcome = await authenticateSocketHandshake({ token: token });
     expect(outcome).toEqual({
       ok: false,
       kind: "session_refused",
@@ -152,7 +155,7 @@ describe("authenticateSocketToken", () => {
       organizationId: organization._id.toString(),
     });
 
-    const outcome = await authenticateSocketToken(token);
+    const outcome = await authenticateSocketHandshake({ token: token });
     expect(outcome).toEqual({
       ok: false,
       kind: "session_refused",
@@ -169,7 +172,7 @@ describe("authenticateSocketToken", () => {
     });
     await CustomerModel.deleteOne({ _id: customer._id });
 
-    const outcome = await authenticateSocketToken(token);
+    const outcome = await authenticateSocketHandshake({ token: token });
     expect(outcome).toEqual({
       ok: false,
       kind: "session_refused",
@@ -186,7 +189,7 @@ describe("authenticateSocketToken", () => {
       organizationId: orgA._id.toString(),
     });
 
-    const outcome = await authenticateSocketToken(token);
+    const outcome = await authenticateSocketHandshake({ token: token });
     expect(outcome).toEqual({
       ok: false,
       kind: "session_refused",

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { BrandMark } from "@/components/ui/icons";
 import { useAuth } from "@/features/auth/useAuth";
 import { useCurrentUser } from "@/features/auth/useCurrentUser";
+import { AgentInbox } from "@/features/inbox/AgentInbox";
 import { CreateOrganizationForm } from "@/features/organizations/CreateOrganizationForm";
 import { OrganizationSwitcher } from "@/features/organizations/OrganizationSwitcher";
 import { WidgetInstallation } from "@/features/organizations/WidgetInstallation";
@@ -14,14 +15,21 @@ import type { ActiveOrganizationContext } from "@/features/organizations/Organiz
 import "./DashboardPage.css";
 
 /**
- * Placeholder workspace shell. It exists to prove the session round trip —
- * sign in, land somewhere authenticated, sign out — and nothing more.
+ * The workspace shell.
  *
- * The IDENTITY on this page is real: it comes from `GET /auth/me` (ADR-015),
- * not from the login response and not from anything hardcoded. The METRICS
- * below are SAMPLE VALUES, labelled as such in the UI. No conversation,
- * ticket, or queue model exists yet, and CONTRIBUTING.md requires demo data
- * to say so rather than imply a working feature.
+ * Three things on this page are REAL. The identity comes from
+ * `GET /auth/me` (ADR-015); the organization context and widget installation
+ * come from the organization endpoints (ADR-017, ADR-020); and, as of
+ * ADR-025, the inbox reads this tenant's actual conversations and messages
+ * and sends actual replies.
+ *
+ * The METRICS at the bottom are still SAMPLE VALUES, labelled as such in the
+ * UI. `Conversation` and `Message` now exist — what is missing is anything
+ * that aggregates them — so the note beside those figures says only that
+ * nothing computes them yet, rather than the older and now-false claim that
+ * nothing on this page reads real data. CONTRIBUTING.md requires demo data
+ * to say what it is rather than imply a working feature, and it equally
+ * requires a working feature not to be described as absent.
  */
 
 interface StatCard {
@@ -31,7 +39,9 @@ interface StatCard {
 }
 
 const SAMPLE_STATS: StatCard[] = [
-  { label: "Total conversations", value: "—", hint: "Needs the conversations model" },
+  // The conversations model exists as of ADR-022 and the inbox reads it; what
+  // is still missing is an aggregate to count against, so this stays "—".
+  { label: "Total conversations", value: "—", hint: "Needs a conversation metrics endpoint" },
   { label: "Open tickets", value: "—", hint: "Needs the ticketing slice" },
   { label: "Waiting customers", value: "—", hint: "Needs the queue and presence slices" },
 ];
@@ -158,6 +168,22 @@ export function DashboardPage() {
           <WidgetInstallation key={activeOrganization.organizationId} organizationId={activeOrganization.organizationId} />
         )}
 
+        {/*
+          The agent inbox (ADR-025 §11) — the first section on this page that
+          reads real tenant data.
+
+          Keyed by organization id for a sharper reason than the section
+          above: switching tenants must DISCARD the inbox's conversations,
+          unread counts, selected thread, and open socket, not reconcile them.
+          React tears down the subtree on a key change, which is the only way
+          to be certain no message from the previous tenant can land in the
+          new one's list. Filtering by organizationId in an effect would be
+          the "rely only on frontend filtering" CONTRIBUTING.md forbids.
+        */}
+        {activeOrganization !== null && (
+          <AgentInbox key={activeOrganization.organizationId} organizationId={activeOrganization.organizationId} />
+        )}
+
         <CreateOrganizationForm />
 
         <section aria-labelledby="dash-stats-heading">
@@ -179,8 +205,8 @@ export function DashboardPage() {
           </div>
 
           <p className="dash__note">
-            These figures are placeholders. Nothing on this page reads real data — the conversation, ticket and queue
-            models have not been built.
+            These figures are placeholders — nothing computes them yet. The inbox above is real: it reads this
+            organization&rsquo;s conversations and messages.
           </p>
         </section>
       </main>

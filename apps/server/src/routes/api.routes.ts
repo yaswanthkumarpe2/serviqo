@@ -1,5 +1,6 @@
 import { Router } from "express";
 
+import { createAgentInboxRouter } from "../modules/agentInbox/agentInbox.routes";
 import { createAuthRouter } from "../modules/auth/auth.routes";
 import { createOrganizationRouter } from "../modules/organizations/organization.routes";
 import { createWidgetRouter } from "../modules/widget/widget.routes";
@@ -45,6 +46,22 @@ export function createApiRouter({ emailProvider, rateLimiters }: ApiRouterDepend
     would blur a boundary that later has to hold against customer traffic.
   */
   router.use("/api/v1/organizations", createOrganizationRouter({ rateLimiters }));
+  /*
+    The agent inbox (ADR-025 §3), nested under the organization prefix so the
+    tenant is a path segment `requireOrganization` can read — the boundary
+    ADR-017 §1 made structural: a URL cannot be addressed without naming a
+    tenant.
+
+    Its own router rather than routes added to `createOrganizationRouter`:
+    that module owns the tenant record and its widget installation settings,
+    and conversations are not organization configuration (ADR-025 §1).
+
+    Mounted AFTER the organizations router. Express matches in mount order and
+    these paths are strictly longer, so neither shadows the other — but the
+    order also keeps the more specific surface reading as an extension of the
+    general one rather than as an interception of it.
+  */
+  router.use("/api/v1/organizations/:organizationId/conversations", createAgentInboxRouter({ rateLimiters }));
   /*
     The customer-facing namespace ADR-010 §5 reserved: "Customer traffic never
     appears under `/api/v1/auth`." Its own prefix, so the boundary between the

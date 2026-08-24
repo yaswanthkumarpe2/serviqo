@@ -18,13 +18,15 @@ import type { MembershipRole } from "./membership.model";
 /**
  * Permissions this codebase actually enforces.
  *
- * Deliberately short. `conversation.read`, `ticket.update`, and
- * `ai.configure` are named in `PROJECT_CONTEXT.md` §5 and are absent here:
- * no conversation, ticket, or AI resource exists, and a permission guarding
- * nothing is the same unexercised security surface `accessToken.ts` declined
- * to create when it refused to write a verifier before its first caller.
+ * Deliberately short. `ticket.update` and `ai.configure` are named in
+ * `PROJECT_CONTEXT.md` §5 and are absent here: no ticket or AI resource
+ * exists, and a permission guarding nothing is the same unexercised security
+ * surface `accessToken.ts` declined to create when it refused to write a
+ * verifier before its first caller.
  *
- * A permission joins this union in the slice that enforces it.
+ * A permission joins this union in the slice that enforces it —
+ * `conversation.read` and `conversation.reply` did so in ADR-025, the slice
+ * that gave agents a route to reach conversations through.
  */
 export type Permission =
   /** Read the organization's own record — every member of a tenant can see the tenant. */
@@ -39,7 +41,22 @@ export type Permission =
   /** See who else works here. No endpoint yet — team management is its own slice. */
   | "member.read"
   /** Invite, remove, or change a member's role. No endpoint yet. */
-  | "member.manage";
+  | "member.manage"
+  /**
+   * Read the tenant's conversations and their message history (ADR-025 §4).
+   * Enforced by the agent inbox's three read routes and by the socket
+   * handshake's agent branch — an agent socket that cannot read conversations
+   * has nothing to be delivered.
+   */
+  | "conversation.read"
+  /**
+   * Send a message as the organization — the only permission that makes
+   * `senderType: "agent"` reachable (ADR-025 §6).
+   *
+   * Separate from `conversation.read` even though every role currently holds
+   * both, so a read-only role is a table edit rather than a code change.
+   */
+  | "conversation.reply";
 
 /**
  * Which role holds which permission.
@@ -55,17 +72,39 @@ export type Permission =
  */
 export const ROLE_PERMISSIONS = {
   /** Full control of the tenant, including the things that destroy it. */
-  owner: ["organization.read", "organization.manage", "member.read", "member.manage"],
+  owner: [
+    "organization.read",
+    "organization.manage",
+    "member.read",
+    "member.manage",
+    "conversation.read",
+    "conversation.reply",
+  ],
   /** Everything the owner can do except what ownership itself confers. */
-  admin: ["organization.read", "organization.manage", "member.read", "member.manage"],
+  admin: [
+    "organization.read",
+    "organization.manage",
+    "member.read",
+    "member.manage",
+    "conversation.read",
+    "conversation.reply",
+  ],
   /**
    * Oversees people and queues without configuring the tenant. Reads the
    * roster because supervising requires knowing who is on it; cannot change
    * it.
+   *
+   * Holds both conversation permissions: "oversees … queues" is a description
+   * of someone who reads conversations, and a supervisor who could not answer
+   * one would be unable to cover for the agents they supervise (ADR-025 §4).
    */
-  supervisor: ["organization.read", "member.read"],
-  /** Handles conversations. Sees that the organization exists and little else. */
-  agent: ["organization.read"],
+  supervisor: ["organization.read", "member.read", "conversation.read", "conversation.reply"],
+  /**
+   * Handles conversations — which, as of ADR-025, is a thing this role can
+   * actually do rather than a description of one. Still sees nothing about
+   * the tenant's configuration or its roster.
+   */
+  agent: ["organization.read", "conversation.read", "conversation.reply"],
 } as const satisfies Record<MembershipRole, readonly Permission[]>;
 
 /**

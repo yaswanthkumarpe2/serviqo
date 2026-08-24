@@ -70,6 +70,34 @@ export const customerRepository = {
   },
 
   /**
+   * The tenant-scoped BULK lookup, for the agent inbox's list (ADR-025 §7).
+   *
+   * Exists so rendering a page of conversations costs one customer query
+   * rather than one per row — the N+1 this repository's header notes nothing
+   * here can silently become, kept true by giving the caller a batched read
+   * instead of leaving them to loop over `findByIdAndOrganization`.
+   *
+   * Scoped by `organizationId` like every other read here, so a caller who
+   * somehow assembled ids from another tenant receives none of them back
+   * rather than a partially-filtered list (ADR-019 §4). There is deliberately
+   * no unscoped `findByIds`.
+   *
+   * Returns a `Map` rather than an array: the caller's next act is always
+   * "look up the customer for this conversation", and handing back an array
+   * would make every caller build this same index by hand.
+   */
+  async findByIdsAndOrganization(
+    customerIds: ObjectIdLike[],
+    organizationId: ObjectIdLike,
+  ): Promise<Map<string, CustomerDocument>> {
+    if (customerIds.length === 0) return new Map();
+
+    const customers = await CustomerModel.find({ _id: { $in: customerIds }, organizationId });
+
+    return new Map(customers.map((customer) => [customer._id.toString(), customer]));
+  },
+
+  /**
    * Records that a visitor was present, and updates the details they supplied.
    *
    * `lastSeenAt` is always written — that is what this method is for. `name`

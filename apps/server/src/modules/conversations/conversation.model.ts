@@ -90,6 +90,20 @@ conversationSchema.index(
   { unique: true, partialFilterExpression: { status: "open" } },
 );
 
+/**
+ * Serves the agent inbox's central query (ADR-025 §5):
+ * `conversationRepository.listByOrganization` — one tenant's conversations,
+ * most recently active first, keyset-paginated.
+ *
+ * The key order matches that query exactly: the equality filter
+ * (`organizationId`), then the sort key (`lastMessageAt` descending), then
+ * the `_id` tiebreak the cursor's range predicate needs. One covering index
+ * for the filter, the sort, and the pagination scan together, which is the
+ * whole reason `lastMessageAt` is stored on this document rather than
+ * derived from `Message` per row.
+ */
+conversationSchema.index({ organizationId: 1, lastMessageAt: -1, _id: -1 });
+
 // Same serialization boundary as every tenant-owned model: internal
 // Mongoose bookkeeping never survives serialization.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Mongoose's transform-hook type is impractical to hand-type precisely.

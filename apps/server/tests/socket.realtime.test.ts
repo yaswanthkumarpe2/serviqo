@@ -370,13 +370,20 @@ describe("socket.io real-time transport", () => {
     });
 
     /*
-      Pins the known gap ADR-023 §12 states explicitly: a REST-sent message is
-      persisted but does NOT broadcast, because the controller has no `io` to
-      emit through. Asserted rather than left implicit so that wiring a REST
+      The inverse of what this test asserted until ADR-025.
+
+      ADR-023 §12 pinned a known gap here — a REST-sent message persisted but
+      did not broadcast, because the controller had no `io` to emit through —
+      and said so explicitly: the assertion existed "so that wiring a REST
       emit path later is a deliberate change to a documented behavior with a
-      failing test to notice it, not a silent one.
+      failing test to notice it, not a silent one."
+
+      ADR-025 §2 is that deliberate change. The message service now publishes
+      a `message.created` domain event and `createSocketServer` subscribes to
+      it, so the producer no longer needs to know Socket.IO exists. This is
+      the REST → domain event → Socket.IO broadcast path, end to end.
     */
-    it("does not broadcast a REST-sent message to a joined socket (ADR-023 §12)", async () => {
+    it("broadcasts a REST-sent message to a joined socket (ADR-025 §2, closing ADR-023 §12)", async () => {
       const organization = await createOrganization();
       const token = await widgetToken(organization);
       const conversationId = await openConversation(token);
@@ -384,18 +391,21 @@ describe("socket.io real-time transport", () => {
       const socket = await connectAuthed(token);
       await emitWithAck(socket, "conversation:join", { conversationId });
 
-      let received = false;
-      socket.on("message:new", () => {
-        received = true;
-      });
+      const delivered = waitForEvent<Record<string, unknown>>(socket, "message:new");
 
-      await request(app)
+      const response = await request(app)
         .post(`${CONVERSATIONS_PATH}/${conversationId}/messages`)
         .set("Authorization", `Bearer ${token}`)
         .send({ body: "sent over REST while a socket is joined" });
-      await new Promise((resolve) => setTimeout(resolve, 300));
 
-      expect(received).toBe(false);
+      expect(response.status).toBe(201);
+
+      const payload = await delivered;
+      expect(payload.body).toBe("sent over REST while a socket is joined");
+      expect(payload.senderType).toBe("customer");
+      // The SAME message, not a second one: the broadcast carries the
+      // persisted document the REST response also described.
+      expect(payload.id).toBe(response.body.data.id);
       expect(await MessageModel.countDocuments({ conversationId })).toBe(1);
     });
   });

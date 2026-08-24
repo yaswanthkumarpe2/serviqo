@@ -656,7 +656,20 @@ describe("widget conversations and messages", () => {
       expect(methodNames).not.toContain("findById");
       expect(methodNames).not.toContain("findAll");
       expect(methodNames.sort()).toEqual(
-        ["create", "findByIdForCustomer", "findOpenByCustomer", "touchLastMessageAt"].sort(),
+        [
+          "create",
+          "findByIdForCustomer",
+          "findOpenByCustomer",
+          // The staff-facing pair (ADR-025 §5). Two keys rather than three,
+          // because an agent is entitled to every conversation in their own
+          // tenant — and to none outside it, which is why BOTH still take
+          // `organizationId` as a mandatory argument. The point this
+          // assertion protects is unchanged: no method here can be called
+          // without naming a tenant.
+          "findByIdForOrganization",
+          "listByOrganization",
+          "touchLastMessageAt",
+        ].sort(),
       );
     });
 

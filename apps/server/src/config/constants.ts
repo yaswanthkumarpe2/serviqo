@@ -366,6 +366,27 @@ export const MESSAGE_PAGE_DEFAULT_LIMIT = 30;
 /** The most messages a single page may request, regardless of `limit` (ADR-022 §11). */
 export const MESSAGE_PAGE_MAX_LIMIT = 100;
 
+// ---- the agent inbox (ADR-025 §5) ----
+
+/**
+ * Conversations returned per page when an agent does not specify `limit`.
+ *
+ * Deliberately NOT `MESSAGE_PAGE_DEFAULT_LIMIT`'s 30: an inbox row is a
+ * summary a person scans, and a first screen of it is a different quantity
+ * from a chat backlog's. Fifty fills a tall list without a second request
+ * while staying well inside one indexed scan.
+ */
+export const CONVERSATION_PAGE_DEFAULT_LIMIT = 50;
+
+/**
+ * The most conversations a single page may request, regardless of `limit`.
+ *
+ * The same ceiling `MESSAGE_PAGE_MAX_LIMIT` sets, written as a reference so
+ * the two cannot drift into disagreeing about how large "one page of a
+ * tenant-scoped list" may be.
+ */
+export const CONVERSATION_PAGE_MAX_LIMIT = MESSAGE_PAGE_MAX_LIMIT;
+
 // ---- Socket.IO real-time transport (ADR-023 §8) ----
 //
 // Policy-identical to two existing REST classes, counted in a SEPARATE

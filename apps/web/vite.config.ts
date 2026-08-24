@@ -27,6 +27,22 @@ export default defineConfig({
         target: "http://127.0.0.1:3001",
         changeOrigin: false,
       },
+      /*
+        The same treatment for the socket transport (ADR-025 §11).
+
+        Socket.IO attaches at the server root rather than under the REST
+        prefix, so it needs its own entry — and `ws: true`, or the upgrade
+        request is proxied as plain HTTP and the handshake never completes.
+
+        Without this the dashboard's socket would be CROSS-origin in
+        development while being same-origin in production, which is exactly
+        the kind of difference the `/api` entry above exists to prevent.
+      */
+      "/socket.io": {
+        target: "http://127.0.0.1:3001",
+        changeOrigin: false,
+        ws: true,
+      },
     },
   },
 });

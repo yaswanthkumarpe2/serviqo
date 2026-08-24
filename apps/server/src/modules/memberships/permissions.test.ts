@@ -13,6 +13,11 @@ const ALL_PERMISSIONS: Permission[] = [
   "organization.manage",
   "member.read",
   "member.manage",
+  // Joined the catalogue in ADR-025, the slice that gave agents routes and a
+  // socket to reach conversations through — which is the rule this file's
+  // "has nothing to guard" cases below state from the other side.
+  "conversation.read",
+  "conversation.reply",
 ];
 
 describe("ROLE_PERMISSIONS", () => {
@@ -43,8 +48,13 @@ describe("ROLE_PERMISSIONS", () => {
     (ADR-017 §7) — the same unexercised security surface accessToken.ts
     refused to create when it declined to write a verifier before its first
     caller.
+
+    "conversation.read" was on this list until ADR-025 and has moved to the
+    catalogue above, which is precisely the lifecycle permissions.ts
+    describes: "a permission joins this union in the slice that enforces
+    it." A ticket and an AI configuration surface still do not exist.
   */
-  it.each([["conversation.read"], ["ticket.update"], ["ai.configure"], ["customer.read"]])(
+  it.each([["ticket.update"], ["ai.configure"], ["customer.read"]])(
     "does not yet define %j, which has nothing to guard",
     (absent) => {
       for (const role of ROLES) {
@@ -76,24 +86,36 @@ describe("can", () => {
       "organization.manage": true,
       "member.read": true,
       "member.manage": true,
+      "conversation.read": true,
+      "conversation.reply": true,
     },
     admin: {
       "organization.read": true,
       "organization.manage": true,
       "member.read": true,
       "member.manage": true,
+      "conversation.read": true,
+      "conversation.reply": true,
     },
     supervisor: {
       "organization.read": true,
       "organization.manage": false,
       "member.read": true,
       "member.manage": false,
+      // Oversees queues, so reads and answers conversations; still cannot
+      // configure the tenant or change its roster (ADR-025 §4).
+      "conversation.read": true,
+      "conversation.reply": true,
     },
     agent: {
       "organization.read": true,
       "organization.manage": false,
       "member.read": false,
       "member.manage": false,
+      // The role whose whole description is handling conversations, and as
+      // of ADR-025 the permissions exist for it to actually do so.
+      "conversation.read": true,
+      "conversation.reply": true,
     },
   };
 
