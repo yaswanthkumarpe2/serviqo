@@ -2,6 +2,7 @@ import { Router } from "express";
 
 import { validateBody } from "../../middleware/validate";
 import { createWidgetController } from "./widget.controller";
+import { widgetCorsHeaders, widgetPreflight } from "./widgetCors";
 import { createWidgetSessionSchema } from "./widget.validation";
 import { createWidgetSessionService } from "./widgetSession.service";
 
@@ -31,6 +32,16 @@ export function createWidgetRouter({ rateLimiters }: WidgetRouterDependencies): 
   const controller = createWidgetController({
     sessionService: createWidgetSessionService(),
   });
+
+  /*
+    Minimal per-route CORS (ADR-021 §5), mounted before everything else in
+    this router so every response it produces — success, refusal, or
+    preflight — carries the same headers. Scoped to this router only: the
+    rest of the API keeps the `same-origin` posture `securityHeaders.ts`
+    already sets.
+  */
+  router.use(widgetCorsHeaders);
+  router.options("/session", widgetPreflight);
 
   /*
     Serviqo's first public, unauthenticated WRITE.

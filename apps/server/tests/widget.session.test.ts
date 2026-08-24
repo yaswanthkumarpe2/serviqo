@@ -514,17 +514,80 @@ describe("widget session", () => {
     });
 
     /*
-      No CORS in this slice, and deliberately not `*` (ADR-019 §13). A
-      preflight carries no body, so it carries no widget key, so it cannot
-      name the tenant whose origin list it would be checked against.
+      CORS is closed as of ADR-021 §5 — reflected, never `*`, and never
+      credentialed. Reflecting the origin grants nothing by itself: the real
+      allow/deny decision still happens inside `decideOrigin`, unchanged, and
+      is asserted separately below. This only makes an answer the server was
+      always going to give legible to the page that asked for it.
     */
-    it("sends no Access-Control-Allow-Origin", async () => {
+    it("reflects the request Origin, never a wildcard, and never allows credentials", async () => {
       const organization = await createOrganization({ allowedOrigins: [ALLOWED_ORIGIN] });
 
       const response = await openSession({ widgetKey: organization.widgetKey }, ALLOWED_ORIGIN);
 
-      expect(response.headers["access-control-allow-origin"]).toBeUndefined();
+      expect(response.headers["access-control-allow-origin"]).toBe(ALLOWED_ORIGIN);
+      expect(response.headers["access-control-allow-origin"]).not.toBe("*");
       expect(response.headers["access-control-allow-credentials"]).toBeUndefined();
+      expect(response.headers.vary).toBe("Origin");
+    });
+
+    // A refusal must be exactly as readable as a success (ADR-019 §12's
+    // enumeration reasoning applied to this header): distinguishing them by
+    // header presence would itself leak which branch was taken.
+    it("reflects the origin identically on a refusal", async () => {
+      const organization = await createOrganization({ allowedOrigins: [ALLOWED_ORIGIN] });
+
+      const response = await openSession({ widgetKey: organization.widgetKey }, DISALLOWED_ORIGIN);
+
+      expect(response.status).toBe(403);
+      expect(response.headers["access-control-allow-origin"]).toBe(DISALLOWED_ORIGIN);
+    });
+
+    it("sends no Access-Control-Allow-Origin for a non-browser caller with no Origin header", async () => {
+      const organization = await createOrganization({ allowedOrigins: [ALLOWED_ORIGIN] });
+
+      const response = await openSession({ widgetKey: organization.widgetKey });
+
+      expect(response.headers["access-control-allow-origin"]).toBeUndefined();
+    });
+
+    it("marks the resource cross-origin, overriding the API's default same-origin policy", async () => {
+      const organization = await createOrganization();
+
+      const response = await openSession({ widgetKey: organization.widgetKey });
+
+      expect(response.headers["cross-origin-resource-policy"]).toBe("cross-origin");
+    });
+
+    /*
+      The preflight (ADR-021 §5): it resolves no tenant and performs no
+      lookup, because a bodyless OPTIONS request structurally cannot carry a
+      widgetKey. Answering it generically grants nothing — the actual POST
+      still runs the full per-tenant decision.
+    */
+    it("answers an OPTIONS preflight without touching the database", async () => {
+      const organization = await createOrganization({ allowedOrigins: [ALLOWED_ORIGIN] });
+
+      const response = await request(app)
+        .options(SESSION_PATH)
+        .set("Origin", ALLOWED_ORIGIN)
+        .set("Access-Control-Request-Method", "POST");
+
+      expect(response.status).toBe(204);
+      expect(response.headers["access-control-allow-origin"]).toBe(ALLOWED_ORIGIN);
+      expect(response.headers["access-control-allow-methods"]).toBe("POST");
+      expect(response.headers["access-control-allow-headers"]).toBe("Content-Type");
+      expect(await CustomerModel.countDocuments({ organizationId: organization._id })).toBe(0);
+    });
+
+    it("answers an OPTIONS preflight for an origin no organization has ever allowed", async () => {
+      const response = await request(app)
+        .options(SESSION_PATH)
+        .set("Origin", "https://never-configured.example.com")
+        .set("Access-Control-Request-Method", "POST");
+
+      expect(response.status).toBe(204);
+      expect(response.headers["access-control-allow-origin"]).toBe("https://never-configured.example.com");
     });
 
     it("still carries the security headers every response gets", async () => {

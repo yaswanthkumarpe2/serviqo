@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Acme — External Embed Test</title>
+    <style>
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        margin: 0;
+        padding: 48px;
+        background: #fafaf7;
+        color: #17211d;
+      }
+      h1 {
+        font-size: 22px;
+      }
+      code {
+        background: #eee;
+        padding: 2px 6px;
+        border-radius: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <!--
+      A minimal stand-in for a tenant's own website (ADR-021, STEP 10 of the
+      widget-loader slice). Not part of the dashboard build — Vite serves it
+      directly by path in dev, and it is never referenced from any entry
+      point, so it is not included in `dist/`.
+
+      Point the two placeholders below at a real widget.js host and a real
+      widget key minted via `GET /organizations/:id/widget-config`, then open
+      this file from a DIFFERENT origin than the widget script's own host —
+      e.g. `npx http-server apps/web -p 4173` — so the embed is genuinely
+      cross-origin, the way a real tenant's site would be.
+    -->
+    <h1>Acme Storefront</h1>
+    <p>This page simulates an external website that has installed the Serviqo chat widget.</p>
+    <p>Widget script host: <code id="widget-host"></code></p>
+
+    <script>
+      document.getElementById("widget-host").textContent = "http://localhost:5173";
+    </script>
+    <script
+      src="http://localhost:5173/widget.js"
+      data-serviqo-widget-key="wk_REPLACE_WITH_A_REAL_WIDGET_KEY"
+      async
+    ></script>
+  </body>
+</html>
