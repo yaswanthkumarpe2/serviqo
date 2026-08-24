@@ -24,6 +24,7 @@ Note that phases may be adjusted when technically justified. Each phase follows:
   - ✅ Access-token verification and `GET /api/v1/auth/me` ([ADR-015](./docs/decisions/015-access-token-verification-and-current-user.md))
   - ✅ Organization creation with its owner membership ([ADR-016](./docs/decisions/016-organization-onboarding-and-the-first-membership.md))
   - 🔲 Organization context on `/me`, and rate limiting (the [ADR-007 §13](./docs/decisions/007-registration-flow-and-account-enumeration.md) deployment gate)
+  - ✅ Widget installation: staff-facing widget key, allowed-origin management, and key rotation ([ADR-020](./docs/decisions/020-widget-installation-configuration-surface.md))
 
 - 🔲 **Phase 3: User / Team / Role management**
   - Implement RBAC (Owner, Admin, Supervisor, Agent) — organization users only (ADR-010)

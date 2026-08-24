@@ -178,13 +178,14 @@ Built and verified:
 - Persistence models: `User`, `Organization`, `Membership`, `Session`, `AccountToken`.
 - Authentication: registration, email verification, login, refresh-token rotation with reuse detection, logout, logout-all, and access-token verification behind `GET /api/v1/auth/me`.
 - Organization onboarding: `POST /api/v1/organizations` creates a tenant and its owner `Membership` (see [ADR-016](./docs/decisions/016-organization-onboarding-and-the-first-membership.md)).
+- Widget installation: staff holding `organization.manage` can read their widget key, replace the allowed-origin list, and rotate the key from the dashboard, behind `GET/PUT/POST /api/v1/organizations/:id/widget-config[...]` (see [ADR-020](./docs/decisions/020-widget-installation-configuration-surface.md)).
 
 Not built yet:
 - The `Customer` model EXISTS (ADR-019). There is still NO `Conversation`, `Message`, or `Ticket` model.
 - There is NO Socket.IO implementation.
 - There is NO Redis caching or presence.
 - There is NO AI, RAG, or Catalogue infrastructure.
-- There is NO embeddable widget UI. The server side of widget IDENTITY exists (`widgetKey`, allowed origins, `POST /api/v1/widget/session`, visitor tokens); no chat bubble, chat window, or embed script does.
+- There is NO embeddable widget UI. The server side of widget IDENTITY exists (`widgetKey`, allowed origins, `POST /api/v1/widget/session`, visitor tokens), and staff can now read and configure it (ADR-020); no chat bubble, chat window, or embed script does.
 - There is NO rate limiting — see the deployment gate in §22 and [ADR-007 §13](./docs/decisions/007-registration-flow-and-account-enumeration.md).
 - RBAC roles are stored on `Membership` but no permission enforcement middleware exists yet.
 
