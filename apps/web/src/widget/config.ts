@@ -65,5 +65,7 @@ export function resolveWidgetConfig(): WidgetConfig | null {
     return null;
   }
 
-  return { widgetKey, apiBase: `${origin}/api/v1/widget` };
+  // `socketOrigin` is the same resolved origin: Socket.IO attaches at the
+  // server root (`/socket.io/`), not under the REST prefix (ADR-024 §3).
+  return { widgetKey, apiBase: `${origin}/api/v1/widget`, socketOrigin: origin };
 }

@@ -36,7 +36,13 @@ describe("resolveWidgetConfig", () => {
 
     const config = resolveWidgetConfig();
 
-    expect(config).toEqual({ widgetKey: "wk_abc123", apiBase: "https://cdn.example.com/api/v1/widget" });
+    expect(config).toEqual({
+      widgetKey: "wk_abc123",
+      apiBase: "https://cdn.example.com/api/v1/widget",
+      // Socket.IO attaches at the server root, not under the REST prefix
+      // (ADR-024 §3), so the bare origin is resolved alongside `apiBase`.
+      socketOrigin: "https://cdn.example.com",
+    });
   });
 
   it("resolves a relative src against the current document", () => {

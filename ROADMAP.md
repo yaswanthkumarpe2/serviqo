@@ -57,10 +57,12 @@ Note that phases may be adjusted when technically justified. Each phase follows:
   - ✅ Widget-JWT handshake authentication; organization- and customer-scoped rooms
   - ✅ Conversation join, customer message send, real-time delivery, disconnect/reconnect
   - ✅ Socket rate limiting and safe (redacted) logging
-  - 🔲 Client-side socket connection management in the widget UI
+  - ✅ Client-side socket connection management in the widget UI — message
+    list, composer, history over REST, reconnect with re-join and cursor
+    catch-up, and id-based duplicate suppression (ADR-024)
   - 🔲 Typing indicators and read receipts
   - 🔲 Broadcasting messages produced outside a socket handler (REST sends, and
-    later agent/AI replies) — see ADR-023 §12
+    later agent/AI replies) — see ADR-023 §12 and ADR-024 §11
 
 - 🔲 **Phase 8: Redis presence / scaling / reliability**
   - Agent online/offline presence tracking

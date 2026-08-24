@@ -247,6 +247,194 @@ export const WIDGET_STYLES = `
     font-weight: 600;
   }
 
+  /* ---- chat surface (ADR-024 §10) ---- */
+
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  /*
+    The panel body stops scrolling once a chat is mounted: the LIST scrolls
+    instead, so the composer stays pinned and reachable rather than sliding
+    away with the conversation. This is what makes the mobile layout below
+    work without a second set of rules.
+  */
+  .panel__body:has(.chat) {
+    padding: 0;
+    overflow: hidden;
+    display: flex;
+  }
+
+  .chat {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+  }
+
+  .chat__list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 16px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  /*
+    The optional details control (ADR-021 §8) sits above the list inside the
+    chat surface: it must not scroll with the conversation, and it must not
+    take height from it when collapsed.
+  */
+  .details--chat {
+    margin: 0;
+    padding: 10px 14px;
+    border-top: none;
+    border-bottom: 1px solid var(--sq-border);
+    background: var(--sq-surface);
+    flex-shrink: 0;
+  }
+
+  .chat__empty {
+    margin: auto;
+    font-size: 13px;
+    color: var(--sq-muted);
+    text-align: center;
+    line-height: 1.5;
+  }
+
+  .msg {
+    max-width: 82%;
+    padding: 8px 11px;
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  /* Customer messages are neutral filled; agent messages use the filled
+     human treatment (CONTRIBUTING.md's design rules). */
+  .msg--customer {
+    align-self: flex-end;
+    background: #E8EBE6;
+    border-bottom-right-radius: 4px;
+  }
+  .msg--agent {
+    align-self: flex-start;
+    background: var(--sq-brand);
+    color: #fff;
+    border-bottom-left-radius: 4px;
+  }
+  .msg__body {
+    margin: 0;
+    font-size: 13.5px;
+    line-height: 1.45;
+    /* A pasted message keeps its line breaks, and one long unbroken token
+       wraps instead of widening the panel. */
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .msg--customer .msg__body {
+    color: var(--sq-text);
+  }
+  .msg--agent .msg__body {
+    color: #fff;
+  }
+  .msg__time {
+    font-size: 10.5px;
+    align-self: flex-end;
+    color: var(--sq-muted);
+  }
+  .msg--agent .msg__time {
+    color: rgba(255, 255, 255, 0.82);
+  }
+
+  .chat__status {
+    margin: 0;
+    padding: 0 14px 6px;
+    font-size: 11.5px;
+    color: var(--sq-muted);
+  }
+  .chat__status[hidden] {
+    display: none;
+  }
+  .chat__status--failed {
+    color: var(--sq-error);
+    font-weight: 600;
+  }
+
+  .chat__notice {
+    margin: 0;
+    padding: 6px 14px;
+    font-size: 12px;
+    color: var(--sq-error);
+    font-weight: 600;
+  }
+  .chat__notice[hidden] {
+    display: none;
+  }
+
+  .chat__composer {
+    display: flex;
+    gap: 8px;
+    align-items: flex-end;
+    padding: 10px 12px 12px;
+    border-top: 1px solid var(--sq-border);
+    background: var(--sq-surface);
+  }
+  .chat__input {
+    flex: 1;
+    font: inherit;
+    font-size: 13.5px;
+    line-height: 1.4;
+    padding: 9px 10px;
+    border-radius: 10px;
+    border: 1px solid var(--sq-border);
+    background: var(--sq-surface);
+    color: var(--sq-text);
+    resize: none;
+    max-height: 110px;
+  }
+  .chat__input:focus-visible {
+    outline: 2px solid var(--sq-brand);
+    outline-offset: 1px;
+  }
+  .chat__input:disabled {
+    background: var(--sq-canvas);
+    cursor: not-allowed;
+  }
+  .chat__send {
+    background: var(--sq-brand);
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    padding: 10px 15px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .chat__send:hover:not(:disabled) {
+    background: var(--sq-brand-dark);
+  }
+  .chat__send:focus-visible {
+    outline: 2px solid var(--sq-brand-dark);
+    outline-offset: 2px;
+  }
+  .chat__send:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
   @media (max-width: 480px) {
     .root {
       inset: 0;
@@ -266,6 +454,15 @@ export const WIDGET_STYLES = `
       max-height: 100%;
       border-radius: 0;
       border: none;
+    }
+    /*
+      Full-screen panel: the header stays put, the list takes the remaining
+      height and scrolls, and the composer stays pinned above the keyboard
+      instead of scrolling away with the conversation (ADR-024 §10).
+    */
+    .chat__input {
+      /* iOS Safari zooms the viewport on focus for any input under 16px. */
+      font-size: 16px;
     }
   }
 `;

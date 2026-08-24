@@ -26,4 +26,41 @@ export interface WidgetConfig {
   widgetKey: string;
   /** `origin/api/v1/widget` — derived from the script's own `src`, never hardcoded. */
   apiBase: string;
+  /**
+   * The bare origin the socket connects to (ADR-024 §3), derived from the
+   * same script `src` as `apiBase`. Socket.IO attaches at the server root
+   * (`/socket.io/`), not under the widget's REST prefix, so it needs the
+   * origin without the `/api/v1/widget` path — kept as its own resolved
+   * field rather than re-derived by string-trimming `apiBase` at the call
+   * site, which is how the two would drift apart.
+   */
+  socketOrigin: string;
+}
+
+/**
+ * One message as `GET /widget/conversations/:id/messages` and the socket's
+ * `message:new` both return it (ADR-022 §13) — the identical shape from both
+ * transports, which is what lets one render path and one de-duplication rule
+ * serve both (ADR-024 §4).
+ */
+export interface WidgetMessage {
+  id: string;
+  conversationId: string;
+  senderType: "customer" | "agent";
+  body: string;
+  createdAt: string;
+}
+
+/** What `POST /widget/conversations` returns (ADR-022 §13). */
+export interface WidgetConversation {
+  id: string;
+  status: "open" | "closed";
+  createdAt: string;
+  lastMessageAt: string;
+}
+
+/** One page of history (ADR-022 §11, §13). */
+export interface WidgetMessagePage {
+  messages: WidgetMessage[];
+  nextCursor: string | null;
 }
