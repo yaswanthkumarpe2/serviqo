@@ -52,20 +52,32 @@ export const widgetCorsHeaders: RequestHandler = (req, res, next) => {
  * "a preflight cannot know the tenant."
  *
  * It does not need to. Answering "yes, attempt this" grants nothing: the
- * actual `POST` still runs the full per-tenant check inside
- * `widgetSession.service.ts`, using the widget key the preflight's own
- * bodyless `OPTIONS` request structurally cannot carry. This handler
- * performs no lookup and touches no database — there is no tenant to
- * resolve one from at this stage.
+ * actual request still runs the full per-tenant or per-token check inside
+ * the service it reaches (`widgetSession.service.ts` for `/session`,
+ * `requireWidgetToken` for everything ADR-022 adds), using data a preflight's
+ * own bodyless `OPTIONS` request structurally cannot carry. This handler
+ * performs no lookup and touches no database — there is no tenant or
+ * customer to resolve one from at this stage.
  *
- * `204` with no body, matching the response a preflight expects. Mounted
- * only on `OPTIONS /session`, never as a catch-all — an unrecognized method
- * or path under this router falls through to the ordinary 404 handling the
- * rest of the API gets.
+ * `204` with no body, matching the response a preflight expects. Parameterized
+ * by the method(s) a path actually accepts, because ADR-022's routes are not
+ * all `POST` and one path — `GET|POST .../messages` — accepts two:
+ * `Access-Control-Allow-Methods` names every method the path supports, not
+ * only the one the preflight asked about, which is what lets a single
+ * `OPTIONS` registration answer for both. `Access-Control-Allow-Headers`
+ * always includes both `Content-Type` (the session and message-send bodies)
+ * and `Authorization` (the widget token every ADR-022 route requires) —
+ * harmless to offer on a route that does not use one.
+ *
+ * Mounted only on the specific `OPTIONS <path>` each route needs, never as a
+ * catch-all — an unrecognized method or path under this router falls through
+ * to the ordinary 404 handling the rest of the API gets.
  */
-export const widgetPreflight: RequestHandler = (_req, res) => {
-  res.setHeader("Access-Control-Allow-Methods", "POST");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-  res.setHeader("Access-Control-Max-Age", "600");
-  res.status(204).end();
-};
+export function widgetPreflight(methods: string): RequestHandler {
+  return (_req, res) => {
+    res.setHeader("Access-Control-Allow-Methods", methods);
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.setHeader("Access-Control-Max-Age", "600");
+    res.status(204).end();
+  };
+}

@@ -576,7 +576,7 @@ describe("widget session", () => {
       expect(response.status).toBe(204);
       expect(response.headers["access-control-allow-origin"]).toBe(ALLOWED_ORIGIN);
       expect(response.headers["access-control-allow-methods"]).toBe("POST");
-      expect(response.headers["access-control-allow-headers"]).toBe("Content-Type");
+      expect(response.headers["access-control-allow-headers"]).toBe("Content-Type, Authorization");
       expect(await CustomerModel.countDocuments({ organizationId: organization._id })).toBe(0);
     });
 

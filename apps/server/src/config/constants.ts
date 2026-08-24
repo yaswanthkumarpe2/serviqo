@@ -318,6 +318,54 @@ export const WIDGET_SESSION_WINDOW_MS = SESSION_WINDOW_MS;
 export const GLOBAL_API_LIMIT = 1000;
 export const GLOBAL_API_WINDOW_MS = 15 * 60 * 1000;
 
+/**
+ * Conversation and message writes: `POST /widget/conversations`,
+ * `POST /widget/conversations/:id/messages` (ADR-022 §12).
+ *
+ * Keyed by customer, not IP — `requireWidgetToken` establishes a verified
+ * principal before this runs, the same shape `authenticatedWrite` already
+ * has for staff. Not that class's numbers (30/hour): thirty rare,
+ * deliberate staff configuration writes per hour is a different traffic
+ * shape from an active conversation's messages. Not `widgetSession`'s either
+ * (IP-keyed, for a route with no principal yet). A stated judgment: sixty in
+ * five minutes is one message every five seconds sustained — generous for
+ * genuine rapid typing, bounding a scripted flood to a low, non-disruptive
+ * rate.
+ */
+export const WIDGET_CONVERSATION_WRITE_LIMIT = 60;
+export const WIDGET_CONVERSATION_WRITE_WINDOW_MS = 5 * 60 * 1000;
+
+/**
+ * Conversation message history reads: `GET /widget/conversations/:id/messages`
+ * (ADR-022 §12).
+ *
+ * Keyed by customer. Reuses `AUTHENTICATED_READ_LIMIT`'s numbers rather than
+ * inventing new ones — both are cheap, already-authorized reads bounding a
+ * runaway client rather than defending against an attacker, and the shape
+ * (per-principal, 15-minute window) transfers unchanged.
+ */
+export const WIDGET_CONVERSATION_READ_LIMIT = AUTHENTICATED_READ_LIMIT;
+export const WIDGET_CONVERSATION_READ_WINDOW_MS = AUTHENTICATED_READ_WINDOW_MS;
+
+// ---- conversations and messages (ADR-022) ----
+
+/**
+ * Maximum message body length, in Unicode code points, measured after
+ * trimming.
+ *
+ * A judgment call, stated as one: long enough for a genuine multi-paragraph
+ * support question, short enough to bound per-message storage and rendering
+ * cost. Enforced at both the Zod boundary and the `Message` schema itself
+ * (ADR-022 §9) — two layers sharing this one constant.
+ */
+export const MESSAGE_BODY_MAX_LENGTH = 4000;
+
+/** Messages returned per page when a caller does not specify `limit` (ADR-022 §11). */
+export const MESSAGE_PAGE_DEFAULT_LIMIT = 30;
+
+/** The most messages a single page may request, regardless of `limit` (ADR-022 §11). */
+export const MESSAGE_PAGE_MAX_LIMIT = 100;
+
 // ---- session metadata ----
 
 /**

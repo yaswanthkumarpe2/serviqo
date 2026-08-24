@@ -17,6 +17,17 @@ export interface OrganizationContext {
   membershipId: string;
 }
 
+/**
+ * The verified widget caller, set by `requireWidgetToken` and by nothing
+ * else (ADR-022 §6) — the customer-facing sibling of `principal` fused with
+ * `organizationContext`, since a widget token carries both identities and
+ * there is no separate "membership" to establish.
+ */
+export interface WidgetPrincipal {
+  customerId: string;
+  organizationId: string;
+}
+
 declare global {
   namespace Express {
     interface Request {
@@ -34,6 +45,12 @@ declare global {
        * by nothing else. Optional for the same reason `principal` is.
        */
       organizationContext?: OrganizationContext;
+      /**
+       * Who is calling on the customer-facing surface, set by
+       * `requireWidgetToken` and by nothing else. Optional for the same
+       * reason `principal` is — most routes have none.
+       */
+      widgetPrincipal?: WidgetPrincipal;
     }
   }
 }

@@ -1,7 +1,11 @@
 import { Router } from "express";
 
+import { requireWidgetToken } from "../../middleware/requireWidgetToken";
 import { validateBody } from "../../middleware/validate";
+import { createConversationService } from "../conversations/conversation.service";
+import { createMessageService } from "../messages/message.service";
 import { createWidgetController } from "./widget.controller";
+import { createMessageSchema, resolveConversationSchema } from "./widgetConversation.validation";
 import { widgetCorsHeaders, widgetPreflight } from "./widgetCors";
 import { createWidgetSessionSchema } from "./widget.validation";
 import { createWidgetSessionService } from "./widgetSession.service";
@@ -31,6 +35,8 @@ export function createWidgetRouter({ rateLimiters }: WidgetRouterDependencies): 
 
   const controller = createWidgetController({
     sessionService: createWidgetSessionService(),
+    conversationService: createConversationService(),
+    messageService: createMessageService(),
   });
 
   /*
@@ -41,7 +47,9 @@ export function createWidgetRouter({ rateLimiters }: WidgetRouterDependencies): 
     already sets.
   */
   router.use(widgetCorsHeaders);
-  router.options("/session", widgetPreflight);
+  router.options("/session", widgetPreflight("POST"));
+  router.options("/conversations", widgetPreflight("POST"));
+  router.options("/conversations/:conversationId/messages", widgetPreflight("GET, POST"));
 
   /*
     Serviqo's first public, unauthenticated WRITE.
@@ -61,6 +69,37 @@ export function createWidgetRouter({ rateLimiters }: WidgetRouterDependencies): 
     this sits under `/api/v1`. The security gate is not bypassed.
   */
   router.post("/session", rateLimiters.widgetSession, validateBody(createWidgetSessionSchema), controller.createSession);
+
+  /*
+    Conversations and messages (ADR-022). `requireWidgetToken` mounts first
+    on every one of these — the customer-facing authentication AND tenant
+    boundary in one middleware (ADR-022 §6) — then the customer-keyed rate
+    limiter, matching the order `organization.routes.ts` already uses for
+    staff (authenticate, then rate-limit the now-identified caller, then
+    validate, then handle).
+  */
+  router.post(
+    "/conversations",
+    requireWidgetToken,
+    rateLimiters.widgetConversationWrite,
+    validateBody(resolveConversationSchema),
+    controller.resolveConversation,
+  );
+
+  router.post(
+    "/conversations/:conversationId/messages",
+    requireWidgetToken,
+    rateLimiters.widgetConversationWrite,
+    validateBody(createMessageSchema),
+    controller.createMessage,
+  );
+
+  router.get(
+    "/conversations/:conversationId/messages",
+    requireWidgetToken,
+    rateLimiters.widgetConversationRead,
+    controller.listMessages,
+  );
 
   return router;
 }

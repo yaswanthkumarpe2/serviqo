@@ -44,11 +44,13 @@ Note that phases may be adjusted when technically justified. Each phase follows:
   - Customer profile and context panel
   - Internal notes for agents
 
-- 🔲 **Phase 6: Persistent conversations / messages**
-  - Database schema for conversations and messages
-  - Efficient querying and indexing
-  - Unread message counters
-  - Archiving and closing conversations
+- 🟡 **Phase 6: Persistent conversations / messages** (persistence/API complete; real-time deferred)
+  - ✅ `Conversation` and `Message` models, one open conversation per customer enforced by a partial unique index ([ADR-022](./docs/decisions/022-persistent-conversations-and-messages.md))
+  - ✅ `requireWidgetToken`: the customer-facing authentication and tenant boundary
+  - ✅ `POST /api/v1/widget/conversations`, `POST`/`GET /api/v1/widget/conversations/:id/messages` — resolve-or-create, send, and cursor-paginated history
+  - 🔲 Unread message counters — no consumer exists yet (no inbox, no read state)
+  - 🔲 Archiving and closing conversations — `status` supports it; no route sets it yet
+  - 🔲 Delivery of any kind — Phase 7 (Socket.IO) is what makes a sent message visible to anyone but its sender
 
 - 🔲 **Phase 7: Socket.IO real-time communication**
   - Server-side Socket.IO configuration

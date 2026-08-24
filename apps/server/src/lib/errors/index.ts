@@ -231,6 +231,45 @@ export class WidgetSessionRefusedError extends AppError {
 }
 
 /**
+ * A request did not present a usable widget token — and deliberately does
+ * not say which part failed (ADR-022 §6, mirroring ADR-015 §6's reasoning
+ * for `InvalidAccessTokenError` exactly).
+ *
+ * Absent header, malformed header, bad signature, expired, wrong issuer,
+ * wrong audience, and malformed claims all raise this one error with one
+ * message. "Expired" is withheld for the identical reason ADR-015 §6
+ * withholds it from a staff caller: the legitimate client already knows its
+ * own expiry, so naming it helps only whoever is probing with a token they
+ * were not issued.
+ *
+ * A verified token whose organization or customer no longer resolves is a
+ * DIFFERENT failure and raises `WidgetSessionRefusedError` instead
+ * (ADR-022 §6) — this error is reserved for the credential itself being
+ * unusable, not for what it names having stopped being valid.
+ */
+export class InvalidWidgetTokenError extends AppError {
+  readonly httpStatus = 401;
+  readonly code = "INVALID_WIDGET_TOKEN";
+}
+
+/**
+ * A conversation could not be reached — and deliberately does not say
+ * whether it does not exist or belongs to someone else (ADR-022 §8).
+ *
+ * No conversation at that id, a conversation under a different
+ * organization, and a conversation under the right organization but a
+ * different customer all raise this same error with the same message and
+ * status. Mirrors `OrganizationNotAccessibleError` exactly, for the
+ * identical enumeration-resistance reason: a `403` would confirm the id
+ * names a real conversation, which is tenant/customer enumeration through
+ * an ObjectId guess.
+ */
+export class ConversationNotAccessibleError extends AppError {
+  readonly httpStatus = 404;
+  readonly code = "NOT_FOUND";
+}
+
+/**
  * Every slug derived from a submitted organization name was already taken or
  * reserved, within the bounded number of attempts onboarding will make
  * (ADR-016 §7).

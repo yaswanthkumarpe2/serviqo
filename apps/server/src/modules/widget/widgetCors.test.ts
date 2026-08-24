@@ -69,12 +69,20 @@ describe("widgetPreflight", () => {
   it("answers 204 with the preflight headers, reflecting any origin", () => {
     const { req, res, headers } = fakeReqRes("https://never-configured.example.com");
 
-    widgetPreflight(req, res, vi.fn());
+    widgetPreflight("POST")(req, res, vi.fn());
 
     expect(res.status).toHaveBeenCalledWith(204);
     expect(res.end).toHaveBeenCalledOnce();
     expect(headers["Access-Control-Allow-Methods"]).toBe("POST");
-    expect(headers["Access-Control-Allow-Headers"]).toBe("Content-Type");
+    expect(headers["Access-Control-Allow-Headers"]).toBe("Content-Type, Authorization");
     expect(headers["Access-Control-Max-Age"]).toBe("600");
+  });
+
+  it("answers with the GET method when parameterized for a read route", () => {
+    const { req, res, headers } = fakeReqRes("https://shop.example.com");
+
+    widgetPreflight("GET")(req, res, vi.fn());
+
+    expect(headers["Access-Control-Allow-Methods"]).toBe("GET");
   });
 });

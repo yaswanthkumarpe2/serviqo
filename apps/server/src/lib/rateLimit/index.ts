@@ -11,6 +11,10 @@ import {
   GLOBAL_API_WINDOW_MS,
   SESSION_LIMIT,
   SESSION_WINDOW_MS,
+  WIDGET_CONVERSATION_READ_LIMIT,
+  WIDGET_CONVERSATION_READ_WINDOW_MS,
+  WIDGET_CONVERSATION_WRITE_LIMIT,
+  WIDGET_CONVERSATION_WRITE_WINDOW_MS,
   WIDGET_SESSION_LIMIT,
   WIDGET_SESSION_WINDOW_MS,
 } from "../../config/constants";
@@ -47,6 +51,8 @@ export type RateLimitClass =
   | "authenticatedWrite"
   | "authenticatedRead"
   | "widgetSession"
+  | "widgetConversationWrite"
+  | "widgetConversationRead"
   | "global";
 
 interface LimiterOptions {
@@ -59,9 +65,21 @@ interface LimiterOptions {
    * Absent means "key by IP".
    */
   keyByUser?: boolean;
+  /**
+   * Present for the classes that mount after `requireWidgetToken`, which key
+   * on the verified customer rather than the socket address (ADR-022 §12) —
+   * the widget-side sibling of `keyByUser`.
+   */
+  keyByCustomer?: boolean;
 }
 
-function createLimiter({ limitClass, windowMs, limit, keyByUser = false }: LimiterOptions): RequestHandler {
+function createLimiter({
+  limitClass,
+  windowMs,
+  limit,
+  keyByUser = false,
+  keyByCustomer = false,
+}: LimiterOptions): RequestHandler {
   return rateLimit({
     windowMs,
     limit,
@@ -82,6 +100,13 @@ function createLimiter({ limitClass, windowMs, limit, keyByUser = false }: Limit
         */
         const userId = req.principal?.userId;
         if (userId !== undefined) return `user:${userId}`;
+      }
+
+      if (keyByCustomer) {
+        // Mounts AFTER `requireWidgetToken` (ADR-022 §12). Same degrade-
+        // rather-than-throw fallback as keyByUser above.
+        const customerId = req.widgetPrincipal?.customerId;
+        if (customerId !== undefined) return `customer:${customerId}`;
       }
 
       /*
@@ -143,6 +168,14 @@ export interface RateLimiters {
    * denial-of-service tool aimed at it.
    */
   widgetSession: RequestHandler;
+  /**
+   * Conversation and message writes: `POST /widget/conversations`,
+   * `POST /widget/conversations/:id/messages` (ADR-022 §12). Keyed by
+   * customer — a verified principal already exists by the time this mounts.
+   */
+  widgetConversationWrite: RequestHandler;
+  /** Conversation message history reads: `GET /widget/conversations/:id/messages` (ADR-022 §12). Keyed by customer. */
+  widgetConversationRead: RequestHandler;
   /** Blunt per-IP volume bound over the whole API, including requests that 401. */
   global: RequestHandler;
 }
@@ -183,6 +216,18 @@ export function createRateLimiters(): RateLimiters {
       windowMs: WIDGET_SESSION_WINDOW_MS,
       limit: WIDGET_SESSION_LIMIT,
     }),
+    widgetConversationWrite: createLimiter({
+      limitClass: "widgetConversationWrite",
+      windowMs: WIDGET_CONVERSATION_WRITE_WINDOW_MS,
+      limit: WIDGET_CONVERSATION_WRITE_LIMIT,
+      keyByCustomer: true,
+    }),
+    widgetConversationRead: createLimiter({
+      limitClass: "widgetConversationRead",
+      windowMs: WIDGET_CONVERSATION_READ_WINDOW_MS,
+      limit: WIDGET_CONVERSATION_READ_LIMIT,
+      keyByCustomer: true,
+    }),
     global: createLimiter({
       limitClass: "global",
       windowMs: GLOBAL_API_WINDOW_MS,
@@ -208,6 +253,8 @@ export function createDisabledRateLimiters(): RateLimiters {
     authenticatedWrite: passthrough,
     authenticatedRead: passthrough,
     widgetSession: passthrough,
+    widgetConversationWrite: passthrough,
+    widgetConversationRead: passthrough,
     global: passthrough,
   };
 }

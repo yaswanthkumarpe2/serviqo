@@ -181,8 +181,8 @@ Built and verified:
 - Widget installation: staff holding `organization.manage` can read their widget key, replace the allowed-origin list, and rotate the key from the dashboard, behind `GET/PUT/POST /api/v1/organizations/:id/widget-config[...]` (see [ADR-020](./docs/decisions/020-widget-installation-configuration-surface.md)).
 
 Not built yet:
-- The `Customer` model EXISTS (ADR-019). There is still NO `Conversation`, `Message`, or `Ticket` model.
-- There is NO Socket.IO implementation.
+- The `Customer`, `Conversation`, and `Message` models EXIST (ADR-019, ADR-022). A widget visitor can open a session, resolve their conversation, send messages, and read history back through `POST/GET /api/v1/widget/conversations[...]` — but nothing DELIVERS a message to anyone but its sender yet (see the next line). There is still NO `Ticket` model.
+- There is NO Socket.IO implementation, so a message sent through the widget API is not visible to a human or AI agent by any means — it is durable, not real-time.
 - There is NO Redis caching or presence.
 - There is NO AI, RAG, or Catalogue infrastructure.
 - There is NO embeddable widget UI. The server side of widget IDENTITY exists (`widgetKey`, allowed origins, `POST /api/v1/widget/session`, visitor tokens), and staff can now read and configure it (ADR-020); no chat bubble, chat window, or embed script does.

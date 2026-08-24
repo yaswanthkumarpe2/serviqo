@@ -52,6 +52,11 @@ describe("createRateLimiters", () => {
       "credential",
       "global",
       "session",
+      // The seventh and eighth classes, added for conversation and message
+      // traffic (ADR-022 §12) — customer-keyed, since a verified widget
+      // principal already exists by the time these mount.
+      "widgetConversationRead",
+      "widgetConversationWrite",
       // The sixth class, added for the public widget session endpoint
       // (ADR-019 §11). ADR-010 §9 ordered it in advance: customer endpoints
       // are high-volume, anonymous, and unauthenticated by design, so they
