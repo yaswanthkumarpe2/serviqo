@@ -366,6 +366,36 @@ export const MESSAGE_PAGE_DEFAULT_LIMIT = 30;
 /** The most messages a single page may request, regardless of `limit` (ADR-022 §11). */
 export const MESSAGE_PAGE_MAX_LIMIT = 100;
 
+// ---- Socket.IO real-time transport (ADR-023 §8) ----
+//
+// Policy-identical to two existing REST classes, counted in a SEPARATE
+// in-memory store from `lib/rateLimit` — ADR-023 §8 states explicitly why
+// that is a named gap rather than an oversight. Reusing the numbers rather
+// than inventing new ones keeps one policy answer per traffic shape,
+// regardless of which transport carries it.
+
+/**
+ * Socket handshake attempts: keyed by the connecting socket's IP address,
+ * checked inside `io.use` before a connection is accepted.
+ *
+ * Reuses `WIDGET_SESSION_LIMIT`/`WIDGET_SESSION_WINDOW_MS` — the same shape
+ * as the REST widget-session endpoint (unauthenticated-at-the-point-of-
+ * limiting, IP-keyed, one relatively cheap operation per call).
+ */
+export const SOCKET_CONNECTION_LIMIT = WIDGET_SESSION_LIMIT;
+export const SOCKET_CONNECTION_WINDOW_MS = WIDGET_SESSION_WINDOW_MS;
+
+/**
+ * `message:send` over a socket: keyed by the authenticated `customerId`.
+ *
+ * Reuses `WIDGET_CONVERSATION_WRITE_LIMIT`/`WIDGET_CONVERSATION_WRITE_WINDOW_MS`
+ * verbatim — sending a message through a socket is the same traffic shape as
+ * sending one over REST, not a different one that happens to use a different
+ * wire format.
+ */
+export const SOCKET_MESSAGE_WRITE_LIMIT = WIDGET_CONVERSATION_WRITE_LIMIT;
+export const SOCKET_MESSAGE_WRITE_WINDOW_MS = WIDGET_CONVERSATION_WRITE_WINDOW_MS;
+
 // ---- session metadata ----
 
 /**

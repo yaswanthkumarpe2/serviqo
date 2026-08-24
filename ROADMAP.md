@@ -52,11 +52,15 @@ Note that phases may be adjusted when technically justified. Each phase follows:
   - 🔲 Archiving and closing conversations — `status` supports it; no route sets it yet
   - 🔲 Delivery of any kind — Phase 7 (Socket.IO) is what makes a sent message visible to anyone but its sender
 
-- 🔲 **Phase 7: Socket.IO real-time communication**
-  - Server-side Socket.IO configuration
-  - Client-side socket connection management
-  - Typing indicators and read receipts
-  - Socket event handling and error recovery
+- 🚧 **Phase 7: Socket.IO real-time communication**
+  - ✅ Server-side Socket.IO configuration (attached to the existing HTTP server)
+  - ✅ Widget-JWT handshake authentication; organization- and customer-scoped rooms
+  - ✅ Conversation join, customer message send, real-time delivery, disconnect/reconnect
+  - ✅ Socket rate limiting and safe (redacted) logging
+  - 🔲 Client-side socket connection management in the widget UI
+  - 🔲 Typing indicators and read receipts
+  - 🔲 Broadcasting messages produced outside a socket handler (REST sends, and
+    later agent/AI replies) — see ADR-023 §12
 
 - 🔲 **Phase 8: Redis presence / scaling / reliability**
   - Agent online/offline presence tracking

@@ -1,10 +1,9 @@
 import { ValidationError } from "../../lib/errors";
 import { created, success } from "../../lib/response";
 import { OBJECT_ID_PATTERN, listMessagesQuerySchema } from "./widgetConversation.validation";
+import { toConversationResponse, toMessageResponse } from "./widgetResponses";
 
-import type { ConversationDocument } from "../conversations/conversation.model";
 import type { ConversationService } from "../conversations/conversation.service";
-import type { MessageDocument } from "../messages/message.model";
 import type { MessageService } from "../messages/message.service";
 import type { CreateMessageInput } from "./widgetConversation.validation";
 import type { CreateWidgetSessionInput } from "./widget.validation";
@@ -15,33 +14,6 @@ export interface WidgetControllerDependencies {
   sessionService: WidgetSessionService;
   conversationService: ConversationService;
   messageService: MessageService;
-}
-
-/**
- * Projects a `Conversation` to what the widget needs (ADR-022 §13). No
- * `organizationId`, no `customerId` — the caller already knows both, they
- * hold the token, and echoing an identifier back to the party that supplied
- * it discloses nothing (the same minimalism `toSessionCustomer` in
- * `widgetSession.service.ts` established).
- */
-function toConversationResponse(conversation: ConversationDocument) {
-  return {
-    id: conversation._id.toString(),
-    status: conversation.status,
-    createdAt: conversation.createdAt,
-    lastMessageAt: conversation.lastMessageAt,
-  };
-}
-
-/** Projects a `Message` to exactly the fields ADR-022 §13 names. */
-function toMessageResponse(message: MessageDocument) {
-  return {
-    id: message._id.toString(),
-    conversationId: message.conversationId.toString(),
-    senderType: message.senderType,
-    body: message.body,
-    createdAt: message.createdAt,
-  };
 }
 
 /**

@@ -20,11 +20,18 @@ import type { RequestHandler } from "express";
 /** RFC 6750 §2.1, the identical pattern `requireAccessToken` matches. */
 const BEARER_PATTERN = /^Bearer (.+)$/i;
 
-/** One message for a bad credential. Reaches every response from this file's first branch. */
-const INVALID_TOKEN_MESSAGE = "Authentication required";
+/**
+ * One message for a bad credential. Reaches every response from this file's
+ * first branch.
+ *
+ * Exported so `realtime/socketAuthentication.ts` (ADR-023 §3) can reject a
+ * socket handshake with the identical wording rather than a second literal
+ * that could drift from this one — the same instrument, not a duplicate.
+ */
+export const INVALID_TOKEN_MESSAGE = "Authentication required";
 
-/** One message for a credential that verified but no longer names anything usable. */
-const SESSION_REFUSED_MESSAGE = "This chat widget is not available.";
+/** One message for a credential that verified but no longer names anything usable. Exported for the same reason as above. */
+export const SESSION_REFUSED_MESSAGE = "This chat widget is not available.";
 
 /** Why a request was refused. Reaches the log, never a response body. */
 type RefusalReason =
