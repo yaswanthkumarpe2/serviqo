@@ -7,9 +7,10 @@ import {
   SOCKET_MESSAGE_WRITE_WINDOW_MS,
 } from "../config/constants";
 import { env } from "../lib/env";
-import { ConversationNotAccessibleError } from "../lib/errors";
+import { ConversationClosedError, ConversationNotAccessibleError } from "../lib/errors";
 import { logger } from "../lib/logger";
 import { INVALID_TOKEN_MESSAGE, SESSION_REFUSED_MESSAGE } from "../middleware/requireWidgetToken";
+import { conversationEvents } from "../modules/conversations/conversationEvents";
 import { conversationRepository } from "../modules/conversations/conversation.repository";
 import { messageEvents } from "../modules/messages/messageEvents";
 import { createMessageService } from "../modules/messages/message.service";
@@ -21,6 +22,7 @@ import { authenticateSocketHandshake } from "./socketAuthentication";
 import { SocketRateLimiter } from "./socketRateLimit";
 
 import type { AuthLogger } from "../modules/auth/authLogging";
+import type { ConversationUpdatedEvent } from "../modules/conversations/conversationEvents";
 import type { MessageCreatedEvent } from "../modules/messages/messageEvents";
 import type { AgentSocketPrincipal } from "./socketAuthentication";
 import type { WidgetPrincipal } from "../modules/widget/widgetToken";
@@ -126,7 +128,7 @@ export function createSocketServer(httpServer: HttpServer, options: CreateSocket
     connected agents. Neither room can contain a socket from another tenant —
     both names are built from the organization the server itself proved.
   */
-  const unsubscribe = messageEvents.subscribe((event: MessageCreatedEvent) => {
+  const unsubscribeMessages = messageEvents.subscribe((event: MessageCreatedEvent) => {
     const { organizationId, conversationId, message } = event;
 
     io.to(conversationRoomName(organizationId, conversationId)).emit(SOCKET_EVENTS.MESSAGE_NEW, message);
@@ -134,12 +136,41 @@ export function createSocketServer(httpServer: HttpServer, options: CreateSocket
   });
 
   /*
+    THE conversation-state broadcast (ADR-026 §9, §10), and the ONE room it
+    reaches is the decision.
+
+    Unlike `message:new` above, this does NOT go to the conversation room. The
+    payload carries `assignedTo`, which names a member of the tenant's staff,
+    and a customer learning which employee is handling their ticket — or that
+    it was handed from one to another, or that nobody has picked it up — is
+    internal operational detail crossing the boundary SECURITY.md §2 draws.
+
+    Filtering the field out of a customer-bound copy was considered and
+    rejected (ADR-026 §10): that would be one payload with two audiences and a
+    projection whose correctness depends on a branch staying right forever.
+    One event, one room, one audience — so the field cannot reach a customer
+    because no code path sends it to one.
+  */
+  const unsubscribeConversations = conversationEvents.subscribe((event: ConversationUpdatedEvent) => {
+    const { organizationId, conversation } = event;
+
+    io.to(organizationInboxRoomName(organizationId)).emit(SOCKET_EVENTS.CONVERSATION_UPDATED, conversation);
+  });
+
+  /*
     Tied to the HTTP server's lifecycle rather than left to be tidied by hand
     (ADR-025 §2): a module-scope emitter with per-instance subscribers is safe
     only if the subscribers are actually removed, and a leaked one holding a
     closed `io` is a broadcast into nothing at best.
+
+    BOTH subscriptions, from one handler — a second `once("close", …)` would
+    work equally well today and would be the place a third subscription
+    quietly forgot to register.
   */
-  httpServer.once("close", unsubscribe);
+  httpServer.once("close", () => {
+    unsubscribeMessages();
+    unsubscribeConversations();
+  });
 
   /*
     Handshake authentication (ADR-023 §3, ADR-025 §9). Runs before
@@ -356,6 +387,21 @@ export function createSocketServer(httpServer: HttpServer, options: CreateSocket
         // (e.g. removed between join and send) — the identical opaque
         // refusal REST gives for the same underlying fact (ADR-022 §8).
         return safeAck(ack, { ok: false, error: socketError("NOT_FOUND") });
+      }
+
+      if (err instanceof ConversationClosedError) {
+        /*
+          An agent closed this conversation while the visitor had the panel
+          open (ADR-026 §6). Its own code rather than `NOT_FOUND`, because the
+          widget branches on it to recover: it resolves a new open
+          conversation, joins it, and retries the send once (ADR-026 §8), so
+          the visitor's message lands rather than failing.
+
+          Answered specifically and safely: this socket already proved it owns
+          the conversation at join time, so the code discloses nothing about
+          existence or ownership.
+        */
+        return safeAck(ack, { ok: false, error: socketError("CONVERSATION_CLOSED") });
       }
 
       socketLog.error(

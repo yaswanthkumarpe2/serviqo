@@ -34,13 +34,21 @@ function jsonResponse(status: number, body: unknown): Response {
   return { ok: status >= 200 && status < 300, status, json: () => Promise.resolve(body) } as Response;
 }
 
-function conversation(id: string, name: string, lastMessageAt = "2026-08-20T10:00:00.000Z") {
+function conversation(
+  id: string,
+  name: string,
+  lastMessageAt = "2026-08-20T10:00:00.000Z",
+  /** ADR-026 §1: unassigned is the state a conversation starts in. */
+  overrides: { status?: string; assignedTo?: { id: string; name: string | null } | null } = {},
+) {
   return {
     id,
     status: "open",
     createdAt: "2026-08-20T09:00:00.000Z",
     lastMessageAt,
     customer: { id: `cust-${id}`, name, email: `${name.toLowerCase()}@example.com` },
+    assignedTo: null,
+    ...overrides,
   };
 }
 

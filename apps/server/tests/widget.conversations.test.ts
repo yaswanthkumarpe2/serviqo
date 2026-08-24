@@ -669,6 +669,17 @@ describe("widget conversations and messages", () => {
           "findByIdForOrganization",
           "listByOrganization",
           "touchLastMessageAt",
+          /*
+            The state-changing trio (ADR-026 §4, §7). Every one of them takes
+            `organizationId` as a mandatory key in its own filter — a
+            conditional update that located its target by `_id` alone would be
+            a cross-tenant write waiting for a caller to pass the wrong
+            organization, which is the exact hazard this assertion exists to
+            catch.
+          */
+          "claimForUser",
+          "releaseForUser",
+          "setStatus",
         ].sort(),
       );
     });

@@ -44,6 +44,35 @@ function formatTime(iso: string): string {
   return date.toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" });
 }
 
+/**
+ * How a conversation's assignment reads to THIS agent (ADR-026 §11, §13).
+ *
+ * "Another agent" is the honest rendering when the server withheld the name,
+ * which it does for any reader whose role lacks `member.read` — the `agent`
+ * role among them. The component never invents a name and never shows a bare
+ * user id, which would be both useless and a disclosure of an internal
+ * identifier.
+ */
+function assignmentLabel(conversation: InboxConversation, currentUserId: string | null): string {
+  const assignee = assigneeOf(conversation);
+  if (assignee === null) return "Unassigned";
+  if (assignee.id === currentUserId) return "Assigned to you";
+  return `Assigned to ${assignee.name ?? "another agent"}`;
+}
+
+/**
+ * A conversation's assignee, treating an ABSENT field as unassigned.
+ *
+ * `unwrapEnvelope` proves the envelope's shape and nothing about what is
+ * inside it, so a row that arrives without `assignedTo` reaches this
+ * component — and reading `.id` off `undefined` would throw during render and
+ * take the whole dashboard down. The same posture `toPage` already takes for
+ * a missing list: check at the boundary, render a legible state, never crash.
+ */
+function assigneeOf(conversation: InboxConversation) {
+  return conversation.assignedTo ?? null;
+}
+
 function MessageBubble({ message }: { message: InboxMessage }) {
   const isAgent = message.senderType === "agent";
 
@@ -148,6 +177,16 @@ export function AgentInbox({ organizationId, socketFactory }: AgentInboxProps) {
                     >
                       <span className="inbox__rowName">{conversationTitle(conversation)}</span>
                       <span className="inbox__rowTime">{formatTime(conversation.lastMessageAt)}</span>
+                      {/*
+                        The row states both facts a queue is read for: who has
+                        it, and whether it is still live. Text rather than a
+                        colour alone, so it survives a screen reader and a
+                        monochrome display.
+                      */}
+                      <span className="inbox__rowMeta">
+                        {assignmentLabel(conversation, inbox.currentUserId)}
+                        {conversation.status === "closed" && <span className="inbox__closedTag"> · Closed</span>}
+                      </span>
                       {unread > 0 && (
                         /*
                           Session-local, and the UI never claims otherwise
@@ -175,6 +214,77 @@ export function AgentInbox({ organizationId, socketFactory }: AgentInboxProps) {
               <>
                 <h3 className="inbox__threadTitle">{conversationTitle(selected)}</h3>
 
+                {/*
+                  Ownership and lifecycle (ADR-026 §13). Each control has its
+                  own pending state, so a slow claim does not disable the
+                  close button beside it.
+
+                  There is deliberately NO control for a conversation another
+                  agent holds: taking one is refused server-side for every
+                  role (ADR-026 §4), and a button that always fails is worse
+                  than an absent one.
+                */}
+                <div className="inbox__assignment">
+                  <span className="inbox__assignee">{assignmentLabel(selected, inbox.currentUserId)}</span>
+
+                  <div className="inbox__actions">
+                    {assigneeOf(selected) === null && (
+                      <button
+                        type="button"
+                        className="inbox__action"
+                        onClick={() => void inbox.claim()}
+                        disabled={inbox.pendingAction !== null}
+                      >
+                        {inbox.pendingAction === "claim" ? "Claiming…" : "Claim"}
+                      </button>
+                    )}
+
+                    {assigneeOf(selected)?.id === inbox.currentUserId && inbox.currentUserId !== null && (
+                      <button
+                        type="button"
+                        className="inbox__action"
+                        onClick={() => void inbox.release()}
+                        disabled={inbox.pendingAction !== null}
+                      >
+                        {inbox.pendingAction === "release" ? "Releasing…" : "Release"}
+                      </button>
+                    )}
+
+                    {selected.status === "closed" ? (
+                      <button
+                        type="button"
+                        className="inbox__action"
+                        onClick={() => void inbox.setConversationStatus("open")}
+                        disabled={inbox.pendingAction !== null}
+                      >
+                        {inbox.pendingAction === "reopen" ? "Reopening…" : "Reopen"}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="inbox__action"
+                        onClick={() => void inbox.setConversationStatus("closed")}
+                        disabled={inbox.pendingAction !== null}
+                      >
+                        {inbox.pendingAction === "close" ? "Closing…" : "Close"}
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {inbox.actionError !== null && (
+                  /*
+                    The one place this UI states a reason (ADR-026 §13). Two of
+                    the messages behind it — "another agent has this" and "this
+                    customer already has a newer open conversation" — are the
+                    refusals an agent can act on, and they are this client's
+                    own words, never the server's text.
+                  */
+                  <p className="inbox__state inbox__state--error" role="alert">
+                    {inbox.actionError}
+                  </p>
+                )}
+
                 {inbox.threadStatus === "loading" && (
                   <p className="inbox__state" role="status">
                     Loading messages…
@@ -201,32 +311,47 @@ export function AgentInbox({ organizationId, socketFactory }: AgentInboxProps) {
                       </ul>
                     )}
 
-                    <form className="inbox__composer" onSubmit={handleSubmit}>
-                      <label className="inbox__srOnly" htmlFor="inbox-composer">
-                        Reply to this conversation
-                      </label>
-                      <textarea
-                        id="inbox-composer"
-                        className="inbox__input"
-                        value={draft}
-                        rows={2}
-                        placeholder="Write a reply…"
-                        onChange={(event) => setDraft(event.target.value)}
-                        disabled={inbox.isSending}
-                      />
-                      <button
-                        type="submit"
-                        className="inbox__send"
-                        disabled={inbox.isSending || draft.trim().length === 0}
-                      >
-                        {inbox.isSending ? "Sending…" : "Send"}
-                      </button>
-                    </form>
-
-                    {inbox.sendError !== null && (
-                      <p className="inbox__state inbox__state--error" role="alert">
-                        {inbox.sendError}
+                    {selected.status === "closed" ? (
+                      /*
+                        No composer on a closed conversation (ADR-026 §6, §13):
+                        the server refuses the send, so offering the box would
+                        be inviting a message that cannot be delivered. The
+                        history above stays fully readable — closing ends the
+                        exchange, not the record.
+                      */
+                      <p className="inbox__state" role="status">
+                        This conversation is closed. Reopen it to reply.
                       </p>
+                    ) : (
+                      <>
+                        <form className="inbox__composer" onSubmit={handleSubmit}>
+                          <label className="inbox__srOnly" htmlFor="inbox-composer">
+                            Reply to this conversation
+                          </label>
+                          <textarea
+                            id="inbox-composer"
+                            className="inbox__input"
+                            value={draft}
+                            rows={2}
+                            placeholder="Write a reply…"
+                            onChange={(event) => setDraft(event.target.value)}
+                            disabled={inbox.isSending}
+                          />
+                          <button
+                            type="submit"
+                            className="inbox__send"
+                            disabled={inbox.isSending || draft.trim().length === 0}
+                          >
+                            {inbox.isSending ? "Sending…" : "Send"}
+                          </button>
+                        </form>
+
+                        {inbox.sendError !== null && (
+                          <p className="inbox__state inbox__state--error" role="alert">
+                            {inbox.sendError}
+                          </p>
+                        )}
+                      </>
                     )}
                   </>
                 )}

@@ -2,10 +2,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { AuthApiError } from "@/features/auth/authApi";
 import { useAuth } from "@/features/auth/useAuth";
-import { fetchConversations, fetchMessages, sendAgentMessage } from "./inboxApi";
+import {
+  fetchConversations,
+  fetchMessages,
+  sendAgentMessage,
+  updateAssignment,
+  updateConversationStatus,
+} from "./inboxApi";
 import { createInboxRealtimeClient } from "./inboxRealtime";
 
-import type { InboxConversation, InboxMessage } from "./inboxApi";
+import type { InboxConversation, InboxConversationStatus, InboxMessage } from "./inboxApi";
 import type { InboxRealtimeStatus, InboxSocketFactory } from "./inboxRealtime";
 
 /**
@@ -25,6 +31,16 @@ export type InboxStatus = "loading" | "ready" | "error" | "forbidden";
 
 /** The selected thread's load state. Independent of the list's. */
 export type ThreadStatus = "idle" | "loading" | "ready" | "error";
+
+/**
+ * Which state-changing action is in flight on the selected conversation
+ * (ADR-026 §13).
+ *
+ * One value rather than a boolean per action: the four are mutually exclusive
+ * on one conversation, and a set of independent booleans is a state where two
+ * can be true at once and the UI has to decide what that means.
+ */
+export type ConversationActionKind = "claim" | "release" | "close" | "reopen";
 
 export interface UseAgentInboxOptions {
   organizationId: string;
@@ -59,11 +75,64 @@ export interface AgentInbox {
   isSending: boolean;
   sendError: string | null;
   send: (body: string) => Promise<void>;
+
+  /** The signed-in agent's own user id, for telling their assignments from a colleague's (ADR-026 §11). */
+  currentUserId: string | null;
+
+  /** Which claim/release/close/reopen is in flight, or `null`. */
+  pendingAction: ConversationActionKind | null;
+  /** The last state-change failure, in this client's own words (ADR-026 §13). */
+  actionError: string | null;
+
+  claim: () => Promise<void>;
+  release: () => Promise<void>;
+  /**
+   * Closes or reopens the selected conversation.
+   *
+   * Named `setConversationStatus` rather than `setStatus` because this hook
+   * already holds a `status` of its own — the LIST's load state — and two
+   * setters a letter apart is the kind of pair a reader picks wrong.
+   */
+  setConversationStatus: (status: InboxConversationStatus) => Promise<void>;
 }
 
 const GENERIC_LIST_ERROR = "Could not load conversations. Please try again.";
 const GENERIC_THREAD_ERROR = "Could not load this conversation. Please try again.";
 const GENERIC_SEND_ERROR = "Message not sent. Please try again.";
+
+/**
+ * The state-change failures, in this client's own words (ADR-026 §13).
+ *
+ * The server's text is never shown, matching how `send` already treats its
+ * own failures (ADR-019 §12's posture). Two of these are the exception the
+ * inbox makes to "say only what is known": `CONVERSATION_ALREADY_ASSIGNED`
+ * and `CONVERSATION_REOPEN_CONFLICT` are the two refusals an agent can
+ * actually act on, so the reason is worth stating.
+ */
+const GENERIC_ACTION_ERROR = "That did not work. Please try again.";
+const ALREADY_ASSIGNED_ERROR = "Another agent is handling this conversation.";
+const REOPEN_CONFLICT_ERROR = "This customer already has a newer open conversation.";
+const ACTION_FORBIDDEN_ERROR = "Your role cannot change this conversation.";
+const CONVERSATION_GONE_ERROR = "That conversation is no longer available.";
+
+/**
+ * Maps a state-change failure to what the agent is told.
+ *
+ * Branches on the envelope's `code` rather than on the status alone: both
+ * conflicts are 409s and they mean different things, and the code is the
+ * machine-readable half the server provides precisely so a client does not
+ * have to parse prose.
+ */
+function actionErrorFor(caught: unknown): string {
+  if (!(caught instanceof AuthApiError)) return GENERIC_ACTION_ERROR;
+
+  if (caught.code === "CONVERSATION_ALREADY_ASSIGNED") return ALREADY_ASSIGNED_ERROR;
+  if (caught.code === "CONVERSATION_REOPEN_CONFLICT") return REOPEN_CONFLICT_ERROR;
+  if (caught.status === 403) return ACTION_FORBIDDEN_ERROR;
+  if (caught.status === 404) return CONVERSATION_GONE_ERROR;
+
+  return GENERIC_ACTION_ERROR;
+}
 
 export function useAgentInbox({ organizationId, socketFactory }: UseAgentInboxOptions): AgentInbox {
   const { authorizedFetch, session } = useAuth();
@@ -82,6 +151,9 @@ export function useAgentInbox({ organizationId, socketFactory }: UseAgentInboxOp
 
   const [isSending, setIsSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+
+  const [pendingAction, setPendingAction] = useState<ConversationActionKind | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   /**
    * Every message id currently rendered in the thread — THE de-duplication
@@ -179,6 +251,10 @@ export function useAgentInbox({ organizationId, socketFactory }: UseAgentInboxOp
     setThreadStatus("loading");
     setThreadError(null);
     setSendError(null);
+    // A refusal about the previous conversation must not sit under the new
+    // one's controls, where it would read as a statement about a conversation
+    // it says nothing about.
+    setActionError(null);
     setMessages([]);
 
     // A new thread starts with a fresh identity set: ids from the previous
@@ -281,6 +357,40 @@ export function useAgentInbox({ organizationId, socketFactory }: UseAgentInboxOp
             ),
           );
         },
+        onConversationUpdate: (update) => {
+          /*
+            Another agent claimed, released, closed, or reopened something in
+            this tenant (ADR-026 §10, §13).
+
+            Merged by id into the row already held — `status` and `assignedTo`
+            replaced, `customer` left alone because it did not change and the
+            broadcast does not carry it. A conversation the list has never seen
+            is left alone entirely: the next fetch brings it in, and rows must
+            not appear under a reader's cursor (ADR-025 §13's rule, applied to
+            a second event).
+
+            The assignee's `name` is always `null` over this transport, because
+            a broadcast has no reader to run the `member.read` check against
+            (ADR-026 §11). Preserving the name already on the row when the id
+            is unchanged keeps a colleague's name from blinking out of the UI
+            on an unrelated status change.
+          */
+          setConversations((current) =>
+            current.map((conversation) => {
+              if (conversation.id !== update.id) return conversation;
+
+              const keepsAssignee =
+                update.assignedTo !== null && conversation.assignedTo?.id === update.assignedTo.id;
+
+              return {
+                ...conversation,
+                status: update.status,
+                lastMessageAt: update.lastMessageAt,
+                assignedTo: keepsAssignee ? conversation.assignedTo : update.assignedTo,
+              };
+            }),
+          );
+        },
       },
     });
 
@@ -327,6 +437,65 @@ export function useAgentInbox({ organizationId, socketFactory }: UseAgentInboxOp
     [authorizedFetch, organizationId, selectedConversationId],
   );
 
+  // ---- assignment and status ----
+
+  /**
+   * Runs one state-changing call and folds the server's answer back into the
+   * list (ADR-026 §13).
+   *
+   * Shared by claim, release, close, and reopen because all four differ only
+   * in which request they make: the pending state, the error mapping, and the
+   * row merge are identical, and four copies of them would be four places for
+   * the merge to drift.
+   *
+   * The response is the SAME projection the list read returns, which is why
+   * this needs no refetch — and why the row it replaces keeps its `customer`
+   * rather than losing it to a narrower shape.
+   */
+  const runAction = useCallback(
+    async (kind: ConversationActionKind, call: (conversationId: string) => Promise<InboxConversation>) => {
+      const conversationId = selectedConversationId;
+      if (conversationId === null) return;
+
+      setPendingAction(kind);
+      setActionError(null);
+
+      try {
+        const updated = await call(conversationId);
+
+        setConversations((current) =>
+          current.map((conversation) => (conversation.id === updated.id ? updated : conversation)),
+        );
+      } catch (caught: unknown) {
+        // A 401 is a sign-out already in progress; ProtectedRoute redirects.
+        if (caught instanceof AuthApiError && caught.status === 401) return;
+
+        setActionError(actionErrorFor(caught));
+      } finally {
+        setPendingAction(null);
+      }
+    },
+    [selectedConversationId],
+  );
+
+  const claim = useCallback(
+    () => runAction("claim", (id) => updateAssignment(authorizedFetch, organizationId, id, "claim")),
+    [authorizedFetch, organizationId, runAction],
+  );
+
+  const release = useCallback(
+    () => runAction("release", (id) => updateAssignment(authorizedFetch, organizationId, id, "release")),
+    [authorizedFetch, organizationId, runAction],
+  );
+
+  const setConversationStatus = useCallback(
+    (next: InboxConversationStatus) =>
+      runAction(next === "closed" ? "close" : "reopen", (id) =>
+        updateConversationStatus(authorizedFetch, organizationId, id, next),
+      ),
+    [authorizedFetch, organizationId, runAction],
+  );
+
   return {
     status,
     error,
@@ -341,5 +510,17 @@ export function useAgentInbox({ organizationId, socketFactory }: UseAgentInboxOp
     isSending,
     sendError,
     send,
+    /*
+      From the session the provider holds, which came from the login response
+      — the same id the server compares `assignedTo` against. Used only to
+      render "Assigned to you" versus a colleague; it authorizes nothing,
+      because the server re-proves every request regardless (ADR-017 §10).
+    */
+    currentUserId: session?.user.id ?? null,
+    pendingAction,
+    actionError,
+    claim,
+    release,
+    setConversationStatus,
   };
 }

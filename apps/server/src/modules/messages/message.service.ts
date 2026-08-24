@@ -1,5 +1,5 @@
 import { conversationRepository } from "../conversations/conversation.repository";
-import { ConversationNotAccessibleError } from "../../lib/errors";
+import { ConversationClosedError, ConversationNotAccessibleError } from "../../lib/errors";
 import { logger } from "../../lib/logger";
 import { messageEvents, toMessageCreatedEvent } from "./messageEvents";
 import { messageRepository } from "./message.repository";
@@ -15,6 +15,28 @@ import type { MessageDocument } from "./message.model";
  */
 
 const CONVERSATION_NOT_ACCESSIBLE_MESSAGE = "Conversation not found";
+
+/** The same words for both senders, because "closed" means one thing (ADR-026 §6). */
+const CONVERSATION_CLOSED_MESSAGE = "This conversation has been closed";
+
+/**
+ * Refuses a send into a closed conversation (ADR-026 §6).
+ *
+ * ONE function, called from both create paths, which is what makes the rule
+ * symmetric by construction rather than by two branches agreeing. An
+ * agent-only or customer-only rule would mean "closed" meant something
+ * different depending on who asked, and the first bug report would be an
+ * agent replying into a thread the customer can no longer answer in.
+ *
+ * Runs AFTER the ownership proof in both callers, deliberately: a caller who
+ * may not reach this conversation must get the opaque 404 rather than learn
+ * from a 409 that the id names a real, closed conversation (ADR-022 §8).
+ */
+function requireOpenConversation(conversation: ConversationDocument): void {
+  if (conversation.status === "closed") {
+    throw new ConversationClosedError(CONVERSATION_CLOSED_MESSAGE);
+  }
+}
 
 export interface MessageListPage {
   messages: MessageDocument[];
@@ -160,7 +182,12 @@ export function createMessageService(): MessageService {
       body: string,
       log: AuthLogger = logger,
     ): Promise<MessageDocument> {
-      await requireOwnConversation(organizationId, customerId, conversationId);
+      const conversation = await requireOwnConversation(organizationId, customerId, conversationId);
+
+      // ADR-026 §6. The widget recovers from this refusal by resolving a new
+      // conversation (§8), so a visitor whose thread was closed mid-session
+      // still gets their message delivered.
+      requireOpenConversation(conversation);
 
       const message = await messageRepository.create({
         organizationId,
@@ -225,6 +252,12 @@ export function createMessageService(): MessageService {
       log: AuthLogger = logger,
     ): Promise<MessageDocument> {
       const conversation = await requireTenantConversation(organizationId, conversationId);
+
+      // The identical check the customer path applies, from the identical
+      // function (ADR-026 §6): an agent who wants to speak in a closed
+      // conversation reopens it first, which is an explicit act visible to
+      // every other agent in the tenant.
+      requireOpenConversation(conversation);
 
       const message = await messageRepository.create({
         organizationId,

@@ -101,6 +101,43 @@ export const membershipRepository = {
   },
 
   /**
+   * Which of these users are ACTIVE members of this organization — one
+   * batched, tenant-scoped query for a whole page (ADR-026 §11).
+   *
+   * The first half of resolving conversation assignees to names, and it is
+   * not skippable: `Conversation.assignedTo` is a `User` id that carries no
+   * tenancy of its own (ADR-026 §1), so this query is what turns "the
+   * document says this user" into "the server proved this user works here".
+   * Reading the `User` documents without it would let a stale assignment —
+   * one whose membership was revoked — surface a name from outside the
+   * tenant's current roster.
+   *
+   * `status: "active"` rather than any membership, matching
+   * `requireOrganization`'s own gate: an `invited` membership has not been
+   * accepted and a `suspended` one has been revoked, and neither describes
+   * someone currently on the team.
+   *
+   * Batched rather than one lookup per row, mirroring
+   * `customerRepository.findByIdsAndOrganization` — one query per row is the
+   * N+1 a list endpoint must not have. Returns a `Map` for the same reason
+   * that method does: the caller is joining, not iterating.
+   */
+  async findActiveByOrganizationAndUsers(
+    organizationId: ObjectIdLike,
+    userIds: ObjectIdLike[],
+  ): Promise<Map<string, MembershipDocument>> {
+    if (userIds.length === 0) return new Map();
+
+    const memberships = await MembershipModel.find({
+      organizationId,
+      userId: { $in: userIds },
+      status: "active",
+    });
+
+    return new Map(memberships.map((membership) => [membership.userId.toString(), membership]));
+  },
+
+  /**
    * Removes exactly one membership, by its own `_id`.
    *
    * SOLE PERMITTED USE: undoing a membership the SAME request created

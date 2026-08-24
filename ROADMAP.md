@@ -38,27 +38,35 @@ Note that phases may be adjusted when technically justified. Each phase follows:
   - File attachment support in chat
   - Chat history loading
 
-- 🟡 **Phase 5: Agent workspace** (inbox complete; assignment, context panel and notes deferred)
+- 🟡 **Phase 5: Agent workspace** (inbox, assignment and lifecycle complete; context panel and notes deferred)
   - ✅ Agent Inbox in the dashboard — conversation list, message history,
     composer, live incoming messages and live agent replies, unread
     indication, and loading/empty/error/forbidden states ([ADR-025](./docs/decisions/025-agent-inbox-and-live-agent-replies.md))
   - ✅ `GET`/`POST /api/v1/organizations/:organizationId/conversations…` — the
     staff-facing surface, behind `conversation.read` / `conversation.reply`
-  - 🔲 Assignment and ownership — every agent currently sees every
-    conversation in their organization; "assigned conversations" needs an
-    assignment model that does not exist
+  - ✅ Assignment and ownership — `assignedTo` on `Conversation`, claim and
+    release behind `conversation.assign`, `?assignee=me|unassigned` queues,
+    and live `conversation:updated` so one agent's claim reaches the others
+    without a refresh ([ADR-026](./docs/decisions/026-conversation-assignment-and-status.md))
+  - 🟡 Reassignment — an agent releases their own conversation; taking one
+    from a colleague is refused for every role and needs its own permission
+    and a notification design (ADR-026 §4, §15)
   - 🔲 Multi-conversation handling UI
   - 🔲 Customer profile and context panel
   - 🔲 Internal notes for agents
 
-- 🟡 **Phase 6: Persistent conversations / messages** (persistence, API and delivery complete; archiving deferred)
+- 🟡 **Phase 6: Persistent conversations / messages** (persistence, API, delivery and archiving complete; persisted unread state deferred)
   - ✅ `Conversation` and `Message` models, one open conversation per customer enforced by a partial unique index ([ADR-022](./docs/decisions/022-persistent-conversations-and-messages.md))
   - ✅ `requireWidgetToken`: the customer-facing authentication and tenant boundary
   - ✅ `POST /api/v1/widget/conversations`, `POST`/`GET /api/v1/widget/conversations/:id/messages` — resolve-or-create, send, and cursor-paginated history
   - 🟡 Unread message counters — the inbox shows a session-local indicator
     (ADR-025 §12); nothing is persisted, because "read" for a conversation
     several agents share is read-receipt design
-  - 🔲 Archiving and closing conversations — `status` supports it; no route sets it yet
+  - ✅ Archiving and closing conversations — `PATCH …/conversations/:id/status`
+    behind `conversation.reply`, and `status` now has behaviour: a closed
+    conversation refuses messages from BOTH the customer and the agent, and
+    reopening is refused when the customer has since opened a newer one
+    ([ADR-026](./docs/decisions/026-conversation-assignment-and-status.md) §6, §7)
   - ✅ Delivery — a message reaches the other party live in both directions,
     over the Socket.IO transport (ADR-023) and the domain event seam
     ([ADR-025](./docs/decisions/025-agent-inbox-and-live-agent-replies.md) §2)

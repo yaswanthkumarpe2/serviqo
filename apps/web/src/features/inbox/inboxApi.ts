@@ -23,6 +23,26 @@ export interface InboxCustomer {
   email: string | null;
 }
 
+/**
+ * The staff member handling a conversation (ADR-026 §11).
+ *
+ * `id` is always present; `name` is `null` unless the signed-in reader's role
+ * holds `member.read`. The client never decides that — the server does, from
+ * the role it read on this request — so a `null` name here means "not
+ * disclosed to you", and the UI says "another agent" rather than inventing
+ * one.
+ *
+ * The `id` is what lets the UI tell the reader's own work from a colleague's
+ * without knowing who the colleague is.
+ */
+export interface InboxAssignee {
+  id: string;
+  name: string | null;
+}
+
+/** `open` while the exchange is live, `closed` once an agent has finished it (ADR-026 §7). */
+export type InboxConversationStatus = "open" | "closed";
+
 export interface InboxConversation {
   id: string;
   status: string;
@@ -30,6 +50,23 @@ export interface InboxConversation {
   lastMessageAt: string;
   /** `null` for a conversation whose customer no longer resolves inside this tenant. */
   customer: InboxCustomer | null;
+  /** `null` when nobody has claimed it (ADR-026 §1). */
+  assignedTo: InboxAssignee | null;
+}
+
+/**
+ * The narrow projection `conversation:updated` carries (ADR-026 §9).
+ *
+ * Deliberately smaller than `InboxConversation`: no customer, because it did
+ * not change and the row already has it, and no assignee NAME, because a
+ * broadcast has no single reader to run the `member.read` check against. The
+ * client merges these fields into the row it already holds.
+ */
+export interface InboxConversationUpdate {
+  id: string;
+  status: string;
+  lastMessageAt: string;
+  assignedTo: InboxAssignee | null;
 }
 
 /**
@@ -155,6 +192,65 @@ export function sendAgentMessage(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ body }),
+    },
+  );
+}
+
+/**
+ * Claims or releases a conversation (ADR-026 §2, §4).
+ *
+ * The body carries `action` and nothing else. There is deliberately no
+ * `assignedTo` to send: the subject of both verbs is the authenticated caller,
+ * resolved server-side from the access token, and a user id sent here would be
+ * stripped by the request schema before any handler saw it. Sending one would
+ * be this client claiming an authority it does not have.
+ *
+ * Behind `conversation.assign`. A role without it receives a 403; a
+ * conversation another agent holds produces a 409 the caller renders in its
+ * own words (ADR-026 §13).
+ */
+export function updateAssignment(
+  authorizedFetch: AuthorizedFetch,
+  organizationId: string,
+  conversationId: string,
+  action: "claim" | "release",
+): Promise<InboxConversation> {
+  return callInbox<InboxConversation>(
+    authorizedFetch,
+    conversationsPath(organizationId, `/${encodeURIComponent(conversationId)}/assignment`),
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action }),
+    },
+  );
+}
+
+/**
+ * Opens or closes a conversation (ADR-026 §2, §7).
+ *
+ * A SEPARATE endpoint from the assignment one above, not a second field on a
+ * shared `PATCH`, because the two are gated by different permissions
+ * server-side — `conversation.reply` here, `conversation.assign` there — and a
+ * route names exactly one.
+ *
+ * Reopening can answer 409 when the customer has since opened a newer
+ * conversation (ADR-026 §7); that is the one refusal in this client whose
+ * cause the UI states, because it is the one an agent can act on.
+ */
+export function updateConversationStatus(
+  authorizedFetch: AuthorizedFetch,
+  organizationId: string,
+  conversationId: string,
+  status: InboxConversationStatus,
+): Promise<InboxConversation> {
+  return callInbox<InboxConversation>(
+    authorizedFetch,
+    conversationsPath(organizationId, `/${encodeURIComponent(conversationId)}/status`),
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
     },
   );
 }

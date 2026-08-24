@@ -20,6 +20,31 @@ export interface ConversationAttrs {
   customerId: Types.ObjectId;
   status: ConversationStatus;
   /**
+   * The staff member handling this conversation, or `null` when nobody has
+   * picked it up (ADR-026 §1).
+   *
+   * References `User` rather than `Membership`: what is recorded is WHICH
+   * PERSON is handling this, and a person outlives any particular membership
+   * document — one deleted and re-created for the same user in the same
+   * tenant is the same human being, and an assignment that dangled across
+   * that operation would be a bug with no upside.
+   *
+   * Carries no tenancy of its own and needs none: the conversation is already
+   * tenant-scoped, and every read and write of this field goes through a
+   * repository method taking `organizationId` as a mandatory key (ADR-022 §1).
+   *
+   * Nullable rather than optional, so "nobody has claimed this" and "written
+   * by an older version of the code" are not the same storage state, and so
+   * `{ assignedTo: null }` is a filter the unassigned-queue query can express
+   * directly (ADR-026 §5).
+   *
+   * Deliberately NOT accompanied by `assignedAt`, `assignedBy`, or any
+   * history: each is an audit-trail concern ROADMAP Phase 18 owns, and a
+   * half-audit is the kind of field that gets trusted for exactly the
+   * question it cannot answer (ADR-026 §1).
+   */
+  assignedTo: Types.ObjectId | null;
+  /**
    * When this conversation last received a message. Stored rather than
    * derived, so a future "most recently active first" listing (the agent
    * inbox's central query) sorts on one indexed field instead of joining
@@ -65,6 +90,22 @@ const conversationSchema = new Schema<ConversationAttrs>(
       default: () => new Date(),
       required: true,
     },
+    /*
+      `default: null` rather than no default, so an unclaimed conversation
+      stores an explicit null that `{ assignedTo: null }` matches — an absent
+      field would match that filter too under MongoDB's equality semantics,
+      but only by accident, and a document written before this field existed
+      would then be indistinguishable from one deliberately released.
+
+      Not `immutable`, unlike `organizationId` and `customerId` above: this is
+      the one field on this model that exists to be changed, and §4's claim
+      and release are the two writes that change it.
+    */
+    assignedTo: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
   },
   {
     timestamps: true,
@@ -103,6 +144,22 @@ conversationSchema.index(
  * derived from `Message` per row.
  */
 conversationSchema.index({ organizationId: 1, lastMessageAt: -1, _id: -1 });
+
+/**
+ * Serves the assigned-queue reads ADR-026 §5 adds: "conversations assigned to
+ * me" and "conversations nobody has claimed", both most recently active first
+ * and both keyset-paginated through the identical cursor.
+ *
+ * Key order matches those queries exactly, the same discipline the index
+ * above follows: equality on the tenant, equality on the assignee, then the
+ * sort key and the cursor's `_id` tiebreak.
+ *
+ * `status` is deliberately absent from every index and is filtered rather
+ * than sought (ADR-026 §1). It is two-valued, so an index key on it roughly
+ * halves the candidate set — less than it costs on every write — and a
+ * status-only filter is already served by the sort index above.
+ */
+conversationSchema.index({ organizationId: 1, assignedTo: 1, lastMessageAt: -1, _id: -1 });
 
 // Same serialization boundary as every tenant-owned model: internal
 // Mongoose bookkeeping never survives serialization.

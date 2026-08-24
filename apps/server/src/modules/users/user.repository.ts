@@ -49,6 +49,30 @@ export const userRepository = {
   },
 
   /**
+   * Several users by id, in one query (ADR-026 §11).
+   *
+   * NOT a `findAll` and not a general list: it answers only about ids the
+   * caller already holds, and its sole caller has already proved every one of
+   * them is an active member of the tenant being read
+   * (`membershipRepository.findActiveByOrganizationAndUsers`). This repository
+   * carries no `organizationId` because `User` carries no tenancy — a user
+   * belongs to as many organizations as they hold memberships in
+   * (ADR-010 §1) — so the tenant proof MUST happen before this call rather
+   * than inside it, and the ordering is the security property.
+   *
+   * Batched for the reason `customerRepository.findByIdsAndOrganization` is:
+   * one query per row is the N+1 that makes a list endpoint slow, and
+   * resolving a page of assignees is exactly that shape.
+   */
+  async findByIds(ids: ObjectIdLike[]): Promise<Map<string, UserDocument>> {
+    if (ids.length === 0) return new Map();
+
+    const users = await UserModel.find({ _id: { $in: ids } });
+
+    return new Map(users.map((user) => [user._id.toString(), user]));
+  },
+
+  /**
    * SECURITY-SENSITIVE: returns the user including `passwordHash`, which
    * `select: false` keeps out of every ordinary query.
    *

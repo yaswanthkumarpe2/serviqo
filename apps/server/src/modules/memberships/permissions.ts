@@ -26,7 +26,11 @@ import type { MembershipRole } from "./membership.model";
  *
  * A permission joins this union in the slice that enforces it —
  * `conversation.read` and `conversation.reply` did so in ADR-025, the slice
- * that gave agents a route to reach conversations through.
+ * that gave agents a route to reach conversations through, and
+ * `conversation.assign` did so in ADR-026, the slice that gave conversations
+ * an owner. `conversation.close` deliberately did NOT join in ADR-026 §3,
+ * because its row would have been identical to `conversation.reply`'s for
+ * every role.
  */
 export type Permission =
   /** Read the organization's own record — every member of a tenant can see the tenant. */
@@ -55,8 +59,38 @@ export type Permission =
    *
    * Separate from `conversation.read` even though every role currently holds
    * both, so a read-only role is a table edit rather than a code change.
+   *
+   * As of ADR-026 §3 this permission also gates CHANGING A CONVERSATION'S
+   * STATUS — closing and reopening — because closing is *acting in* a
+   * conversation, which is exactly the standing that separates a participant
+   * from a reader. A `conversation.close` permission was declined there: its
+   * row would be identical to this one's for every role, and a permission no
+   * route distinguishes is being anticipated rather than enforced. Splitting
+   * it out later is one line here and one line in the route.
    */
-  | "conversation.reply";
+  | "conversation.reply"
+  /**
+   * Change who owns a conversation — claim it, or release it (ADR-026 §3).
+   *
+   * Named for the capability rather than for the verb, following
+   * `organization.manage`'s own shape: one permission covering rename,
+   * settings, and suspend rather than three.
+   *
+   * Held by every role that holds `conversation.reply`, because claiming is
+   * how an agent takes responsibility for the reply they are about to write —
+   * a role that could answer conversations but never pick one up could only
+   * ever work someone else's queue.
+   *
+   * Deliberately separate from `conversation.reply` even so. Ownership and
+   * participation are orthogonal, and a tenant that later wants "supervisors
+   * assign, agents close" gets it from a table edit; it would get nothing if
+   * the two rode on one permission.
+   *
+   * What this permission does NOT confer is taking a conversation from
+   * another agent — that is refused for every role, and an override needs its
+   * own permission and a notification design (ADR-026 §4, §15).
+   */
+  | "conversation.assign";
 
 /**
  * Which role holds which permission.
@@ -79,6 +113,7 @@ export const ROLE_PERMISSIONS = {
     "member.manage",
     "conversation.read",
     "conversation.reply",
+    "conversation.assign",
   ],
   /** Everything the owner can do except what ownership itself confers. */
   admin: [
@@ -88,6 +123,7 @@ export const ROLE_PERMISSIONS = {
     "member.manage",
     "conversation.read",
     "conversation.reply",
+    "conversation.assign",
   ],
   /**
    * Oversees people and queues without configuring the tenant. Reads the
@@ -98,13 +134,19 @@ export const ROLE_PERMISSIONS = {
    * of someone who reads conversations, and a supervisor who could not answer
    * one would be unable to cover for the agents they supervise (ADR-025 §4).
    */
-  supervisor: ["organization.read", "member.read", "conversation.read", "conversation.reply"],
+  supervisor: [
+    "organization.read",
+    "member.read",
+    "conversation.read",
+    "conversation.reply",
+    "conversation.assign",
+  ],
   /**
    * Handles conversations — which, as of ADR-025, is a thing this role can
    * actually do rather than a description of one. Still sees nothing about
    * the tenant's configuration or its roster.
    */
-  agent: ["organization.read", "conversation.read", "conversation.reply"],
+  agent: ["organization.read", "conversation.read", "conversation.reply", "conversation.assign"],
 } as const satisfies Record<MembershipRole, readonly Permission[]>;
 
 /**

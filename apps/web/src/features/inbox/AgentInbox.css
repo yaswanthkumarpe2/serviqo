@@ -121,6 +121,30 @@
   color: var(--text-3);
 }
 
+/*
+  The row's ownership and lifecycle line (ADR-026 §13). Spans both grid
+  columns so a long assignee name wraps under the title rather than pushing
+  the timestamp out of the row.
+*/
+.inbox__rowMeta {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+  Emphasised within the meta line rather than coloured on its own: "closed" is
+  already stated in words, and the weight is what makes it scannable in a long
+  list without the word carrying colour as its only signal.
+*/
+.inbox__closedTag {
+  font-weight: 600;
+  color: var(--text-2);
+}
+
 .inbox__unread {
   grid-column: 2;
   justify-self: end;
@@ -147,6 +171,63 @@
   font-size: 14px;
   font-weight: 600;
   color: var(--text);
+}
+
+/*
+  The thread's assignment bar (ADR-026 §13): who holds this conversation, and
+  the controls that change that or its status.
+
+  `flex-wrap` rather than a fixed layout — three controls can be present at
+  once (release, close, and a future reassign), and a narrow panel must wrap
+  them rather than clip one.
+*/
+.inbox__assignment {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.inbox__assignee {
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.inbox__actions {
+  display: flex;
+  gap: 6px;
+}
+
+/*
+  Secondary treatment, deliberately: the composer's Send is the primary action
+  in this panel, and a Claim button competing with it for the filled emphasis
+  would make the two read as equals. CONTRIBUTING.md's rule that no colour is
+  hardcoded holds — every value here is a token.
+*/
+.inbox__action {
+  padding: 5px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+
+.inbox__action:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.inbox__action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .inbox__messages {

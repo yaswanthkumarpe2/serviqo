@@ -2,7 +2,7 @@ import { Types } from "mongoose";
 
 import { ConversationModel } from "./conversation.model";
 
-import type { ConversationDocument } from "./conversation.model";
+import type { ConversationDocument, ConversationStatus } from "./conversation.model";
 
 /** Mongoose casts a 24-char hex string to an ObjectId, so callers may pass either. */
 type ObjectIdLike = Types.ObjectId | string;
@@ -18,11 +18,29 @@ export interface ConversationListCursor {
   id: string;
 }
 
+/**
+ * Which conversations a listing is asking for, beyond the tenant
+ * (ADR-026 §5).
+ *
+ * `assignee` is a RELATION, never a user id: `"me"` is resolved to the
+ * verified caller before it reaches this repository, and `"unassigned"` names
+ * no one at all. There is deliberately no `assignedTo: string` option here,
+ * because an option of that shape is one a controller could fill from a query
+ * string, and "which agent's queue may I read?" is a disclosure question this
+ * slice does not answer (ADR-026 §11).
+ */
+export interface ConversationListFilter {
+  status?: ConversationStatus;
+  assignee?: { kind: "user"; userId: ObjectIdLike } | { kind: "unassigned" };
+}
+
 export interface ListConversationsOptions {
   /** Exclusive upper bound in sort order — return conversations strictly after this one. */
   cursor?: ConversationListCursor;
   /** Row count to return. The caller (the service) decides the default/max. */
   limit: number;
+  /** Absent means "everything in this tenant" — ADR-025 §5's behaviour, unchanged. */
+  filter?: ConversationListFilter;
 }
 
 /**
@@ -117,9 +135,25 @@ export const conversationRepository = {
    */
   async listByOrganization(
     organizationId: ObjectIdLike,
-    { cursor, limit }: ListConversationsOptions,
+    { cursor, limit, filter: listFilter }: ListConversationsOptions,
   ): Promise<ConversationDocument[]> {
     const filter: Record<string, unknown> = { organizationId };
+
+    /*
+      Applied to the QUERY, never to the page after it comes back
+      (ADR-026 §5). Keyset pagination over a filtered set is only correct if
+      the filter is part of the query the cursor pages through: trimming rows
+      afterwards would return short pages and eventually an empty page with a
+      non-null `nextCursor`, which is a bug that only shows up under volume.
+    */
+    if (listFilter?.status !== undefined) {
+      filter.status = listFilter.status;
+    }
+
+    if (listFilter?.assignee !== undefined) {
+      // `null` matches the explicit null `conversation.model.ts` defaults to.
+      filter.assignedTo = listFilter.assignee.kind === "unassigned" ? null : listFilter.assignee.userId;
+    }
 
     if (cursor !== undefined) {
       /*
@@ -153,6 +187,89 @@ export const conversationRepository = {
     return ConversationModel.findOneAndUpdate(
       { _id: conversationId, organizationId },
       { $set: { lastMessageAt: when } },
+      { returnDocument: "after" },
+    );
+  },
+
+  /**
+   * Claims a conversation for `userId` — ONE conditional update, never a read
+   * followed by a write (ADR-026 §4).
+   *
+   * The precondition lives in the FILTER: `assignedTo` is null (nobody has it)
+   * or is already this user (idempotent re-claim). Two agents clicking
+   * *Claim* on the same unassigned row in the same instant is the ordinary
+   * contention an inbox exists to arbitrate, and a check-then-write would let
+   * both succeed with the second silently overwriting the first — so the
+   * losing agent's UI would show them as the owner while the database
+   * disagreed. This filter makes MongoDB the arbiter: exactly one update
+   * matches.
+   *
+   * `null` means the update did not apply, and it is deliberately AMBIGUOUS
+   * between "unreachable conversation" and "someone else has it". The service
+   * disambiguates with one further tenant-scoped read on the failure path
+   * only — putting that branch here would mean this method reporting a
+   * distinction its own query cannot make.
+   *
+   * Scoped by `organizationId` like every other write in this repository, so
+   * a conversation in another tenant is not merely refused but never located.
+   */
+  async claimForUser(
+    conversationId: ObjectIdLike,
+    organizationId: ObjectIdLike,
+    userId: ObjectIdLike,
+  ): Promise<ConversationDocument | null> {
+    return ConversationModel.findOneAndUpdate(
+      { _id: conversationId, organizationId, $or: [{ assignedTo: null }, { assignedTo: userId }] },
+      { $set: { assignedTo: userId } },
+      { returnDocument: "after" },
+    );
+  },
+
+  /**
+   * Releases a conversation `userId` holds (ADR-026 §4).
+   *
+   * The SAME precondition as `claimForUser` — `assignedTo` is null or is me —
+   * which is what makes the pair symmetric rather than two rules that drift.
+   * Releasing an already-unassigned conversation succeeds as a no-op;
+   * releasing one another agent holds does not apply, because taking a
+   * conversation from a colleague is not a thing this slice permits.
+   */
+  async releaseForUser(
+    conversationId: ObjectIdLike,
+    organizationId: ObjectIdLike,
+    userId: ObjectIdLike,
+  ): Promise<ConversationDocument | null> {
+    return ConversationModel.findOneAndUpdate(
+      { _id: conversationId, organizationId, $or: [{ assignedTo: null }, { assignedTo: userId }] },
+      { $set: { assignedTo: null } },
+      { returnDocument: "after" },
+    );
+  },
+
+  /**
+   * Opens or closes a conversation (ADR-026 §7).
+   *
+   * Tenant-scoped and otherwise unconditional: both transitions are
+   * idempotent, so there is no "only if currently open" precondition to
+   * express — the caller's intent is already satisfied when the value
+   * matches.
+   *
+   * MAY THROW a duplicate-key error, and that is by design rather than an
+   * oversight this method should absorb: reopening collides with ADR-022 §3's
+   * partial unique index whenever the customer has since opened a newer
+   * conversation. The service catches `11000` and translates it, exactly as
+   * `conversationService.resolveOpen` already does for its own race — here
+   * because the refusal is correct and the alternative would be closing a
+   * thread the customer is actively using.
+   */
+  async setStatus(
+    conversationId: ObjectIdLike,
+    organizationId: ObjectIdLike,
+    status: ConversationStatus,
+  ): Promise<ConversationDocument | null> {
+    return ConversationModel.findOneAndUpdate(
+      { _id: conversationId, organizationId },
+      { $set: { status } },
       { returnDocument: "after" },
     );
   },

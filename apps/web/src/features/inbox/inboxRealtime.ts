@@ -1,6 +1,6 @@
 import { io } from "socket.io-client";
 
-import type { InboxMessage } from "./inboxApi";
+import type { InboxConversationUpdate, InboxMessage } from "./inboxApi";
 import type { Socket } from "socket.io-client";
 
 /**
@@ -22,12 +22,29 @@ import type { Socket } from "socket.io-client";
 /** ADR-023 §5's event name, restated client-side rather than imported across the server boundary. */
 const EVENT_MESSAGE_NEW = "message:new";
 
+/**
+ * ADR-026 §10's event name. Delivered to the tenant's inbox room only — a
+ * customer's socket never receives it, because the payload names a member of
+ * the tenant's staff.
+ */
+const EVENT_CONVERSATION_UPDATED = "conversation:updated";
+
 /** What the inbox shows about the connection. Mirrors the widget's states (ADR-024 §7). */
 export type InboxRealtimeStatus = "connecting" | "connected" | "reconnecting" | "failed";
 
 export interface InboxRealtimeCallbacks {
   /** A message arrived in this tenant. De-duplication is the caller's (ADR-024 §4, ADR-025 §8). */
   onMessage(message: InboxMessage): void;
+  /**
+   * A conversation in this tenant was claimed, released, closed, or reopened
+   * — possibly by another agent (ADR-026 §10, §13).
+   *
+   * The caller merges the carried fields into the row it already holds. A
+   * conversation the list has never seen is ignored, exactly as ADR-025 §13
+   * decided for `onMessage`: the next fetch brings it in, and rows do not
+   * appear under a reader's cursor.
+   */
+  onConversationUpdate(update: InboxConversationUpdate): void;
   onStatusChange(status: InboxRealtimeStatus): void;
   /**
    * The handshake was refused. The inbox stops retrying rather than
@@ -90,6 +107,44 @@ function isInboxMessage(value: unknown): value is InboxMessage {
   );
 }
 
+/**
+ * Validates the `assignedTo` half of a `conversation:updated` payload.
+ *
+ * `null` is a legitimate value — it is what a release broadcasts — so the
+ * check distinguishes "unassigned" from "malformed" rather than treating both
+ * as absent. `name` may be `null` and always is over this transport, because
+ * a broadcast has no reader to run the `member.read` check against
+ * (ADR-026 §11).
+ */
+function isAssignee(value: unknown): value is InboxConversationUpdate["assignedTo"] {
+  if (value === null) return true;
+  if (typeof value !== "object") return false;
+
+  const candidate = value as { id?: unknown; name?: unknown };
+  return typeof candidate.id === "string" && (candidate.name === null || typeof candidate.name === "string");
+}
+
+/**
+ * Validates a `conversation:updated` payload before it can reach the
+ * renderer.
+ *
+ * Checked at the boundary, once, for the same reason `isInboxMessage` is:
+ * `status` decides whether the composer or the closed notice renders, and a
+ * value from the network silently taking the wrong branch would show an agent
+ * a composer whose sends the server will refuse.
+ */
+function isConversationUpdate(value: unknown): value is InboxConversationUpdate {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Partial<InboxConversationUpdate>;
+
+  return (
+    typeof candidate.id === "string" &&
+    (candidate.status === "open" || candidate.status === "closed") &&
+    typeof candidate.lastMessageAt === "string" &&
+    isAssignee(candidate.assignedTo)
+  );
+}
+
 export function createInboxRealtimeClient({
   organizationId,
   token,
@@ -135,6 +190,10 @@ export function createInboxRealtimeClient({
 
     socket.on(EVENT_MESSAGE_NEW, (payload: unknown) => {
       if (isInboxMessage(payload)) callbacks.onMessage(payload);
+    });
+
+    socket.on(EVENT_CONVERSATION_UPDATED, (payload: unknown) => {
+      if (isConversationUpdate(payload)) callbacks.onConversationUpdate(payload);
     });
 
     socket.on("disconnect", () => {

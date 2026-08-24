@@ -64,9 +64,66 @@ export const listConversationsQuerySchema = z.object({
     .max(CONVERSATION_PAGE_MAX_LIMIT, `limit must be at most ${CONVERSATION_PAGE_MAX_LIMIT}`)
     .optional()
     .default(CONVERSATION_PAGE_DEFAULT_LIMIT),
+  /**
+   * The status filter (ADR-026 §5). Absent means both, which is ADR-025 §5's
+   * behaviour unchanged — an inbox that hides rows by default is an inbox
+   * whose emptiness cannot be trusted.
+   */
+  status: z.enum(["open", "closed"]).optional(),
+  /**
+   * The assignment filter (ADR-026 §5).
+   *
+   * `me` and `unassigned` are the ONLY two values, and the absence of a
+   * user-id form is the decision. A `?assignee=<userId>` filter would be a
+   * client naming a person, which forces the server to answer "may this
+   * caller ask about that person?" — the roster-disclosure question §11 is
+   * built to avoid. `me` is resolved from the verified principal in the
+   * controller, so the only identity this filter can express is one the
+   * server already proved.
+   */
+  assignee: z.enum(["me", "unassigned"]).optional(),
 });
 
 export type ListConversationsQuery = z.infer<typeof listConversationsQuerySchema>;
+
+/**
+ * `PATCH .../conversations/:conversationId/assignment` (ADR-026 §2).
+ *
+ * Names `action` and NOTHING else. There is deliberately no `assignedTo`,
+ * no `userId`, and no `agentId` field — in this schema or in any other schema
+ * in this codebase — so a client cannot express "assign this to someone else"
+ * even malformedly. The subject of both verbs is the authenticated caller,
+ * resolved server-side from `req.principal.userId`.
+ *
+ * That is ADR-022 §5's rule ("assigned as a literal … never a parameter that
+ * traces back to request input") applied to IDENTITY rather than to
+ * `senderType`: a forged `assignedTo` is not rejected here, it is stripped by
+ * Zod before the controller runs, so it never becomes observable at all.
+ */
+export const updateAssignmentSchema = z.object({
+  action: z.enum(["claim", "release"]),
+});
+
+export type UpdateAssignmentInput = z.infer<typeof updateAssignmentSchema>;
+
+/**
+ * `PATCH .../conversations/:conversationId/status` (ADR-026 §2, §7).
+ *
+ * The two values of `Conversation.status`, and a separate `/reopen` route was
+ * declined because "open" and "closed" are one field and a second endpoint
+ * would be a second name for one write.
+ *
+ * Restated here as a literal enum rather than imported from
+ * `conversation.model.ts`'s `ConversationStatus`: that type is a TypeScript
+ * union with no runtime value, so a schema built from it would still have to
+ * spell the strings out. The `satisfies` in the controller is what keeps the
+ * two from drifting.
+ */
+export const updateConversationStatusSchema = z.object({
+  status: z.enum(["open", "closed"]),
+});
+
+export type UpdateConversationStatusInput = z.infer<typeof updateConversationStatusSchema>;
 
 /**
  * Decodes a cursor the schema above already proved well-formed.

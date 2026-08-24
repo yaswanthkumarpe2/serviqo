@@ -270,6 +270,70 @@ export class ConversationNotAccessibleError extends AppError {
 }
 
 /**
+ * A message was sent into a conversation that has been closed (ADR-026 §6).
+ *
+ * Raised for BOTH senders — a customer over the widget and an agent over the
+ * inbox — from the same check in the same service, so "closed" cannot come to
+ * mean two different things depending on who asked.
+ *
+ * Answered SPECIFICALLY rather than folded into
+ * `ConversationNotAccessibleError`'s opaque 404, and safely so: both callers
+ * have already proved they may reach this conversation — the customer holds a
+ * token naming it and owns it, the agent holds a membership in its tenant —
+ * so naming the reason discloses nothing about existence or ownership.
+ *
+ * The deciding test is the one ADR-011 §6 applied when it made
+ * `EmailNotVerifiedError` the single non-generic authentication refusal: this
+ * failure has a REMEDY, and the remedy differs from the one a 404 implies. A
+ * caller who cannot tell "closed" from "gone" cannot recover; the widget
+ * recovers by resolving a new conversation (ADR-026 §8), and an agent
+ * recovers by reopening this one.
+ */
+export class ConversationClosedError extends AppError {
+  readonly httpStatus = 409;
+  readonly code = "CONVERSATION_CLOSED";
+}
+
+/**
+ * A claim or release was refused because another agent holds the
+ * conversation (ADR-026 §4).
+ *
+ * Specific for the reason `InsufficientPermissionError` is specific
+ * (ADR-017 §6): by the time this can be raised, membership in the tenant is
+ * proved and the conversation is proved to be inside it, so "someone else has
+ * this one" discloses nothing the caller did not already have access to.
+ *
+ * It names NO user. Who that someone is depends on the caller's own
+ * entitlement to the staff roster (ADR-026 §11), and a refusal is the wrong
+ * place to make a disclosure decision that a response projection makes
+ * carefully everywhere else.
+ */
+export class ConversationAlreadyAssignedError extends AppError {
+  readonly httpStatus = 409;
+  readonly code = "CONVERSATION_ALREADY_ASSIGNED";
+}
+
+/**
+ * A conversation could not be reopened because its customer already has a
+ * newer open one (ADR-026 §7).
+ *
+ * This is ADR-022 §3's partial unique index refusing the write, translated
+ * rather than absorbed. Absorbing it would mean either closing the newer
+ * conversation to make room — destroying a thread the customer is actively
+ * using — or dropping the index, which is the invariant ADR-022 chose the
+ * database to enforce precisely so application code could not get it wrong.
+ *
+ * The only message in this slice that tells the caller what to do next, and
+ * deliberately so: "go to the newer conversation" is not guessable from the
+ * word "conflict", and the fact it discloses is one the caller's own inbox
+ * list already shows them.
+ */
+export class ConversationReopenConflictError extends AppError {
+  readonly httpStatus = 409;
+  readonly code = "CONVERSATION_REOPEN_CONFLICT";
+}
+
+/**
  * Every slug derived from a submitted organization name was already taken or
  * reserved, within the bounded number of attempts onboarding will make
  * (ADR-016 §7).

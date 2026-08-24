@@ -7,7 +7,11 @@ import { validateBody } from "../../middleware/validate";
 import { createConversationService } from "../conversations/conversation.service";
 import { createMessageService } from "../messages/message.service";
 import { createAgentInboxController } from "./agentInbox.controller";
-import { sendAgentMessageSchema } from "./agentInbox.validation";
+import {
+  sendAgentMessageSchema,
+  updateAssignmentSchema,
+  updateConversationStatusSchema,
+} from "./agentInbox.validation";
 
 import type { RateLimiters } from "../../lib/rateLimit";
 
@@ -104,6 +108,54 @@ export function createAgentInboxRouter({ rateLimiters }: AgentInboxRouterDepende
     requirePermission("conversation.reply"),
     validateBody(sendAgentMessageSchema),
     controller.sendMessage,
+  );
+
+  /*
+    Assignment and status are TWO routes rather than one `PATCH` on the
+    conversation, and the reason is visible right here: the permission on the
+    next line differs from the permission on the one after it (ADR-026 §2).
+
+    `requirePermission` takes one permission per route by construction, so a
+    combined endpoint accepting `{ assignedTo, status }` would have to check
+    the second permission INSIDE the handler — moving the authorization
+    decision out of this file and into a branch, which is the "scattered
+    `if (role === 'admin')` checks" shape ADR-002 §7–19 forbade.
+
+    Both are `PATCH` on a sub-resource path, so the path IS the field being
+    changed and each route can carry exactly one permission without a
+    discriminator in the body doing authorization work.
+
+    `authenticatedWrite`, matching the reply route above and inheriting
+    ADR-025 §13's recorded limitation — 30/hour is low for an agent working a
+    queue, and the follow-up is a dedicated `agentConversationWrite` class
+    rather than widening a shared one from inside a feature slice
+    (ADR-026 §12).
+  */
+  router.patch(
+    "/:conversationId/assignment",
+    requireAccessToken,
+    rateLimiters.authenticatedWrite,
+    requireOrganization,
+    requirePermission("conversation.assign"),
+    validateBody(updateAssignmentSchema),
+    controller.updateAssignment,
+  );
+
+  /*
+    Behind `conversation.reply`, not `conversation.assign` and not a new
+    `conversation.close` (ADR-026 §3): closing is acting in a conversation,
+    which is the standing `conversation.reply` already describes, and a
+    permission whose row would be identical to it for every role is being
+    anticipated rather than enforced.
+  */
+  router.patch(
+    "/:conversationId/status",
+    requireAccessToken,
+    rateLimiters.authenticatedWrite,
+    requireOrganization,
+    requirePermission("conversation.reply"),
+    validateBody(updateConversationStatusSchema),
+    controller.updateStatus,
   );
 
   return router;

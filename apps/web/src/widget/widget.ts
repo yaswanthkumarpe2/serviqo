@@ -1,5 +1,5 @@
 import { WidgetAuthError, loadHistory, resolveConversation } from "./conversation";
-import { createRealtimeClient } from "./realtime";
+import { RealtimeError, createRealtimeClient } from "./realtime";
 import { openWidgetSession, WidgetSessionError } from "./session";
 import { clearStoredToken, loadStoredToken, storeToken } from "./storage";
 import { WIDGET_STYLES } from "./styles";
@@ -40,6 +40,16 @@ type PanelState =
 
 const GENERIC_ERROR_MESSAGE = "Chat is not available right now.";
 const SEND_FAILED_MESSAGE = "Message not sent. Please try again.";
+
+/**
+ * The ack code the server answers when an agent has closed this conversation
+ * (ADR-026 §6).
+ *
+ * Restated here rather than imported across the server boundary, exactly as
+ * `realtime.ts` restates the event names: the widget bundle shares no code
+ * with the server (ADR-021 §2).
+ */
+const CONVERSATION_CLOSED_CODE = "CONVERSATION_CLOSED";
 
 /** One sentence per transport state (ADR-024 §7). No status code, no server text. */
 const STATUS_TEXT: Record<RealtimeStatus, string> = {
@@ -453,7 +463,14 @@ export function initWidget(config: WidgetConfig, options: InitWidgetOptions = {}
         onMessage: appendMessage,
         onStatusChange: setStatus,
         onConnected: () => {
-          void rejoinAndCatchUp(token, conversationId);
+          /*
+            Reads the CURRENT conversation rather than the one captured when
+            this client was built. The two differ after a closed-conversation
+            recovery (ADR-026 §8) — a reconnect that re-joined the captured id
+            would put the socket back in the room of the thread the agent
+            closed, and live delivery for the new one would silently stop.
+          */
+          void rejoinAndCatchUp(token, state.status === "ready" ? state.conversationId : conversationId);
         },
         onAuthFailure: () => {
           clearStoredToken(config.widgetKey);
@@ -530,16 +547,78 @@ export function initWidget(config: WidgetConfig, options: InitWidgetOptions = {}
     try {
       const message = await realtime.send(conversationId, body);
       appendMessage(message);
-    } catch {
-      // No error detail reaches the visitor or the console (ADR-024 §7, §9).
-      surface.input.value = body;
-      showNotice(SEND_FAILED_MESSAGE);
+    } catch (error) {
+      /*
+        An agent closed this conversation while the panel was open
+        (ADR-026 §6). Recovered rather than reported: `resolveConversation`
+        returns a NEW open conversation precisely because the old one is
+        closed, so the visitor's message lands in a fresh thread and the agent
+        sees a new row — which is the truthful representation of what
+        happened.
+
+        The visitor is never told any of this. From their side nothing was
+        closed: they typed a message and it was delivered (ADR-026 §8, §10).
+      */
+      const recovered = isClosedConversationError(error) ? await retryInNewConversation(body) : false;
+
+      if (!recovered) {
+        // No error detail reaches the visitor or the console (ADR-024 §7, §9).
+        surface.input.value = body;
+        showNotice(SEND_FAILED_MESSAGE);
+      }
     } finally {
       if (currentStatus !== "failed") {
         surface.input.disabled = false;
         surface.sendButton.disabled = false;
       }
       surface.input.focus();
+    }
+  }
+
+  /** Whether a send failed because the conversation has been closed (ADR-026 §6). */
+  function isClosedConversationError(error: unknown): boolean {
+    return error instanceof RealtimeError && error.code === CONVERSATION_CLOSED_CODE;
+  }
+
+  /**
+   * Resolves a new open conversation and re-sends into it — ONCE
+   * (ADR-026 §8).
+   *
+   * Returns whether the message was delivered, so the caller shows its
+   * failure notice only when this did not work.
+   *
+   * Bounded to a single attempt deliberately: a conversation that keeps being
+   * closed would otherwise be a loop, and every failure this does not recover
+   * from already has a handler.
+   *
+   * The conversation id is swapped WITHOUT `setState`, which would rebuild the
+   * chat surface mid-send and blank the thread under the visitor's cursor. The
+   * messages already on screen stay — they are this visitor's own history, and
+   * hiding them because an agent filed the thread differently would be the
+   * widget reporting an internal workflow event as a loss of their
+   * conversation.
+   */
+  async function retryInNewConversation(body: string): Promise<boolean> {
+    if (state.status !== "ready" || realtime === null) return false;
+
+    const { token, customer } = state;
+
+    try {
+      const conversation = await resolveConversation(config.apiBase, token);
+
+      state = { status: "ready", customer, token, conversationId: conversation.id };
+
+      // Joined before sending: the server refuses a send into a conversation
+      // this socket has not joined (ADR-023 §5).
+      await realtime.join(conversation.id);
+
+      const message = await realtime.send(conversation.id, body);
+      appendMessage(message);
+      return true;
+    } catch {
+      // Nothing is logged and no detail reaches the visitor (ADR-024 §9). The
+      // caller restores their typed text and shows the ordinary notice.
+      return false;
     }
   }
 

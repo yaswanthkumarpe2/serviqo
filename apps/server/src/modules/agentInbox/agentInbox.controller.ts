@@ -1,6 +1,9 @@
 import { ValidationError } from "../../lib/errors";
 import { created, success } from "../../lib/response";
 import { customerRepository } from "../customers/customer.repository";
+import { membershipRepository } from "../memberships/membership.repository";
+import { can } from "../memberships/permissions";
+import { userRepository } from "../users/user.repository";
 import { toMessageResponse } from "../widget/widgetResponses";
 import { toInboxConversationResponse } from "./agentInbox.responses";
 import {
@@ -10,9 +13,16 @@ import {
   listConversationsQuerySchema,
 } from "./agentInbox.validation";
 
+import type { ConversationDocument } from "../conversations/conversation.model";
+import type { ConversationListFilter } from "../conversations/conversation.repository";
 import type { ConversationService } from "../conversations/conversation.service";
+import type { MembershipRole } from "../memberships/membership.model";
 import type { MessageService } from "../messages/message.service";
-import type { SendAgentMessageInput } from "./agentInbox.validation";
+import type {
+  SendAgentMessageInput,
+  UpdateAssignmentInput,
+  UpdateConversationStatusInput,
+} from "./agentInbox.validation";
 import type { RequestHandler } from "express";
 import type { ZodType } from "zod";
 
@@ -86,6 +96,98 @@ export function createAgentInboxController({
   }
 
   /**
+   * Resolves the conversations' assignees to what THIS reader may see
+   * (ADR-026 §11).
+   *
+   * The disclosure decision lives here and nowhere else. `member.read` gates
+   * "see who else works here", and the `agent` role does not hold it — so
+   * rendering colleague names into every agent's inbox would hand that role,
+   * through a conversation projection, exactly what the permission table
+   * withholds from it.
+   *
+   * `can()` is the boolean form `permissions.ts` exports for precisely this:
+   * "a controller shaping a response to what the reader may see". The role it
+   * is given came from the `Membership` document `requireOrganization` read on
+   * this request (ADR-017 §5), never from a client.
+   *
+   * A reader without `member.read` costs ZERO queries — the lookup is skipped
+   * entirely, not performed and then discarded — so the path that discloses
+   * less is also the cheaper one.
+   *
+   * Two batched, tenant-scoped queries otherwise, in an order that is the
+   * security property: memberships FIRST, because `Conversation.assignedTo`
+   * is a `User` id carrying no tenancy of its own (ADR-026 §1), so this is
+   * what turns "the document says this user" into "the server proved this
+   * user works here". An assignee whose membership has since been revoked
+   * survives as `{ id, name: null }` rather than as a name from outside the
+   * tenant's current roster.
+   */
+  async function resolveAssignees(
+    conversations: ConversationDocument[],
+    organizationId: string,
+    role: MembershipRole,
+  ): Promise<Map<string, { id: string; name: string | null }>> {
+    const assigneeIds = [
+      ...new Set(
+        conversations
+          .map((conversation) => conversation.assignedTo)
+          .filter((id): id is NonNullable<typeof id> => id !== null && id !== undefined)
+          .map((id) => id.toString()),
+      ),
+    ];
+
+    if (assigneeIds.length === 0) return new Map();
+
+    // The id is disclosed to everyone — it is what lets an agent tell their
+    // own work from a colleague's — and the NAME only to a reader entitled to
+    // the roster.
+    if (!can(role, "member.read")) {
+      return new Map(assigneeIds.map((id) => [id, { id, name: null }]));
+    }
+
+    const memberships = await membershipRepository.findActiveByOrganizationAndUsers(organizationId, assigneeIds);
+    const users = await userRepository.findByIds([...memberships.keys()]);
+
+    return new Map(
+      assigneeIds.map((id) => [id, { id, name: users.get(id)?.name ?? null }]),
+    );
+  }
+
+  /** One conversation's assignee, as this reader may see it. `null` when unassigned. */
+  function assigneeFor(
+    conversation: ConversationDocument,
+    assignees: Map<string, { id: string; name: string | null }>,
+  ): { id: string; name: string | null } | null {
+    const assignedTo = conversation.assignedTo;
+    if (assignedTo === null || assignedTo === undefined) return null;
+    return assignees.get(assignedTo.toString()) ?? null;
+  }
+
+  /**
+   * Turns the validated `assignee` query value into a repository filter
+   * (ADR-026 §5).
+   *
+   * `"me"` becomes the VERIFIED caller's id — read from `req.principal`, which
+   * `requireAccessToken` derived from a signed token — and never a value the
+   * query string carried. That is why the schema offers two literals rather
+   * than a user id: the only identity this filter can name is one the server
+   * already proved.
+   */
+  function toListFilter(
+    query: { status?: "open" | "closed"; assignee?: "me" | "unassigned" },
+    userId: string,
+  ): ConversationListFilter | undefined {
+    if (query.status === undefined && query.assignee === undefined) return undefined;
+
+    return {
+      ...(query.status === undefined ? {} : { status: query.status }),
+      ...(query.assignee === undefined
+        ? {}
+        : { assignee: query.assignee === "unassigned" ? { kind: "unassigned" as const } : { kind: "user" as const, userId } }),
+    };
+  }
+
+  /**
    * Lists the tenant's conversations, most recently active first
    * (ADR-025 §5).
    *
@@ -99,13 +201,20 @@ export function createAgentInboxController({
    * render with a null customer rather than reaching across the boundary.
    */
   const listConversations: RequestHandler = async (req, res) => {
-    const { organizationId } = req.organizationContext!;
+    const { organizationId, role } = req.organizationContext!;
+    const { userId } = req.principal!;
 
-    const { cursor, limit } = parseQuery(listConversationsQuerySchema, req.query);
+    const { cursor, limit, status, assignee } = parseQuery(listConversationsQuerySchema, req.query);
 
     const page = await conversationService.listForOrganization(
       organizationId,
-      { cursor: decodeConversationCursor(cursor), limit },
+      {
+        cursor: decodeConversationCursor(cursor),
+        limit,
+        // `me` resolves to the verified principal here, not in the query
+        // string (ADR-026 §5).
+        filter: toListFilter({ status, assignee }, userId),
+      },
       req.log,
     );
 
@@ -114,9 +223,15 @@ export function createAgentInboxController({
       organizationId,
     );
 
+    const assignees = await resolveAssignees(page.conversations, organizationId, role);
+
     success(res, {
       conversations: page.conversations.map((conversation) =>
-        toInboxConversationResponse(conversation, customers.get(conversation.customerId.toString()) ?? null),
+        toInboxConversationResponse(
+          conversation,
+          customers.get(conversation.customerId.toString()) ?? null,
+          assigneeFor(conversation, assignees),
+        ),
       ),
       nextCursor: page.nextCursor,
     });
@@ -131,14 +246,15 @@ export function createAgentInboxController({
    * and neither matches.
    */
   const readConversation: RequestHandler = async (req, res) => {
-    const { organizationId } = req.organizationContext!;
+    const { organizationId, role } = req.organizationContext!;
     const conversationId = requireWellFormedConversationId(req.params.conversationId);
 
     const conversation = await conversationService.readForOrganization(organizationId, conversationId, req.log);
 
     const customer = await customerRepository.findByIdAndOrganization(conversation.customerId, organizationId);
+    const assignees = await resolveAssignees([conversation], organizationId, role);
 
-    success(res, toInboxConversationResponse(conversation, customer));
+    success(res, toInboxConversationResponse(conversation, customer, assigneeFor(conversation, assignees)));
   };
 
   /** Reads a page of a conversation's history for staff (ADR-025 §5). */
@@ -180,5 +296,68 @@ export function createAgentInboxController({
     created(res, toMessageResponse(message));
   };
 
-  return { listConversations, readConversation, listMessages, sendMessage };
+  /**
+   * Claims or releases a conversation (ADR-026 §2, §4).
+   *
+   * `req.body` is safe to assert: `validateBody(updateAssignmentSchema)`
+   * replaced it with exactly `{ action }`. There is no `assignedTo` and no
+   * `userId` in that schema — or in any schema in this codebase — so a client
+   * that posted one had it stripped, not rejected, and it never became
+   * observable here.
+   *
+   * The subject of both verbs is `req.principal.userId`, which
+   * `requireAccessToken` derived from a verified access token. A client
+   * cannot express "assign this to someone else", which is what makes §4's
+   * no-stealing rule structural rather than a comparison this handler
+   * performs.
+   *
+   * Answers 200 with the same projection every other read returns, so the
+   * client updates its row from the response with no second fetch.
+   */
+  const updateAssignment: RequestHandler = async (req, res) => {
+    const { organizationId, role } = req.organizationContext!;
+    const { userId } = req.principal!;
+    const conversationId = requireWellFormedConversationId(req.params.conversationId);
+    const { action } = req.body as UpdateAssignmentInput;
+
+    const conversation =
+      action === "claim"
+        ? await conversationService.claim(organizationId, conversationId, userId, req.log)
+        : await conversationService.release(organizationId, conversationId, userId, req.log);
+
+    const customer = await customerRepository.findByIdAndOrganization(conversation.customerId, organizationId);
+    const assignees = await resolveAssignees([conversation], organizationId, role);
+
+    success(res, toInboxConversationResponse(conversation, customer, assigneeFor(conversation, assignees)));
+  };
+
+  /**
+   * Opens or closes a conversation (ADR-026 §2, §7).
+   *
+   * Behind `conversation.reply` rather than `conversation.assign` — closing is
+   * *acting in* a conversation, which is the standing that permission already
+   * describes (ADR-026 §3). That difference is exactly why this is a separate
+   * route from `updateAssignment` above: one route names one permission, and a
+   * combined `PATCH` would have to check the second one inside a handler.
+   *
+   * Both transitions are idempotent, and reopening may raise
+   * `ConversationReopenConflictError` — the service's translation of ADR-022
+   * §3's unique index refusing a second open conversation for one customer.
+   * Not caught here: Express 5 forwards a rejected handler promise to the
+   * error middleware, which is the single place an error becomes a response.
+   */
+  const updateStatus: RequestHandler = async (req, res) => {
+    const { organizationId, role } = req.organizationContext!;
+    const conversationId = requireWellFormedConversationId(req.params.conversationId);
+    const { status } = req.body as UpdateConversationStatusInput;
+
+    const conversation = await conversationService.setStatus(organizationId, conversationId, status, req.log);
+
+    const customer = await customerRepository.findByIdAndOrganization(conversation.customerId, organizationId);
+    const assignees = await resolveAssignees([conversation], organizationId, role);
+
+    success(res, toInboxConversationResponse(conversation, customer, assigneeFor(conversation, assignees)));
+  };
+
+  return { listConversations, readConversation, listMessages, sendMessage, updateAssignment, updateStatus };
 }

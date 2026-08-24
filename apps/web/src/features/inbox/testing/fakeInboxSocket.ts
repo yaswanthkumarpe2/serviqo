@@ -34,6 +34,8 @@ export interface FakeInboxSocket {
   simulateConnectError(message: string): void;
   /** Fires a `message:new` with the given payload. */
   deliver(message: unknown): void;
+  /** Fires a `conversation:updated` with the given payload (ADR-026 §10). */
+  deliverConversationUpdate(update: unknown): void;
 }
 
 export interface FakeInboxSocketHarness {
@@ -77,6 +79,10 @@ export function createFakeInboxSocketHarness(): FakeInboxSocketHarness {
 
       deliver(message) {
         socket.fire("message:new", message);
+      },
+
+      deliverConversationUpdate(update) {
+        socket.fire("conversation:updated", update);
       },
     };
 

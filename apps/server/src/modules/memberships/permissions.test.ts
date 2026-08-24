@@ -18,6 +18,7 @@ const ALL_PERMISSIONS: Permission[] = [
   // "has nothing to guard" cases below state from the other side.
   "conversation.read",
   "conversation.reply",
+  "conversation.assign",
 ];
 
 describe("ROLE_PERMISSIONS", () => {
@@ -88,6 +89,7 @@ describe("can", () => {
       "member.manage": true,
       "conversation.read": true,
       "conversation.reply": true,
+      "conversation.assign": true,
     },
     admin: {
       "organization.read": true,
@@ -96,6 +98,7 @@ describe("can", () => {
       "member.manage": true,
       "conversation.read": true,
       "conversation.reply": true,
+      "conversation.assign": true,
     },
     supervisor: {
       "organization.read": true,
@@ -106,6 +109,7 @@ describe("can", () => {
       // configure the tenant or change its roster (ADR-025 §4).
       "conversation.read": true,
       "conversation.reply": true,
+      "conversation.assign": true,
     },
     agent: {
       "organization.read": true,
@@ -116,6 +120,12 @@ describe("can", () => {
       // of ADR-025 the permissions exist for it to actually do so.
       "conversation.read": true,
       "conversation.reply": true,
+      // Claiming is how an agent takes responsibility for the reply they are
+      // about to write (ADR-026 §3). Note this role still lacks
+      // `member.read`, which is exactly why the inbox withholds a
+      // colleague's NAME from it while disclosing the assignee id
+      // (ADR-026 §11).
+      "conversation.assign": true,
     },
   };
 
