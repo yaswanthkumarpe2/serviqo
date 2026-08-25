@@ -56,6 +56,44 @@ The credential class deliberately shares its numbers with the account
 lockout policy in `config/constants.ts`; changing one without the other puts
 them back into disagreement.
 
+### Standalone `mongod`: one multi-document operation has a stated window
+
+A third single-node gate, of a different kind — it is about **durability
+guarantees** rather than about request routing.
+
+MongoDB transactions require a replica set. Development runs a standalone
+`mongod` and the suites use `MongoMemoryServer` (ADR-016 §3), so no code path
+in Serviqo opens a transaction and none should be added until the deployment
+provides one.
+
+| Operation | Status | Why |
+|---|---|---|
+| Every write except one | ✅ Released | Single-document, therefore atomic in MongoDB, or compensable without exposing a broken invariant (ADR-016 §4). |
+| **Ownership transfer** (`POST /organizations/:id/ownership`) | 🟡 **Released with a stated window** | Two documents must change together. Index B forbids a second owner, so every legal ordering passes through a moment with zero owners (ADR-028 §8a). |
+
+What that window is, and is not:
+
+- It lasts **one database round-trip**, between the demote and the promote.
+- Both writes are **guarded on the role they expect to find**, so concurrent
+  transfers cannot both win and cannot produce two owners — index B makes
+  two owners impossible regardless.
+- A failed promotion **compensates**, restoring the previous owner.
+- If the process dies inside the window, the organization is left with no
+  owner. Every membership survives and the previous owner retains `admin`, so
+  the tenant stays fully administrable; the single lost capability is
+  transferring ownership again. This is **not** ADR-016 §3's unrecoverable
+  orphan.
+- Recovery is operator-side. **No self-service adoption path exists or should
+  be added** — "let an authenticated user claim an ownerless organization" is
+  an account-takeover primitive (ADR-016 §3).
+- `organization.ownership_transfer_compensation_failed` is the log line to
+  alert on; it is the only signal that the window was entered and not closed.
+
+**Before relying on ownership transfer under load or in production**, run
+MongoDB as a replica set and wrap the two writes in a transaction. That is a
+deployment change plus a small service change, and ADR-028 §10 records exactly
+which two writes it applies to.
+
 ## 4. Authorization / RBAC
 - A centralized permission system governs all actions.
 - Defined organization-user roles: Owner, Admin, Supervisor, Agent. Customers hold no role and are authorized per-resource, not by RBAC (ADR-010).

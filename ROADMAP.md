@@ -26,7 +26,7 @@ Note that phases may be adjusted when technically justified. Each phase follows:
   - 🔲 Organization context on `/me`, and rate limiting (the [ADR-007 §13](./docs/decisions/007-registration-flow-and-account-enumeration.md) deployment gate)
   - ✅ Widget installation: staff-facing widget key, allowed-origin management, and key rotation ([ADR-020](./docs/decisions/020-widget-installation-configuration-surface.md))
 
-- 🟡 **Phase 3: User / Team / Role management** (RBAC, team management and role management complete; invitations and profile management deferred)
+- 🟡 **Phase 3: User / Team / Role management** (RBAC, team management, role management and ownership transfer complete; invitations and profile management deferred)
   - ✅ RBAC (Owner, Admin, Supervisor, Agent) — organization users only ([ADR-010](./docs/decisions/010-principal-types-organization-users-and-customers.md), [ADR-017](./docs/decisions/017-organization-context-and-rbac.md))
   - ✅ Team management — the organization member roster, adding a member, changing a
     member's role, and removing one, behind `member.read`/`member.manage`
@@ -39,8 +39,21 @@ Note that phases may be adjusted when technically justified. Each phase follows:
   - ✅ Team Management section in the dashboard — roster, role control, add-member
     form, confirmed removal, and permission-aware controls
     ([ADR-027](./docs/decisions/027-team-management-and-membership-lifecycle.md) §16)
-  - 🔲 Ownership transfer — the owner cannot be changed, removed, or demoted by any
-    request ([ADR-027](./docs/decisions/027-team-management-and-membership-lifecycle.md) §7, §18)
+  - ✅ Ownership transfer — `POST /api/v1/organizations/:organizationId/ownership`
+    behind the new owner-only `organization.transfer_ownership` permission, the
+    first permission that separates `owner` from `admin`. The previous owner
+    becomes `admin`; two guarded writes against index B's partial unique
+    constraint make "exactly one owner" a database property rather than a
+    comparison that races
+    ([ADR-028](./docs/decisions/028-organization-ownership-transfer.md) §1, §2, §7, §8),
+    closing [ADR-027](./docs/decisions/027-team-management-and-membership-lifecycle.md) §7a's
+    deferral. Runs without a transaction, so the ownerless failure window is
+    stated rather than implied
+    ([ADR-028](./docs/decisions/028-organization-ownership-transfer.md) §10)
+  - ✅ Transfer-ownership control in the dashboard's Team section — owner-only,
+    eligible-members picker, named confirmation, and a context refresh that
+    takes the previous owner's owner-only controls away
+    ([ADR-028](./docs/decisions/028-organization-ownership-transfer.md) §16)
   - 🔲 Suspend / reactivate a membership — `MembershipStatus` supports both; no route sets either
   - 🔲 Invitation system for joining organizations — needs real email delivery
     ([ADR-027](./docs/decisions/027-team-management-and-membership-lifecycle.md) §3)
