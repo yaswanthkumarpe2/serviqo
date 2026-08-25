@@ -9,6 +9,8 @@ import {
   CREDENTIAL_WINDOW_MS,
   GLOBAL_API_LIMIT,
   GLOBAL_API_WINDOW_MS,
+  MEMBER_INVITE_LIMIT,
+  MEMBER_INVITE_WINDOW_MS,
   SESSION_LIMIT,
   SESSION_WINDOW_MS,
   WIDGET_CONVERSATION_READ_LIMIT,
@@ -50,6 +52,7 @@ export type RateLimitClass =
   | "session"
   | "authenticatedWrite"
   | "authenticatedRead"
+  | "memberInvite"
   | "widgetSession"
   | "widgetConversationWrite"
   | "widgetConversationRead"
@@ -162,6 +165,16 @@ export interface RateLimiters {
   /** Authenticated reads. Keyed by user. */
   authenticatedRead: RequestHandler;
   /**
+   * Adding a member: `POST /organizations/:id/members` (ADR-027 §12). Keyed
+   * by user.
+   *
+   * Its own class rather than `authenticatedWrite`, because it bounds
+   * ADR-027 §5's account-existence disclosure specifically — sharing a budget
+   * with role changes and removals would make ordinary team admin
+   * indistinguishable from probing.
+   */
+  memberInvite: RequestHandler;
+  /**
    * The public widget session endpoint (ADR-019 §11). Keyed by IP — never by
    * `widgetKey`, which would make one busy tenant's own visitors a shared
    * outage and hand anyone who read that tenant's page source a
@@ -202,6 +215,12 @@ export function createRateLimiters(): RateLimiters {
       limitClass: "authenticatedRead",
       windowMs: AUTHENTICATED_READ_WINDOW_MS,
       limit: AUTHENTICATED_READ_LIMIT,
+      keyByUser: true,
+    }),
+    memberInvite: createLimiter({
+      limitClass: "memberInvite",
+      windowMs: MEMBER_INVITE_WINDOW_MS,
+      limit: MEMBER_INVITE_LIMIT,
       keyByUser: true,
     }),
     /*
@@ -252,6 +271,7 @@ export function createDisabledRateLimiters(): RateLimiters {
     session: passthrough,
     authenticatedWrite: passthrough,
     authenticatedRead: passthrough,
+    memberInvite: passthrough,
     widgetSession: passthrough,
     widgetConversationWrite: passthrough,
     widgetConversationRead: passthrough,

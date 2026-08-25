@@ -680,6 +680,19 @@ describe("widget conversations and messages", () => {
           "claimForUser",
           "releaseForUser",
           "setStatus",
+          /*
+            The membership-driven sweep (ADR-027 §10) — the one this repository
+            gained when memberships got a lifecycle, and the thing that closes
+            ADR-026 §15's stale-assignment limitation.
+
+            Unconditional on the caller, unlike `releaseForUser`, whose "null
+            or me" precondition is what made a departed member's queue
+            unreleasable by anyone. Still takes `organizationId` as a mandatory
+            key, which is the property this assertion exists to protect: a
+            person who works in two tenants keeps their work in the tenant they
+            were not removed from.
+          */
+          "releaseAllForUser",
         ].sort(),
       );
     });

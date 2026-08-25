@@ -247,6 +247,59 @@ export const conversationRepository = {
   },
 
   /**
+   * Clears `assignedTo` on every conversation in ONE tenant assigned to
+   * `userId`, and returns the documents it changed (ADR-027 §10).
+   *
+   * This is the sweep ADR-026 §15 said did not exist:
+   *
+   *   > A conversation assigned to someone whose membership was revoked stays
+   *   > assigned to them … Nothing sweeps `assignedTo` when a membership ends,
+   *   > because membership removal has no endpoint yet.
+   *
+   * Unconditional on the caller, unlike `releaseForUser` above, and that
+   * difference is the point. `releaseForUser`'s filter is "`assignedTo` is
+   * null or is me", which is what makes taking a conversation from a colleague
+   * impossible (ADR-026 §4) — and which is also why a departed member's queue
+   * was unreleasable by anyone. This method is not reachable from a
+   * conversation route at all; its only caller is the membership service,
+   * whose authorization is `member.manage` over the person being released
+   * rather than `conversation.assign` over the conversation.
+   *
+   * Scoped by `organizationId` like every other method here (ADR-022 §1), so a
+   * `User` who works in two tenants keeps their assignments in the tenant they
+   * were not removed from.
+   *
+   * Three queries rather than one, and deliberately: `updateMany` reports a
+   * count and returns no documents, but the caller must publish one
+   * `conversation.updated` event PER conversation (ADR-026 §9) and cannot
+   * build a payload from a number. Reading the ids first also makes the
+   * re-read exact rather than a guess about what the update touched. All three
+   * are indexed and the row count is one person's open work, not a tenant's
+   * history.
+   */
+  async releaseAllForUser(
+    organizationId: ObjectIdLike,
+    userId: ObjectIdLike,
+  ): Promise<ConversationDocument[]> {
+    const assigned = await ConversationModel.find({ organizationId, assignedTo: userId }).select("_id");
+    if (assigned.length === 0) return [];
+
+    const ids = assigned.map((conversation) => conversation._id);
+
+    await ConversationModel.updateMany(
+      { _id: { $in: ids }, organizationId, assignedTo: userId },
+      { $set: { assignedTo: null } },
+    );
+
+    /*
+      Re-read by the ids just written, still tenant-scoped — the caller needs
+      whole documents to project into events, and re-reading is what makes the
+      payload reflect what is actually stored rather than what was intended.
+    */
+    return ConversationModel.find({ _id: { $in: ids }, organizationId });
+  },
+
+  /**
    * Opens or closes a conversation (ADR-026 §7).
    *
    * Tenant-scoped and otherwise unconditional: both transitions are

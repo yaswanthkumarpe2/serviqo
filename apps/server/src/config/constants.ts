@@ -278,6 +278,32 @@ export const AUTHENTICATED_READ_LIMIT = 300;
 export const AUTHENTICATED_READ_WINDOW_MS = 15 * 60 * 1000;
 
 /**
+ * Adding a member to an organization: `POST /organizations/:id/members`
+ * (ADR-027 §12).
+ *
+ * The ninth class, and it exists for exactly one property of exactly one
+ * route. ADR-027 §5 accepts that this endpoint distinguishes "a verified
+ * Serviqo account exists for this email" from "it does not", because the
+ * alternative — answering 201 for an address that was added to nothing —
+ * would have a manager believe they granted access that does not exist. That
+ * disclosure needs a bound, and this is it.
+ *
+ * NOT `authenticatedWrite`. Sharing that budget would put the probe on the
+ * same 30/hour counter as role changes and removals, so a manager doing
+ * ordinary team admin would spend the probing budget and the limiter could
+ * not tell the two apart — tightening one would throttle the other. The same
+ * reason ADR-019 §11 gave `widgetSession` its own class rather than the
+ * session bucket.
+ *
+ * Twenty per hour, keyed by the verified user. Far past any real team's
+ * onboarding rate — twenty new colleagues in an hour is a migration, not a
+ * Tuesday — and far below what enumerating an address list needs, since each
+ * twenty guesses costs one email-verified account and a full hour.
+ */
+export const MEMBER_INVITE_LIMIT = 20;
+export const MEMBER_INVITE_WINDOW_MS = 60 * 60 * 1000;
+
+/**
  * The public widget session endpoint: `POST /widget/session` (ADR-019 §11).
  *
  * The sixth class, ordered in advance by ADR-010 §9 — "two limiter classes,

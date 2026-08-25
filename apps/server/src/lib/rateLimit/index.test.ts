@@ -51,6 +51,15 @@ describe("createRateLimiters", () => {
       "authenticatedWrite",
       "credential",
       "global",
+      /*
+        The ninth class, added for `POST /organizations/:id/members`
+        (ADR-027 §12). Its own class rather than `authenticatedWrite`, because
+        it bounds ADR-027 §5's account-existence disclosure specifically —
+        sharing a budget with role changes and removals would make ordinary
+        team admin indistinguishable from probing, and tightening one would
+        throttle the other.
+      */
+      "memberInvite",
       "session",
       // The seventh and eighth classes, added for conversation and message
       // traffic (ADR-022 §12) — customer-keyed, since a verified widget

@@ -2,6 +2,7 @@ import { Router } from "express";
 
 import { createAgentInboxRouter } from "../modules/agentInbox/agentInbox.routes";
 import { createAuthRouter } from "../modules/auth/auth.routes";
+import { createMemberRouter } from "../modules/members/member.routes";
 import { createOrganizationRouter } from "../modules/organizations/organization.routes";
 import { createWidgetRouter } from "../modules/widget/widget.routes";
 
@@ -62,6 +63,22 @@ export function createApiRouter({ emailProvider, rateLimiters }: ApiRouterDepend
     general one rather than as an interception of it.
   */
   router.use("/api/v1/organizations/:organizationId/conversations", createAgentInboxRouter({ rateLimiters }));
+  /*
+    The team-management surface (ADR-027 §1), nested under the organization
+    prefix for the same reason the inbox is: the tenant becomes a path segment
+    `requireOrganization` can read, so a member route cannot be addressed
+    without naming one (ADR-017 §1).
+
+    Its own router rather than routes on `createOrganizationRouter`, following
+    ADR-025 §1's precedent — that module owns the tenant record and its widget
+    installation settings, and the roster is a different resource behind a
+    different permission pair.
+
+    Mounted after the organizations router and beside the conversations one.
+    Express matches in mount order and all three path sets are disjoint, so
+    none shadows another.
+  */
+  router.use("/api/v1/organizations/:organizationId/members", createMemberRouter({ rateLimiters }));
   /*
     The customer-facing namespace ADR-010 §5 reserved: "Customer traffic never
     appears under `/api/v1/auth`." Its own prefix, so the boundary between the

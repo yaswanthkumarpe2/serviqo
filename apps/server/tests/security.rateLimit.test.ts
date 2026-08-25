@@ -151,10 +151,23 @@ describe("rate limiting", () => {
 
       const response = await attemptLogin(ctx);
 
-      expect(response.text).not.toContain("credential");
-      expect(response.text).not.toContain(String(CREDENTIAL_LIMIT));
-      expect(response.text).not.toContain(String(CREDENTIAL_WINDOW_MS));
+      /*
+        Asserted against the CODE and MESSAGE rather than the whole serialized
+        envelope. `meta` carries a request-id UUID and an ISO timestamp, and
+        both are arbitrary digit strings — scanning them for `String(10)` made
+        this assertion fail for the hour between 10:00 and 11:00 UTC every day,
+        reporting a clock as a disclosure. The disclosure it exists to catch is
+        the limiter naming its own policy (ADR-018 §6), and the only fields
+        that could carry that are these two.
+      */
+      const disclosable = `${response.body.error.code} ${response.body.error.message}`;
+
+      expect(disclosable).not.toContain("credential");
+      expect(disclosable).not.toContain(String(CREDENTIAL_LIMIT));
+      expect(disclosable).not.toContain(String(CREDENTIAL_WINDOW_MS));
       expect(response.body.error.message).not.toMatch(/limit|window|bucket|class/i);
+      // The refusal itself is unchanged and still generic.
+      expect(response.body.error.code).toBe("TOO_MANY_REQUESTS");
     });
   });
 

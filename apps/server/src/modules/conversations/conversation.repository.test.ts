@@ -149,4 +149,108 @@ describe("conversationRepository", () => {
       expect(unchanged!.lastMessageAt.getTime()).toBe(created.lastMessageAt.getTime());
     });
   });
+
+  /**
+   * ADR-027 §10 — the sweep ADR-026 §15 said did not exist:
+   *
+   *   > A conversation assigned to someone whose membership was revoked stays
+   *   > assigned to them … Nothing sweeps `assignedTo` when a membership ends.
+   *
+   * Unconditional on the caller, unlike `releaseForUser`, whose "null or me"
+   * precondition is exactly what made a departed member's queue unreleasable by
+   * anyone. Still scoped by `organizationId`, so a person who works in two
+   * tenants keeps their work in the tenant they were not removed from.
+   */
+  describe("releaseAllForUser", () => {
+    const AGENT_A = new Types.ObjectId();
+    const AGENT_B = new Types.ObjectId();
+
+    async function assignedConversation(
+      organizationId: Types.ObjectId,
+      customerId: Types.ObjectId,
+      userId: Types.ObjectId,
+    ) {
+      const conversation = await conversationRepository.create(organizationId, customerId);
+      return conversationRepository.claimForUser(conversation._id, organizationId, userId);
+    }
+
+    it("clears assignedTo on every conversation the user holds in that tenant", async () => {
+      const first = await assignedConversation(ORGANIZATION_A, CUSTOMER_A, AGENT_A);
+      const second = await assignedConversation(ORGANIZATION_A, CUSTOMER_B, AGENT_A);
+
+      const released = await conversationRepository.releaseAllForUser(ORGANIZATION_A, AGENT_A);
+
+      expect(released).toHaveLength(2);
+      for (const id of [first!._id, second!._id]) {
+        expect((await ConversationModel.findById(id))!.assignedTo).toBeNull();
+      }
+    });
+
+    it("returns the affected documents, already reflecting the release", async () => {
+      await assignedConversation(ORGANIZATION_A, CUSTOMER_A, AGENT_A);
+
+      const released = await conversationRepository.releaseAllForUser(ORGANIZATION_A, AGENT_A);
+
+      // The caller projects these into conversation.updated events, so they
+      // must carry the post-release state rather than the pre-release one.
+      expect(released[0]!.assignedTo).toBeNull();
+    });
+
+    it("leaves another agent's conversations alone", async () => {
+      const mine = await assignedConversation(ORGANIZATION_A, CUSTOMER_A, AGENT_A);
+      const theirs = await assignedConversation(ORGANIZATION_A, CUSTOMER_B, AGENT_B);
+
+      await conversationRepository.releaseAllForUser(ORGANIZATION_A, AGENT_A);
+
+      expect((await ConversationModel.findById(mine!._id))!.assignedTo).toBeNull();
+      expect((await ConversationModel.findById(theirs!._id))!.assignedTo!.toString()).toBe(AGENT_B.toString());
+    });
+
+    it("does not reach across a tenant boundary — the same user in another organization keeps their work", async () => {
+      const inA = await assignedConversation(ORGANIZATION_A, CUSTOMER_A, AGENT_A);
+      const inB = await assignedConversation(ORGANIZATION_B, CUSTOMER_A, AGENT_A);
+
+      await conversationRepository.releaseAllForUser(ORGANIZATION_A, AGENT_A);
+
+      expect((await ConversationModel.findById(inA!._id))!.assignedTo).toBeNull();
+      expect((await ConversationModel.findById(inB!._id))!.assignedTo!.toString()).toBe(AGENT_A.toString());
+    });
+
+    it("returns an empty list when the user holds nothing, without writing", async () => {
+      const theirs = await assignedConversation(ORGANIZATION_A, CUSTOMER_A, AGENT_B);
+
+      expect(await conversationRepository.releaseAllForUser(ORGANIZATION_A, AGENT_A)).toEqual([]);
+      expect((await ConversationModel.findById(theirs!._id))!.assignedTo!.toString()).toBe(AGENT_B.toString());
+    });
+
+    it("releases closed conversations too — status is not part of the filter", async () => {
+      const conversation = await conversationRepository.create(ORGANIZATION_A, CUSTOMER_A);
+      await conversationRepository.claimForUser(conversation._id, ORGANIZATION_A, AGENT_A);
+      await conversationRepository.setStatus(conversation._id, ORGANIZATION_A, "closed");
+
+      const released = await conversationRepository.releaseAllForUser(ORGANIZATION_A, AGENT_A);
+
+      expect(released).toHaveLength(1);
+      expect(released[0]!.status).toBe("closed");
+      expect(released[0]!.assignedTo).toBeNull();
+    });
+
+    it("is idempotent — a second call finds nothing left to release", async () => {
+      await assignedConversation(ORGANIZATION_A, CUSTOMER_A, AGENT_A);
+
+      expect(await conversationRepository.releaseAllForUser(ORGANIZATION_A, AGENT_A)).toHaveLength(1);
+      expect(await conversationRepository.releaseAllForUser(ORGANIZATION_A, AGENT_A)).toEqual([]);
+    });
+
+    it("touches no other field — status and lastMessageAt survive the release", async () => {
+      const created = await assignedConversation(ORGANIZATION_A, CUSTOMER_A, AGENT_A);
+
+      await conversationRepository.releaseAllForUser(ORGANIZATION_A, AGENT_A);
+
+      const after = await ConversationModel.findById(created!._id);
+      expect(after!.status).toBe("open");
+      expect(after!.lastMessageAt.getTime()).toBe(created!.lastMessageAt.getTime());
+      expect(after!.customerId.toString()).toBe(CUSTOMER_A.toString());
+    });
+  });
 });

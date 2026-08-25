@@ -9,6 +9,7 @@ import { AgentInbox } from "@/features/inbox/AgentInbox";
 import { CreateOrganizationForm } from "@/features/organizations/CreateOrganizationForm";
 import { OrganizationSwitcher } from "@/features/organizations/OrganizationSwitcher";
 import { WidgetInstallation } from "@/features/organizations/WidgetInstallation";
+import { TeamManagement } from "@/features/team/TeamManagement";
 
 import type { ActiveOrganizationContext } from "@/features/organizations/OrganizationSwitcher";
 
@@ -163,9 +164,19 @@ export function DashboardPage() {
           Keyed by organization id so switching tenants remounts this section
           fresh (ADR-020) rather than reconciling one tenant's widget key and
           origins into a component that just finished rendering another's.
+
+          The key is PREFIXED with the section's own name, and every keyed
+          section below does the same. These are siblings, and React requires
+          keys to be unique among siblings — three sections sharing the bare
+          organization id made React warn that it could duplicate or omit
+          children, which for sections that must be torn down on a tenant
+          switch is exactly the guarantee being relied on here.
         */}
         {activeOrganization !== null && (
-          <WidgetInstallation key={activeOrganization.organizationId} organizationId={activeOrganization.organizationId} />
+          <WidgetInstallation
+            key={`widget-${activeOrganization.organizationId}`}
+            organizationId={activeOrganization.organizationId}
+          />
         )}
 
         {/*
@@ -181,7 +192,35 @@ export function DashboardPage() {
           the "rely only on frontend filtering" CONTRIBUTING.md forbids.
         */}
         {activeOrganization !== null && (
-          <AgentInbox key={activeOrganization.organizationId} organizationId={activeOrganization.organizationId} />
+          <AgentInbox
+            key={`inbox-${activeOrganization.organizationId}`}
+            organizationId={activeOrganization.organizationId}
+          />
+        )}
+
+        {/*
+          Team management (ADR-027 §16).
+
+          Keyed by organization id for the same reason the two sections above
+          are: switching tenants must DISCARD one organization's roster rather
+          than reconcile it into a component that just finished rendering
+          another's. React tears down the subtree on a key change, which is the
+          only way to be certain no row from the previous tenant survives.
+
+          The role it receives is the one the SERVER confirmed for this
+          organization on this page load, and `user.id` is the account `/me`
+          reported — so the section can mark the reader's own row and withhold
+          its controls without the client deciding anything about standing. A
+          hidden control is an affordance, never a boundary: the server
+          re-proves `member.read` and `member.manage` on every request.
+        */}
+        {activeOrganization !== null && (
+          <TeamManagement
+            key={`team-${activeOrganization.organizationId}`}
+            organizationId={activeOrganization.organizationId}
+            role={activeOrganization.role}
+            currentUserId={user?.id ?? null}
+          />
         )}
 
         <CreateOrganizationForm />

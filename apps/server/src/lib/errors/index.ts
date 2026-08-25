@@ -350,3 +350,108 @@ export class OrganizationSlugUnavailableError extends AppError {
   readonly httpStatus = 409;
   readonly code = "ORGANIZATION_SLUG_UNAVAILABLE";
 }
+
+/**
+ * A membership could not be reached — and deliberately does not say why
+ * (ADR-027 §9, mirroring ADR-025 §10's reasoning for conversations exactly).
+ *
+ * No such membership, a membership belonging to another organization, and a
+ * well-formed id belonging to nothing all raise this one error with one
+ * message. That indistinguishability is not produced here: every membership
+ * lookup in the team-management surface takes `{ _id, organizationId }` as a
+ * pair, so a row outside the caller's tenant is never located rather than
+ * being located and refused.
+ *
+ * 404 rather than 403, because answering "that membership exists, elsewhere"
+ * would confirm the existence of another tenant's row to someone with no
+ * standing in it.
+ */
+export class MemberNotFoundError extends AppError {
+  readonly httpStatus = 404;
+  readonly code = "NOT_FOUND";
+}
+
+/**
+ * The person named by a member request already has a membership in this
+ * organization — in any status (ADR-027 §8).
+ *
+ * Answered SPECIFICALLY, unlike most refusals in this codebase, and safely
+ * so: `member.manage` is strictly wider than `member.read` in
+ * `ROLE_PERMISSIONS`, so a caller who can reach the route that raises this can
+ * already fetch the roster it describes. It discloses nothing
+ * `GET …/members` would not.
+ *
+ * Raised for `suspended` and `invited` memberships as well as `active` ones.
+ * Re-adding a suspended person would be a reinstatement dressed as an add,
+ * and if that is the intent it should be a request that says so.
+ */
+export class MemberAlreadyExistsError extends AppError {
+  readonly httpStatus = 409;
+  readonly code = "MEMBER_ALREADY_EXISTS";
+}
+
+/**
+ * The email a member request named cannot be added (ADR-027 §5).
+ *
+ * ONE error for "no Serviqo account with that email", "an account that is not
+ * active", and "an account whose email is not verified" — the same three-part
+ * gate `currentUser.service.ts` and `organizationOnboarding.service.ts` apply
+ * to the caller, applied here to the target.
+ *
+ * ADR-027 §5 records openly that this is distinguishable from success and is
+ * therefore an account-existence oracle, why it is accepted rather than
+ * papered over with a silent 201, and what bounds it: `member.manage`, a
+ * verified acting account, and a dedicated 20/hour rate limit class. The
+ * submitted email never reaches a log line.
+ *
+ * 422 rather than 404: the request is well-formed and the route and tenant
+ * both exist — what cannot be processed is the instruction. 404 is already
+ * what an unreachable membership answers, and one code meaning two unrelated
+ * things is a code no client can branch on.
+ */
+export class MemberNotInvitableError extends AppError {
+  readonly httpStatus = 422;
+  readonly code = "MEMBER_NOT_INVITABLE";
+}
+
+/**
+ * An operation was refused because it would have left the organization
+ * without a valid owner (ADR-027 §7a).
+ *
+ * Raised by a role change or a removal aimed at the owner membership.
+ * `organizationOnboarding.service.ts` made an unowned tenant impossible to
+ * CREATE by writing the owner membership before the organization; nothing
+ * could PRODUCE one until memberships gained a lifecycle, and this is what
+ * keeps that true.
+ *
+ * ADR-016 §3 already recorded why the state is unrecoverable rather than
+ * merely untidy: an ownerless organization holds its unique slug forever with
+ * nobody able to administer it, and no adoption path exists or is planned,
+ * because "let an authenticated user claim an ownerless organization" is an
+ * account-takeover primitive.
+ *
+ * Named specifically because the caller can act on it — the resolution is
+ * ownership transfer, which ADR-027 §7 declines to approximate with two
+ * sequential writes in a database deliberately run without transactions.
+ */
+export class OrganizationOwnerProtectedError extends AppError {
+  readonly httpStatus = 409;
+  readonly code = "ORGANIZATION_OWNER_PROTECTED";
+}
+
+/**
+ * A caller aimed a member operation at their own membership (ADR-027 §7b).
+ *
+ * Compared against `req.principal.userId` — the verified subject of the
+ * access token — never against anything the request carried.
+ *
+ * Covers the owner, who §7a already protects, and the case §7a cannot see: an
+ * admin demoting themselves out of `member.manage` in the same request, or
+ * removing themselves, leaving a tenant whose only remaining manager may not
+ * be reachable. Leaving an organization voluntarily is a different operation
+ * with a different name, and it is not in this slice.
+ */
+export class MemberSelfModificationError extends AppError {
+  readonly httpStatus = 409;
+  readonly code = "MEMBER_SELF_MODIFICATION";
+}

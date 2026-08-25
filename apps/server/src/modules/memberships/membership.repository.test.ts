@@ -467,4 +467,189 @@ describe("Membership persistence", () => {
 
     expect(membership.toJSON()).not.toHaveProperty("__v");
   });
+
+  /**
+   * ADR-027 §9's tenant-scoped surface — the four methods the team-management
+   * slice added.
+   *
+   * The property every one of these asserts is the same, and it is the whole
+   * isolation mechanism: `organizationId` is a MANDATORY key in the query, so
+   * a membership under another organization is NOT LOCATED rather than being
+   * located and refused. No code compares tenants; the query simply misses.
+   */
+  describe("tenant-scoped member operations (ADR-027)", () => {
+    async function twoOrganizations() {
+      const [userA, userB, orgA, orgB] = await Promise.all([
+        createUser("scoped-a@example.com"),
+        createUser("scoped-b@example.com"),
+        createOrganization("scoped-org-a"),
+        createOrganization("scoped-org-b"),
+      ]);
+      return { userA, userB, orgA, orgB };
+    }
+
+    describe("findByIdForOrganization", () => {
+      it("finds a membership in its own organization", async () => {
+        const { userA, orgA } = await twoOrganizations();
+        const created = await membershipRepository.create({
+          userId: userA._id,
+          organizationId: orgA._id,
+          role: "agent",
+        });
+
+        const found = await membershipRepository.findByIdForOrganization(created._id, orgA._id);
+
+        expect(found).not.toBeNull();
+        expect(found!._id.toString()).toBe(created._id.toString());
+      });
+
+      it("returns null for a membership under another organization", async () => {
+        const { userA, orgA, orgB } = await twoOrganizations();
+        const created = await membershipRepository.create({
+          userId: userA._id,
+          organizationId: orgA._id,
+          role: "agent",
+        });
+
+        expect(await membershipRepository.findByIdForOrganization(created._id, orgB._id)).toBeNull();
+      });
+
+      it("returns null for an id belonging to nothing — indistinguishable from the cross-tenant miss", async () => {
+        const { orgA } = await twoOrganizations();
+
+        expect(await membershipRepository.findByIdForOrganization(new Types.ObjectId(), orgA._id)).toBeNull();
+      });
+    });
+
+    describe("listForOrganization", () => {
+      it("returns only that organization's memberships", async () => {
+        const { userA, userB, orgA, orgB } = await twoOrganizations();
+        await membershipRepository.create({ userId: userA._id, organizationId: orgA._id, role: "owner" });
+        await membershipRepository.create({ userId: userB._id, organizationId: orgB._id, role: "owner" });
+
+        const rows = await membershipRepository.listForOrganization(orgA._id);
+
+        expect(rows).toHaveLength(1);
+        expect(rows[0]!.userId.toString()).toBe(userA._id.toString());
+      });
+
+      it("includes invited and suspended memberships — the roster shows why someone cannot get in", async () => {
+        const { userA, userB, orgA } = await twoOrganizations();
+        await membershipRepository.create({
+          userId: userA._id,
+          organizationId: orgA._id,
+          role: "agent",
+          status: "invited",
+        });
+        await membershipRepository.create({
+          userId: userB._id,
+          organizationId: orgA._id,
+          role: "agent",
+          status: "suspended",
+        });
+
+        const statuses = (await membershipRepository.listForOrganization(orgA._id)).map((m) => m.status);
+
+        expect(statuses.sort()).toEqual(["invited", "suspended"]);
+      });
+
+      it("returns an empty list for an organization with no memberships", async () => {
+        expect(await membershipRepository.listForOrganization(new Types.ObjectId())).toEqual([]);
+      });
+
+      it("orders deterministically, so two reads agree", async () => {
+        const { orgA } = await twoOrganizations();
+        for (let i = 0; i < 5; i += 1) {
+          const user = await createUser(`ordered-${i}@example.com`);
+          await membershipRepository.create({ userId: user._id, organizationId: orgA._id, role: "agent" });
+        }
+
+        const first = (await membershipRepository.listForOrganization(orgA._id)).map((m) => m._id.toString());
+        const second = (await membershipRepository.listForOrganization(orgA._id)).map((m) => m._id.toString());
+
+        expect(second).toEqual(first);
+      });
+    });
+
+    describe("updateRoleForOrganization", () => {
+      it("changes the role and returns the updated document", async () => {
+        const { userA, orgA } = await twoOrganizations();
+        const created = await membershipRepository.create({
+          userId: userA._id,
+          organizationId: orgA._id,
+          role: "agent",
+        });
+
+        const updated = await membershipRepository.updateRoleForOrganization(created._id, orgA._id, "admin");
+
+        expect(updated!.role).toBe("admin");
+        expect((await MembershipModel.findById(created._id))!.role).toBe("admin");
+      });
+
+      it("refuses to reach a membership in another organization", async () => {
+        const { userA, orgA, orgB } = await twoOrganizations();
+        const created = await membershipRepository.create({
+          userId: userA._id,
+          organizationId: orgA._id,
+          role: "agent",
+        });
+
+        expect(await membershipRepository.updateRoleForOrganization(created._id, orgB._id, "admin")).toBeNull();
+        // And it did not write.
+        expect((await MembershipModel.findById(created._id))!.role).toBe("agent");
+      });
+
+      it("writes no field other than role", async () => {
+        const { userA, orgA } = await twoOrganizations();
+        const created = await membershipRepository.create({
+          userId: userA._id,
+          organizationId: orgA._id,
+          role: "agent",
+          status: "suspended",
+        });
+
+        const updated = await membershipRepository.updateRoleForOrganization(created._id, orgA._id, "supervisor");
+
+        expect(updated!.status).toBe("suspended");
+        expect(updated!.organizationId.toString()).toBe(orgA._id.toString());
+        expect(updated!.userId.toString()).toBe(userA._id.toString());
+      });
+    });
+
+    describe("deleteForOrganization", () => {
+      it("removes the membership and returns the removed document", async () => {
+        const { userA, orgA } = await twoOrganizations();
+        const created = await membershipRepository.create({
+          userId: userA._id,
+          organizationId: orgA._id,
+          role: "agent",
+        });
+
+        const removed = await membershipRepository.deleteForOrganization(created._id, orgA._id);
+
+        // The caller needs `userId` off the returned document to release that
+        // person's conversation assignments (ADR-027 §10).
+        expect(removed!.userId.toString()).toBe(userA._id.toString());
+        expect(await MembershipModel.findById(created._id)).toBeNull();
+      });
+
+      it("cannot be aimed at another organization's membership", async () => {
+        const { userA, orgA, orgB } = await twoOrganizations();
+        const created = await membershipRepository.create({
+          userId: userA._id,
+          organizationId: orgA._id,
+          role: "agent",
+        });
+
+        expect(await membershipRepository.deleteForOrganization(created._id, orgB._id)).toBeNull();
+        expect(await MembershipModel.findById(created._id)).not.toBeNull();
+      });
+
+      it("returns null for an id belonging to nothing", async () => {
+        const { orgA } = await twoOrganizations();
+
+        expect(await membershipRepository.deleteForOrganization(new Types.ObjectId(), orgA._id)).toBeNull();
+      });
+    });
+  });
 });

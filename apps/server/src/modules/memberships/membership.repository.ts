@@ -101,6 +101,102 @@ export const membershipRepository = {
   },
 
   /**
+   * THE tenant-scoped lookup by membership id (ADR-027 §1, §9).
+   *
+   * Two keys in one query, and that is the whole isolation mechanism for the
+   * team-management surface. A membership belonging to another organization
+   * returns `null` here IDENTICALLY to one that does not exist, so the 404 the
+   * service raises is produced by the query missing rather than by a branch
+   * comparing tenants — the same property `conversationRepository.
+   * findByIdForOrganization` gives conversations (ADR-025 §10).
+   *
+   * Keyed by MEMBERSHIP id rather than user id on purpose. A `User` id is
+   * global and carries no tenancy; a `Membership` id is tenant-scoped by
+   * construction, which is what makes this pair sufficient.
+   */
+  async findByIdForOrganization(
+    membershipId: ObjectIdLike,
+    organizationId: ObjectIdLike,
+  ): Promise<MembershipDocument | null> {
+    return MembershipModel.findOne({ _id: membershipId, organizationId });
+  },
+
+  /**
+   * The organization's roster, in a stable order (ADR-027 §14).
+   *
+   * Distinct from `findByOrganization` above, which ADR-016 added for
+   * onboarding's own use and which promises no order. This one sorts, because
+   * a roster is rendered: Mongo makes no ordering promise, and a list that
+   * reshuffles between loads is one people mis-click — the same reason
+   * `findByUser` sorts and `currentUser.service.ts` re-sorts on top of it.
+   *
+   * Sorted by `createdAt` then `_id` here, with the ROLE-RANK ordering the UI
+   * wants applied by the service. Persistence has no opinion about which role
+   * belongs at the top of a page; it owns only determinism.
+   *
+   * `organizationId` is mandatory and there is no unscoped variant. Served by
+   * index C.
+   */
+  async listForOrganization(organizationId: ObjectIdLike): Promise<MembershipDocument[]> {
+    return MembershipModel.find({ organizationId }).sort({ createdAt: 1, _id: 1 });
+  },
+
+  /**
+   * Changes one membership's role, scoped by both ids (ADR-027 §1).
+   *
+   * A single conditional update rather than a read followed by a save, so the
+   * tenant scope is part of the write itself and not a check that preceded
+   * it. `null` means no document matched, which — because both keys are in the
+   * filter — is the same ambiguity `findByIdForOrganization` produces and is
+   * resolved the same way: one refusal for every unreachable membership.
+   *
+   * Deliberately NOT a general `update(id, patch)`. The narrowness rule
+   * `userRepository` follows, where `markEmailVerified` and
+   * `clearLoginFailures` exist and a general updater does not: a method that
+   * can write any field is a method that can write `status` or
+   * `organizationId` by accident.
+   *
+   * MAY THROW a duplicate-key error if asked to write `role: "owner"` while an
+   * owner exists — index B refusing a second owner. The route's schema does
+   * not accept that value (ADR-027 §6), so the index is a backstop rather
+   * than the error path.
+   */
+  async updateRoleForOrganization(
+    membershipId: ObjectIdLike,
+    organizationId: ObjectIdLike,
+    role: MembershipRole,
+  ): Promise<MembershipDocument | null> {
+    return MembershipModel.findOneAndUpdate(
+      { _id: membershipId, organizationId },
+      { $set: { role } },
+      { returnDocument: "after" },
+    );
+  },
+
+  /**
+   * Removes one membership from ONE organization (ADR-027 §1, §9).
+   *
+   * The revocation `deleteById` above explicitly refused to be: "it cannot
+   * remove a person from an organization. Revoking access is a different
+   * operation with different authorization, and it belongs to the
+   * team-management slice." This is that operation, and the difference between
+   * the two methods is the second key — this one cannot be aimed outside the
+   * caller's tenant at all, while `deleteById` remains the compensation-only
+   * method aimed by `_id` alone.
+   *
+   * Returns the removed document rather than a boolean, because the caller
+   * needs the `userId` off it to release that person's conversation
+   * assignments (ADR-027 §10) and reading it beforehand would be a second
+   * query and a window in which it could change.
+   */
+  async deleteForOrganization(
+    membershipId: ObjectIdLike,
+    organizationId: ObjectIdLike,
+  ): Promise<MembershipDocument | null> {
+    return MembershipModel.findOneAndDelete({ _id: membershipId, organizationId });
+  },
+
+  /**
    * Which of these users are ACTIVE members of this organization — one
    * batched, tenant-scoped query for a whole page (ADR-026 §11).
    *
