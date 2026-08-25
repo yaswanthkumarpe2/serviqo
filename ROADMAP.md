@@ -26,7 +26,7 @@ Note that phases may be adjusted when technically justified. Each phase follows:
   - 🔲 Organization context on `/me`, and rate limiting (the [ADR-007 §13](./docs/decisions/007-registration-flow-and-account-enumeration.md) deployment gate)
   - ✅ Widget installation: staff-facing widget key, allowed-origin management, and key rotation ([ADR-020](./docs/decisions/020-widget-installation-configuration-surface.md))
 
-- 🟡 **Phase 3: User / Team / Role management** (RBAC, team management, role management and ownership transfer complete; invitations and profile management deferred)
+- 🟡 **Phase 3: User / Team / Role management** (RBAC, team management, role management, ownership transfer and the membership lifecycle complete; invitations and profile management deferred)
   - ✅ RBAC (Owner, Admin, Supervisor, Agent) — organization users only ([ADR-010](./docs/decisions/010-principal-types-organization-users-and-customers.md), [ADR-017](./docs/decisions/017-organization-context-and-rbac.md))
   - ✅ Team management — the organization member roster, adding a member, changing a
     member's role, and removing one, behind `member.read`/`member.manage`
@@ -54,7 +54,21 @@ Note that phases may be adjusted when technically justified. Each phase follows:
     eligible-members picker, named confirmation, and a context refresh that
     takes the previous owner's owner-only controls away
     ([ADR-028](./docs/decisions/028-organization-ownership-transfer.md) §16)
-  - 🔲 Suspend / reactivate a membership — `MembershipStatus` supports both; no route sets either
+  - ✅ Suspend / reactivate a membership — `PATCH /api/v1/organizations/:organizationId/members/:membershipId/status`
+    behind `member.manage`, writing the `MembershipStatus` values that had no
+    writer since ADR-010. Takes effect on the suspended member's very next
+    request with the token they already hold, because `requireOrganization`
+    re-reads the membership every time and nothing caches a status — this
+    slice adds no gate, it gives the existing one something to refuse
+    ([ADR-029](./docs/decisions/029-membership-suspension-and-reactivation.md) §1, §6, §8)
+  - ✅ Suspension releases the member's conversations and closes their live
+    agent sockets, through the domain-event seam's third instance and its
+    first non-broadcast subscriber — which also closes the same live-socket
+    revocation gap for [ADR-027](./docs/decisions/027-team-management-and-membership-lifecycle.md) §10's
+    removal path ([ADR-029](./docs/decisions/029-membership-suspension-and-reactivation.md) §9, §10)
+  - ✅ Suspend / Reactivate controls in the dashboard's Team section —
+    confirmed in the revoking direction only, and never offered for the owner
+    ([ADR-029](./docs/decisions/029-membership-suspension-and-reactivation.md) §14)
   - 🔲 Invitation system for joining organizations — needs real email delivery
     ([ADR-027](./docs/decisions/027-team-management-and-membership-lifecycle.md) §3)
   - 🔲 Profile management for users

@@ -38,6 +38,7 @@ policy.
 | Single-node staging or production, no proxy | ✅ Released | Same. |
 | **Any deployment behind a reverse proxy / load balancer** | ⛔ **Blocked** | `trust proxy` is off, so `req.ip` is the proxy's address and every client shares one bucket — a self-inflicted outage (ADR-018 §7). |
 | **Multi-node (Phase 8 onward)** | ⛔ **Blocked** | Counters live in process memory, so N nodes grant N× the intended budget and a restart resets everything (ADR-018 §2). |
+| **Multi-node revocation of live sockets** | ⛔ **Blocked** | Suspending or removing a member closes their open agent sockets in THIS process only. With N nodes, connections held elsewhere survive until their next request or reconnect, both of which are gated (ADR-029 §9, §16). Closed by the Redis adapter's cross-node disconnect, which is Phase 8's. |
 
 **Before deploying behind a proxy**, both of these must be done:
 
