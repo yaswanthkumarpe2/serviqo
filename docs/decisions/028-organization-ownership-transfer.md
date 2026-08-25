@@ -327,6 +327,17 @@ the reason a read-then-write would be wrong here.
 *as part of the write*, so a target suspended in the microseconds since §6 read
 it is not promoted.
 
+One thing those filters deliberately do **not** do, stated because it is easy
+to assume otherwise: a filter constrains the document being *matched*, never
+the collection. `role: { $ne: "owner" }` proves this row is not already the
+owner; it says nothing about any other row. If some other membership in the
+tenant still holds `owner`, step 2 matches its target and **index B rejects the
+write with a duplicate key**. That is the design rather than a gap — index B is
+the final authority, the same standing ADR-027 §8 gives index A — and it is why
+step 2 is wrapped in a `try`: a throw and a `null` mean the same thing to the
+caller, and both compensate. In the ordinary flow it cannot arise, because
+step 1 vacated the owner slot and its own guard proved that it did.
+
 **c. The ownerless window is inert.** During it — bounded by one database
 round-trip — the tenant has zero owner documents. What that does and does not
 affect:
@@ -485,8 +496,17 @@ Events:
 | --- | --- | --- |
 | `organization.ownership_transferred` | `info` | success; carries `ownerCount` from §8e |
 | `organization.ownership_transfer_refused` | `info` | every §6 refusal and the §8b conflict, distinguished by `reason` |
-| `organization.ownership_transfer_compensated` | `warn` | a step-2 failure was rolled back successfully |
+| `organization.ownership_transfer_compensated` | `info` | a step-2 failure was rolled back successfully |
 | `organization.ownership_transfer_compensation_failed` | `error` | §10's window was entered and not closed — the one line an operator must be able to alert on |
+
+`info` rather than `warn` for the compensated line, and the reason is a real
+constraint rather than a preference: `AuthLogger` — the structural logger type
+eight services share, so a controller can pass `req.log` and a test can pass a
+capture function — declares `info` and `error` only. Widening it for one line
+would edit every existing double that writes `satisfies AuthLogger`. A
+successful compensation is also, correctly, an `info` event: the invariant
+held, the caller was refused cleanly, and nothing needs attention. The line
+that needs attention is `error`, and it is the only one.
 
 The `reason` values — `membership_not_found`, `self_target`,
 `membership_not_active`, `user_not_eligible`, `ownership_changed` — exist in

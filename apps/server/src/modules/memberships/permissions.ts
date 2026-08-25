@@ -42,6 +42,28 @@ export type Permission =
    * no endpoint yet.
    */
   | "organization.manage"
+  /**
+   * Hand the organization to another member — `POST /organizations/:id/ownership`
+   * (ADR-028 §2).
+   *
+   * THE FIRST PERMISSION THAT SEPARATES `owner` FROM `admin`, and the reason
+   * `admin`'s row below can finally be described as "everything the owner can
+   * do except what ownership itself confers" as a statement about the running
+   * system rather than an intention.
+   *
+   * Deliberately not folded into `organization.manage`. That permission covers
+   * configuring the tenant — rename, settings, widget installation — and every
+   * one of those actions is something an administrator does *on behalf of* the
+   * owner. This one is the owner's standing itself: an admin who held it could
+   * take the tenant from the person who created it, which is a
+   * privilege-escalation primitive dressed as an administrative convenience.
+   *
+   * The underscore is a departure from `organization.manage`'s spelling and is
+   * kept because the action is a verb phrase with no honest single word:
+   * `organization.transfer` does not say what is transferred, and
+   * `organization.own` names a state rather than an action.
+   */
+  | "organization.transfer_ownership"
   /** See who else works here. No endpoint yet — team management is its own slice. */
   | "member.read"
   /** Invite, remove, or change a member's role. No endpoint yet. */
@@ -109,13 +131,28 @@ export const ROLE_PERMISSIONS = {
   owner: [
     "organization.read",
     "organization.manage",
+    /*
+      Owner-only, and the ONLY row in this table that `admin` below does not
+      also carry (ADR-028 §2). Everything else in this file is deliberately
+      identical between the two roles; this single entry is what the word
+      "owner" now means in Serviqo.
+    */
+    "organization.transfer_ownership",
     "member.read",
     "member.manage",
     "conversation.read",
     "conversation.reply",
     "conversation.assign",
   ],
-  /** Everything the owner can do except what ownership itself confers. */
+  /**
+   * Everything the owner can do except what ownership itself confers.
+   *
+   * As of ADR-028 §2 that sentence is literal rather than aspirational: the
+   * difference between this row and `owner`'s is exactly
+   * `organization.transfer_ownership`, and `permissions.test.ts` asserts the
+   * difference is exactly that one entry — so a future slice cannot widen it
+   * or grant ownership transfer here without the test saying so.
+   */
   admin: [
     "organization.read",
     "organization.manage",

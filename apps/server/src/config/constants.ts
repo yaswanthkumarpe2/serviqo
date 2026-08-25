@@ -304,6 +304,31 @@ export const MEMBER_INVITE_LIMIT = 20;
 export const MEMBER_INVITE_WINDOW_MS = 60 * 60 * 1000;
 
 /**
+ * Ownership transfer: `POST /organizations/:organizationId/ownership`
+ * (ADR-028 §11).
+ *
+ * Its own class rather than `authenticatedWrite`, for ADR-027 §12's reason
+ * applied to a sharper case: this is the most destructive operation in the
+ * product and by far the rarest. Sharing the 30/hour write budget would mean
+ * ordinary widget-config edits could exhaust the transfer budget and vice
+ * versa, and would make "someone is repeatedly attempting ownership
+ * transfers" invisible in the limiter's own signal — the one pattern an
+ * operator most wants to see.
+ *
+ * Five per hour, keyed by the verified user. A person transfers an
+ * organization approximately once; five leaves room for a mistyped recipient
+ * and a correction, and leaves none for thrashing the two-write sequence in
+ * ADR-028 §8 in the hope of catching its window.
+ *
+ * NOT keyed by organization. The abuser here is an authenticated owner, and
+ * keying on the tenant would let one busy organization's legitimate transfer
+ * be blocked by another request against the same tenant — the shared-outage
+ * shape ADR-019 §11 refused for `widgetSession`.
+ */
+export const OWNERSHIP_TRANSFER_LIMIT = 5;
+export const OWNERSHIP_TRANSFER_WINDOW_MS = 60 * 60 * 1000;
+
+/**
  * The public widget session endpoint: `POST /widget/session` (ADR-019 §11).
  *
  * The sixth class, ordered in advance by ADR-010 §9 — "two limiter classes,

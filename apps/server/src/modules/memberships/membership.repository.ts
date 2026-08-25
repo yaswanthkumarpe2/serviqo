@@ -174,6 +174,134 @@ export const membershipRepository = {
   },
 
   /**
+   * STEP 1 OF OWNERSHIP TRANSFER: demotes the current owner (ADR-028 §8).
+   *
+   * `role: "owner"` IS IN THE FILTER, and that is the whole concurrency
+   * design. Two simultaneous transfers both aim at the same single owner
+   * document; MongoDB applies each update atomically to that one document, so
+   * exactly ONE of them matches and the other matches nothing, writes nothing,
+   * and is refused. The guard is part of the write rather than a read that
+   * preceded it — a read-then-write here would be two requests both observing
+   * an owner and both proceeding.
+   *
+   * Returns `null` for every reason the transfer must not continue: the
+   * membership is gone, it belongs to another tenant, or its role is no longer
+   * `owner` because a concurrent transfer already won. The caller cannot and
+   * must not distinguish them — all three mean "ownership moved".
+   *
+   * `newRole` is `PREVIOUS_OWNER_ROLE` from the service (ADR-028 §7), passed
+   * rather than hardcoded here for the reason every method in this file takes
+   * its values from the caller: persistence owns the write, not the policy
+   * about what the outgoing owner becomes.
+   *
+   * AFTER THIS RETURNS THE ORGANIZATION HAS NO OWNER, until `promoteToOwner`
+   * below lands or `restoreOwner` compensates. ADR-028 §10 states what that
+   * window is, why it is inert, and how an operator recovers if a process dies
+   * inside it. Nothing else in the codebase may call this method.
+   */
+  async demoteOwner(
+    ownerMembershipId: ObjectIdLike,
+    organizationId: ObjectIdLike,
+    newRole: MembershipRole,
+  ): Promise<MembershipDocument | null> {
+    return MembershipModel.findOneAndUpdate(
+      { _id: ownerMembershipId, organizationId, role: "owner" },
+      { $set: { role: newRole } },
+      { returnDocument: "after" },
+    );
+  },
+
+  /**
+   * STEP 2 OF OWNERSHIP TRANSFER: promotes the target (ADR-028 §8).
+   *
+   * The only method in this codebase that writes `role: "owner"` to an
+   * existing document. `updateRoleForOrganization` above cannot: ADR-027 §6's
+   * schema refuses the value, so that path never reaches the index.
+   *
+   * Three keys in the filter, and each re-asserts one of the service's
+   * pre-checks AS PART OF THE WRITE rather than trusting a read taken
+   * microseconds earlier:
+   *
+   * - `organizationId` — the target cannot be outside the caller's tenant.
+   * - `status: "active"` — a membership suspended since the pre-check is not
+   *   promoted (ADR-028 §6.3).
+   * - `role: { $ne: "owner" }` — this document is not already the owner, so a
+   *   promotion can never report success for a row the demote failed to move
+   *   off. It says nothing about OTHER documents; see below.
+   *
+   * `null` means one of those stopped being true. The caller compensates.
+   *
+   * MAY THROW a duplicate-key error, and the distinction matters enough to
+   * state plainly: a filter constrains the document being MATCHED, not the
+   * collection. If another membership in this organization still holds
+   * `owner`, this filter matches the target happily and index B rejects the
+   * WRITE. That is not a defect — index B is the final authority, exactly as
+   * ADR-027 §8 has it for index A — and it is precisely why the service wraps
+   * this call in a `try`: a throw and a `null` mean the same thing to the
+   * caller ("the promotion did not land"), and both compensate.
+   *
+   * In the ordinary flow it cannot happen, because `demoteOwner` has already
+   * vacated the owner slot and its own guard proved that it did.
+   */
+  async promoteToOwner(
+    membershipId: ObjectIdLike,
+    organizationId: ObjectIdLike,
+  ): Promise<MembershipDocument | null> {
+    return MembershipModel.findOneAndUpdate(
+      { _id: membershipId, organizationId, status: "active", role: { $ne: "owner" } },
+      { $set: { role: "owner" } },
+      { returnDocument: "after" },
+    );
+  },
+
+  /**
+   * COMPENSATION for a transfer whose promotion did not land (ADR-028 §8d).
+   *
+   * The same shape `deleteById` serves for onboarding (ADR-016 §4): a narrow
+   * method whose sole permitted use is undoing a write the SAME request made
+   * moments earlier, aimed at the document that request just touched.
+   *
+   * `role: expectedRole` in the filter is what keeps it from being a general
+   * "make this membership the owner" primitive. It restores a document this
+   * request demoted and left untouched; if anything changed that role since,
+   * this matches nothing and the caller logs the failure rather than
+   * overwriting a state it does not understand.
+   *
+   * Returns `null` when it could not compensate — the caller MUST treat that
+   * as ADR-028 §10's window having been entered and not closed, and log the
+   * one line an operator alerts on.
+   */
+  async restoreOwner(
+    membershipId: ObjectIdLike,
+    organizationId: ObjectIdLike,
+    expectedRole: MembershipRole,
+  ): Promise<MembershipDocument | null> {
+    return MembershipModel.findOneAndUpdate(
+      { _id: membershipId, organizationId, role: expectedRole },
+      { $set: { role: "owner" } },
+      { returnDocument: "after" },
+    );
+  },
+
+  /**
+   * How many owner memberships this organization has (ADR-028 §8e).
+   *
+   * Index B makes any answer above 1 impossible, so this is not a duplicate
+   * check — it is the POST-CONDITION the transfer records. Logging the count
+   * with the success line is what makes "exactly one owner" a fact an operator
+   * can read afterwards rather than a property the code merely intends, and it
+   * is what the integration suite reads to prove the invariant held across
+   * concurrent attempts.
+   *
+   * Served by index B directly: the predicate `{ organizationId, role: "owner" }`
+   * guarantees a subset of the indexed documents, which is the condition a
+   * partial index needs to be usable.
+   */
+  async countOwners(organizationId: ObjectIdLike): Promise<number> {
+    return MembershipModel.countDocuments({ organizationId, role: "owner" });
+  },
+
+  /**
    * Removes one membership from ONE organization (ADR-027 §1, §9).
    *
    * The revocation `deleteById` above explicitly refused to be: "it cannot

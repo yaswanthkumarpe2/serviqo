@@ -7,6 +7,8 @@ import { validateBody } from "../../middleware/validate";
 import { createOrganizationController } from "./organization.controller";
 import { createOrganizationSchema, replaceAllowedOriginsSchema } from "./organization.validation";
 import { createOrganizationOnboardingService } from "./organizationOnboarding.service";
+import { transferOwnershipSchema } from "./ownership.validation";
+import { createOwnershipTransferService } from "./ownershipTransfer.service";
 import { createWidgetSettingsService } from "./widgetSettings.service";
 
 import type { RateLimiters } from "../../lib/rateLimit";
@@ -30,6 +32,7 @@ export function createOrganizationRouter({ rateLimiters }: OrganizationRouterDep
 
   const controller = createOrganizationController({
     onboardingService: createOrganizationOnboardingService(),
+    ownershipTransferService: createOwnershipTransferService(),
     widgetSettingsService: createWidgetSettingsService(),
   });
 
@@ -123,6 +126,49 @@ export function createOrganizationRouter({ rateLimiters }: OrganizationRouterDep
     requireOrganization,
     requirePermission("organization.manage"),
     controller.rotateWidgetKey,
+  );
+
+  /*
+    Ownership transfer (ADR-028 §1) — the one route behind
+    `organization.transfer_ownership`, the first permission in this codebase
+    that `admin` does not hold.
+
+    On THIS router rather than `createMemberRouter`, and the placement is
+    argued in ADR-028 §1: the roster is a different resource and got its own
+    router (ADR-025 §1), but ownership is a property of the TENANT. The
+    question is "who owns this organization", the permission is an
+    `organization.*` one, and the path names the resource being changed with no
+    member segment in it — the same shape as
+    `PUT /:organizationId/widget-config/origins` above, where the path names
+    the thing being set and the body carries the value.
+
+    The full chain, in ADR-017 §8's fixed order: who is calling → bound them →
+    which tenant and may they act in it → does their role hold this permission
+    → is the input well-formed. An admin, supervisor, or agent is refused by
+    `requirePermission` with the existing generic 403; someone with no
+    membership here never gets that far, because `requireOrganization` answers
+    404 first (ADR-028 §3).
+
+    `rateLimiters.ownershipTransfer` rather than `authenticatedWrite`
+    (ADR-028 §11): five per hour, keyed by the verified user, so the most
+    destructive operation in the product does not share a budget with ordinary
+    configuration writes and a run of attempts is visible as itself. Placed
+    BEFORE `requireOrganization` for the reason every other class is
+    (ADR-018 §3) — a caller must not be able to spend database lookups probing
+    tenants they hold no membership in.
+
+    `validateBody` last, so `{ membershipId }` is proved well-formed and every
+    other key — `organizationId`, `currentOwnerId`, `role` — is STRIPPED before
+    the handler runs (ADR-028 §4).
+  */
+  router.post(
+    "/:organizationId/ownership",
+    requireAccessToken,
+    rateLimiters.ownershipTransfer,
+    requireOrganization,
+    requirePermission("organization.transfer_ownership"),
+    validateBody(transferOwnershipSchema),
+    controller.transferOwnership,
   );
 
   return router;

@@ -44,9 +44,29 @@ interface OrganizationSwitcherProps {
    * server's confirmation.
    */
   onActiveOrganizationChange?: (context: ActiveOrganizationContext | null) => void;
+  /**
+   * Bump this to make the switcher RE-READ `GET /organizations/:id`
+   * (ADR-028 §16).
+   *
+   * The context is otherwise fetched once per organization, guarded by
+   * `loadedFor` below, because nothing used to be able to change it while the
+   * page was open. Ownership transfer can: the acting owner's role becomes
+   * `admin` on the server, and this page would keep rendering owner-only
+   * controls until a reload without a way to ask again.
+   *
+   * A COUNTER rather than a role passed in, deliberately. The caller says "what
+   * you have is stale", never "your new role is X" — the answer still comes
+   * from the server, on a fresh request, so no client-side value can become the
+   * page's idea of the reader's standing.
+   */
+  reloadNonce?: number;
 }
 
-export function OrganizationSwitcher({ memberships, onActiveOrganizationChange }: OrganizationSwitcherProps) {
+export function OrganizationSwitcher({
+  memberships,
+  onActiveOrganizationChange,
+  reloadNonce = 0,
+}: OrganizationSwitcherProps) {
   const { authorizedFetch } = useAuth();
 
   /*
@@ -85,8 +105,14 @@ export function OrganizationSwitcher({ memberships, onActiveOrganizationChange }
       loadedFor.current = null;
       return;
     }
-    if (loadedFor.current === activeId) return;
-    loadedFor.current = activeId;
+    /*
+      Keyed by organization AND nonce, so a bump re-runs the fetch for the same
+      organization while still collapsing StrictMode's double mount and the
+      identity change a token refresh gives `authorizedFetch`.
+    */
+    const loadKey = `${activeId}:${reloadNonce}`;
+    if (loadedFor.current === loadKey) return;
+    loadedFor.current = loadKey;
 
     setIsLoading(true);
     setError(null);
@@ -114,7 +140,7 @@ export function OrganizationSwitcher({ memberships, onActiveOrganizationChange }
             : "Could not load that organization. Please try again.",
         );
       });
-  }, [activeId, authorizedFetch]);
+  }, [activeId, authorizedFetch, reloadNonce]);
 
   // A separate effect from the fetch above: this one only forwards what
   // `context` already settled to, and must not itself trigger a fetch.

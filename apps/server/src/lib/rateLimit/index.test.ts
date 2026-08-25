@@ -60,6 +60,16 @@ describe("createRateLimiters", () => {
         throttle the other.
       */
       "memberInvite",
+      /*
+        The tenth class, added for `POST /organizations/:id/ownership`
+        (ADR-028 §11). Its own class rather than `authenticatedWrite` for the
+        reason `memberInvite` is: this is the rarest and most destructive
+        operation in the product, so sharing the 30/hour write budget would let
+        ordinary widget-config edits exhaust it — and would hide a run of
+        transfer attempts inside the write class's ordinary noise, which is the
+        one pattern an operator most wants to see.
+      */
+      "ownershipTransfer",
       "session",
       // The seventh and eighth classes, added for conversation and message
       // traffic (ADR-022 §12) — customer-keyed, since a verified widget

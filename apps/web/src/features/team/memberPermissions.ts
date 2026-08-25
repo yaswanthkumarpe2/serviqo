@@ -44,3 +44,40 @@ const MEMBER_MANAGE_ROLES: readonly string[] = ["owner", "admin"];
 export function canManageMembers(role: string | null | undefined): boolean {
   return role !== null && role !== undefined && MEMBER_MANAGE_ROLES.includes(role);
 }
+
+/**
+ * The one role the server's catalogue grants `organization.transfer_ownership`
+ * (ADR-028 §2, §16).
+ *
+ * Deliberately a SEPARATE list from `MEMBER_MANAGE_ROLES` above rather than a
+ * subset expression like "manage roles minus admin". They answer different
+ * questions and they changed independently: until ADR-028 the two were the same
+ * pair, and the whole point of that slice is that they no longer are. Deriving
+ * one from the other would encode a relationship the catalogue does not
+ * promise.
+ */
+const OWNERSHIP_TRANSFER_ROLES: readonly string[] = ["owner"];
+
+/**
+ * Whether this role may hand the organization to another member.
+ *
+ * The second predicate in this file and the first that is narrower than
+ * `member.manage` — an admin holds every management permission and not this
+ * one, because an admin who could transfer ownership could take the tenant
+ * from the person who created it (ADR-028 §2).
+ *
+ * Everything the file header says about `canManageMembers` applies here and
+ * matters more: this is a UX AFFORDANCE, NEVER A BOUNDARY. The server proves
+ * `organization.transfer_ownership` on every request from the `Membership`
+ * document it reads on that request, so the control un-hidden in a debugger
+ * still receives a `403`. What this decides is whether showing it would only
+ * offer the reader a refusal.
+ *
+ * `null` — no server-confirmed role yet — answers `false`, for the reason
+ * `canManageMembers` does: a destructive control that appeared while the role
+ * was still loading and then vanished is worse than one that appears a moment
+ * late.
+ */
+export function canTransferOwnership(role: string | null | undefined): boolean {
+  return role !== null && role !== undefined && OWNERSHIP_TRANSFER_ROLES.includes(role);
+}

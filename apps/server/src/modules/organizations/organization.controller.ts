@@ -4,11 +4,14 @@ import { organizationRepository } from "./organization.repository";
 
 import type { CreateOrganizationInput, ReplaceAllowedOriginsInput } from "./organization.validation";
 import type { OrganizationOnboardingService } from "./organizationOnboarding.service";
+import type { TransferOwnershipInput } from "./ownership.validation";
+import type { OwnershipTransferService } from "./ownershipTransfer.service";
 import type { WidgetSettingsService } from "./widgetSettings.service";
 import type { RequestHandler } from "express";
 
 export interface OrganizationControllerDependencies {
   onboardingService: OrganizationOnboardingService;
+  ownershipTransferService: OwnershipTransferService;
   widgetSettingsService: WidgetSettingsService;
 }
 
@@ -22,6 +25,7 @@ export interface OrganizationControllerDependencies {
  */
 export function createOrganizationController({
   onboardingService,
+  ownershipTransferService,
   widgetSettingsService,
 }: OrganizationControllerDependencies) {
   /**
@@ -144,5 +148,43 @@ export function createOrganizationController({
     success(res, settings);
   };
 
-  return { create, read, getWidgetConfig, updateAllowedOrigins, rotateWidgetKey };
+  /**
+   * Transfers ownership of the organization (ADR-028 §1, §4).
+   *
+   * Note what this handler never reads: `req.body.organizationId`,
+   * `req.body.currentOwnerId`, `req.body.userId`, `req.body.role`,
+   * `req.body.status`, `req.query.organizationId`. The tenant comes from
+   * `req.organizationContext`, which `requireOrganization` built from the path
+   * segment after proving membership; the acting owner comes from
+   * `req.principal` and from that same context's `membershipId` — the
+   * membership document the middleware read from the database on THIS request.
+   * The only client-supplied value in the whole operation is which member
+   * receives ownership, and `transferOwnershipSchema` already proved it is a
+   * well-formed id and stripped everything else (ADR-028 §4).
+   *
+   * `organizationContext.membershipId` is what makes "never trust a
+   * client-supplied current owner id" structural rather than defensive: there
+   * is no field to distrust, because the acting owner's membership is never
+   * named by the request at all.
+   *
+   * 200 rather than 201: nothing is created. The response carries two
+   * membership ids and two roles and nothing else (ADR-028 §15) — the client
+   * refetches the roster and its organization context, which is what takes the
+   * previous owner's owner-only controls away.
+   */
+  const transferOwnership: RequestHandler = async (req, res) => {
+    const context = req.organizationContext!;
+    const { membershipId } = req.body as TransferOwnershipInput;
+
+    const result = await ownershipTransferService.transferOwnership(
+      context.organizationId,
+      membershipId,
+      { userId: req.principal!.userId, membershipId: context.membershipId },
+      req.log,
+    );
+
+    success(res, result);
+  };
+
+  return { create, read, getWidgetConfig, updateAllowedOrigins, rotateWidgetKey, transferOwnership };
 }

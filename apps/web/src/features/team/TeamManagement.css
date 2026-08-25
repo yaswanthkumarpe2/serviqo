@@ -206,3 +206,58 @@
   white-space: nowrap;
   border: 0;
 }
+
+/* Transfer ownership (ADR-028 §16) — the one owner-only block on this page.
+
+   Shares `.team__add`'s separated-section shape so it reads as a sibling of
+   "Add a member" rather than as a differently-designed control, and carries a
+   left accent so the destructive one is not visually identical to the routine
+   one. */
+.team__transfer {
+  margin-top: 20px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--danger, #b42318);
+  border-radius: 10px;
+  background: var(--surface-2, var(--surface));
+}
+
+.team__transfer .team__addRow {
+  margin-top: 10px;
+}
+
+.team__transferSelect {
+  flex: 1;
+  min-width: 220px;
+}
+
+/* The confirmation stacks rather than sitting inline: it carries a full
+   sentence naming the person, which does not belong on one line beside two
+   buttons. */
+.team__confirm--block {
+  display: block;
+  margin-top: 10px;
+}
+
+.team__confirm--block .team__confirmText {
+  display: block;
+  margin: 0 0 10px;
+}
+
+.team__confirmActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* The ownership confirmation outlives the block that produced it, so it is
+   given a little more presence than an ordinary action notice — the reader's
+   own standing just changed. */
+.team__notice--ownership {
+  padding: 10px 12px;
+  color: var(--text);
+  background: var(--surface-2, var(--surface));
+  border-left: 3px solid var(--border);
+  border-radius: 8px;
+}

@@ -1,7 +1,8 @@
 import { useState } from "react";
 
 import { Button } from "@/components/ui/Button";
-import { canManageMembers } from "./memberPermissions";
+import { canManageMembers, canTransferOwnership } from "./memberPermissions";
+import { TransferOwnership } from "./TransferOwnership";
 import { useTeamMembers } from "./useTeamMembers";
 
 import type { AssignableRole, OrganizationMember } from "./membersApi";
@@ -36,6 +37,21 @@ interface TeamManagementProps {
   role: string | null;
   /** The signed-in user's own id, so their own row can be marked and its controls withheld. */
   currentUserId: string | null;
+  /**
+   * Refetches the ORGANIZATION CONTEXT — the server-confirmed role this section
+   * was given (ADR-028 §16).
+   *
+   * Supplied by the dashboard, because the context belongs to
+   * `OrganizationSwitcher` and not to this section. It runs after an ownership
+   * transfer, and it is what makes the previous owner's owner-only controls
+   * disappear: the switcher re-reads `GET /organizations/:id`, which resolves
+   * the role from the database on that request. Nothing is cached, so nothing
+   * has to be invalidated.
+   *
+   * Optional so a caller that renders this section without a switcher — the
+   * component tests do — needs no stub.
+   */
+  onOrganizationContextStale?: () => void;
 }
 
 /** The roles a control may offer. `owner` is absent because no request may set it (ADR-027 §6). */
@@ -47,9 +63,15 @@ const STATUS_HINT: Record<string, string> = {
   suspended: "Access revoked — cannot sign in to this organization",
 };
 
-export function TeamManagement({ organizationId, role, currentUserId }: TeamManagementProps) {
+export function TeamManagement({
+  organizationId,
+  role,
+  currentUserId,
+  onOrganizationContextStale,
+}: TeamManagementProps) {
   const team = useTeamMembers({ organizationId });
   const mayManage = canManageMembers(role);
+  const mayTransferOwnership = canTransferOwnership(role);
 
   const [email, setEmail] = useState("");
   const [newRole, setNewRole] = useState<AssignableRole>("agent");
@@ -62,6 +84,17 @@ export function TeamManagement({ organizationId, role, currentUserId }: TeamMana
    */
   const [confirmingRemovalOf, setConfirmingRemovalOf] = useState<string | null>(null);
 
+  /**
+   * The confirmation of a completed ownership transfer (ADR-028 §16).
+   *
+   * Held HERE rather than inside `TransferOwnership`, and that placement is the
+   * whole point: a successful transfer makes the reader an admin, the refreshed
+   * organization context unmounts that block, and a notice rendered inside it
+   * would vanish in the same tick it was set — leaving the reader with a page
+   * that changed under them and said nothing about why.
+   */
+  const [ownershipNotice, setOwnershipNotice] = useState<string | null>(null);
+
   async function handleAdd(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const trimmed = email.trim();
@@ -70,6 +103,22 @@ export function TeamManagement({ organizationId, role, currentUserId }: TeamMana
     // The field is cleared only on success, so a refused address stays on
     // screen for the manager to correct rather than having to be retyped.
     if (await team.add(trimmed, newRole)) setEmail("");
+  }
+
+  /**
+   * What the ownership transfer refreshes (ADR-028 §16).
+   *
+   * BOTH, and in this order. The roster refetch shows the new owner in the
+   * list; the context refetch is what changes what this reader may see — it
+   * removes the transfer block and the management controls for the person who
+   * just gave ownership away, and adds them for whoever loads the page as the
+   * new owner. Neither is a client-side decision: both re-read what the server
+   * says on that request.
+   */
+  async function handleOwnershipTransferred(notice: string | null) {
+    await team.reload();
+    onOrganizationContextStale?.();
+    setOwnershipNotice(notice);
   }
 
   async function handleRemove(membershipId: string) {
@@ -244,10 +293,37 @@ export function TeamManagement({ organizationId, role, currentUserId }: TeamMana
               </p>
             )}
 
+            {/*
+              Outside the `mayTransferOwnership` gate on purpose (ADR-028 §16).
+              This is the ONE message the reader must still see after the block
+              that produced it has removed itself, because the reader is no
+              longer the owner — which is precisely what it is telling them.
+            */}
+            {ownershipNotice !== null && (
+              <p className="team__notice team__notice--ownership" role="status">
+                {ownershipNotice}
+              </p>
+            )}
+
             {team.actionError !== null && (
               <p className="team__error" role="alert">
                 {team.actionError}
               </p>
+            )}
+
+            {/*
+              Owner-only, and the only control on this page that is
+              (ADR-028 §16). It sits AFTER the add form deliberately: adding a
+              colleague is the routine action and handing over the organization
+              is not, so the destructive one does not sit above the one people
+              come here for.
+            */}
+            {mayTransferOwnership && (
+              <TransferOwnership
+                organizationId={organizationId}
+                members={team.members}
+                onTransferred={handleOwnershipTransferred}
+              />
             )}
 
             {mayManage && (

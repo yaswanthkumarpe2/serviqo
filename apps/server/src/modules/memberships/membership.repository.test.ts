@@ -652,4 +652,215 @@ describe("Membership persistence", () => {
       });
     });
   });
+
+  describe("ownership transfer writes (ADR-028 §8)", () => {
+    async function tenantWithOwner(slug: string) {
+      const [ownerUser, targetUser, organization] = await Promise.all([
+        createUser(`owner-${slug}@example.com`),
+        createUser(`target-${slug}@example.com`),
+        createOrganization(`owner-org-${slug}`),
+      ]);
+      const owner = await membershipRepository.create({
+        userId: ownerUser._id,
+        organizationId: organization._id,
+        role: "owner",
+      });
+      const target = await membershipRepository.create({
+        userId: targetUser._id,
+        organizationId: organization._id,
+        role: "agent",
+      });
+      return { organization, owner, target };
+    }
+
+    describe("demoteOwner", () => {
+      it("demotes the owner and returns the updated document", async () => {
+        const { organization, owner } = await tenantWithOwner("demote");
+
+        const demoted = await membershipRepository.demoteOwner(owner._id, organization._id, "admin");
+
+        expect(demoted!.role).toBe("admin");
+        expect((await MembershipModel.findById(owner._id))!.role).toBe("admin");
+      });
+
+      /*
+        THE CONCURRENCY GUARD (ADR-028 §8b). `role: "owner"` is in the filter,
+        so a second call finds nothing — which is exactly what the loser of two
+        simultaneous transfers observes, and the reason it can never reach the
+        promotion.
+      */
+      it("matches nothing the second time, so only one caller can demote", async () => {
+        const { organization, owner } = await tenantWithOwner("demote-twice");
+
+        expect(await membershipRepository.demoteOwner(owner._id, organization._id, "admin")).not.toBeNull();
+        expect(await membershipRepository.demoteOwner(owner._id, organization._id, "admin")).toBeNull();
+      });
+
+      it("cannot be aimed at another organization's owner", async () => {
+        const { organization, owner } = await tenantWithOwner("demote-cross-a");
+        const other = await tenantWithOwner("demote-cross-b");
+
+        expect(await membershipRepository.demoteOwner(owner._id, other.organization._id, "admin")).toBeNull();
+        expect(await membershipRepository.demoteOwner(other.owner._id, organization._id, "admin")).toBeNull();
+        expect((await MembershipModel.findById(owner._id))!.role).toBe("owner");
+        expect((await MembershipModel.findById(other.owner._id))!.role).toBe("owner");
+      });
+
+      it("refuses a membership that is not the owner", async () => {
+        const { organization, target } = await tenantWithOwner("demote-nonowner");
+
+        expect(await membershipRepository.demoteOwner(target._id, organization._id, "admin")).toBeNull();
+      });
+
+      it("writes no field other than role", async () => {
+        const { organization, owner } = await tenantWithOwner("demote-fields");
+
+        const demoted = await membershipRepository.demoteOwner(owner._id, organization._id, "admin");
+
+        expect(demoted!.status).toBe("active");
+        expect(demoted!.organizationId.toString()).toBe(organization._id.toString());
+      });
+    });
+
+    describe("promoteToOwner", () => {
+      it("promotes an active non-owner once the owner slot is free", async () => {
+        const { organization, owner, target } = await tenantWithOwner("promote");
+        await membershipRepository.demoteOwner(owner._id, organization._id, "admin");
+
+        const promoted = await membershipRepository.promoteToOwner(target._id, organization._id);
+
+        expect(promoted!.role).toBe("owner");
+        expect(await MembershipModel.countDocuments({ organizationId: organization._id, role: "owner" })).toBe(1);
+      });
+
+      /*
+        INDEX B IS THE FINAL AUTHORITY — ADR-027 §8's rule for index A, applied
+        to index B, and the reason the service wraps this call in a `try`.
+
+        A filter constrains the document being MATCHED, not the collection:
+        `role: { $ne: "owner" }` proves the TARGET is not already the owner and
+        says nothing about any other row. So with the owner slot still
+        occupied, the filter matches and the WRITE is rejected. The caller
+        treats this throw exactly as it treats `null` — the promotion did not
+        land, so compensate — and the ordinary flow never reaches it, because
+        `demoteOwner` has already vacated the slot.
+      */
+      it("raises a duplicate key while an owner still exists, and writes nothing", async () => {
+        const { organization, target } = await tenantWithOwner("promote-occupied");
+
+        await expect(membershipRepository.promoteToOwner(target._id, organization._id)).rejects.toMatchObject({
+          code: 11000,
+        });
+        expect((await MembershipModel.findById(target._id))!.role).toBe("agent");
+        expect(await membershipRepository.countOwners(organization._id)).toBe(1);
+      });
+
+      /*
+        The narrow thing `role: { $ne: "owner" }` DOES buy: a promotion never
+        reports success for a document that was already the owner, which would
+        otherwise mask a demote that silently did not happen.
+      */
+      it("refuses a membership that is already the owner", async () => {
+        const { organization, owner } = await tenantWithOwner("promote-already-owner");
+
+        expect(await membershipRepository.promoteToOwner(owner._id, organization._id)).toBeNull();
+      });
+
+      it.each([["invited"], ["suspended"]] as const)("refuses a %s membership", async (status) => {
+        const { organization, owner, target } = await tenantWithOwner(`promote-${status}`);
+        await MembershipModel.updateOne({ _id: target._id }, { $set: { status } });
+        await membershipRepository.demoteOwner(owner._id, organization._id, "admin");
+
+        expect(await membershipRepository.promoteToOwner(target._id, organization._id)).toBeNull();
+        expect(await MembershipModel.countDocuments({ organizationId: organization._id, role: "owner" })).toBe(0);
+      });
+
+      it("cannot be aimed at another organization's membership", async () => {
+        const a = await tenantWithOwner("promote-cross-a");
+        const b = await tenantWithOwner("promote-cross-b");
+        await membershipRepository.demoteOwner(a.owner._id, a.organization._id, "admin");
+
+        expect(await membershipRepository.promoteToOwner(b.target._id, a.organization._id)).toBeNull();
+        expect((await MembershipModel.findById(b.target._id))!.role).toBe("agent");
+      });
+
+      it("returns null for an id belonging to nothing", async () => {
+        const { organization, owner } = await tenantWithOwner("promote-unknown");
+        await membershipRepository.demoteOwner(owner._id, organization._id, "admin");
+
+        expect(await membershipRepository.promoteToOwner(new Types.ObjectId(), organization._id)).toBeNull();
+      });
+    });
+
+    describe("restoreOwner", () => {
+      it("restores a membership this request demoted", async () => {
+        const { organization, owner } = await tenantWithOwner("restore");
+        await membershipRepository.demoteOwner(owner._id, organization._id, "admin");
+
+        const restored = await membershipRepository.restoreOwner(owner._id, organization._id, "admin");
+
+        expect(restored!.role).toBe("owner");
+        expect(await MembershipModel.countDocuments({ organizationId: organization._id, role: "owner" })).toBe(1);
+      });
+
+      /*
+        The guard that keeps this from being a general "make this the owner"
+        primitive: it restores only a document still holding the role the
+        demote left it in.
+      */
+      it("refuses when the role is not the one the demote left behind", async () => {
+        const { organization, owner } = await tenantWithOwner("restore-changed");
+        await membershipRepository.demoteOwner(owner._id, organization._id, "admin");
+        await MembershipModel.updateOne({ _id: owner._id }, { $set: { role: "agent" } });
+
+        expect(await membershipRepository.restoreOwner(owner._id, organization._id, "admin")).toBeNull();
+      });
+
+      it("cannot be aimed at another organization", async () => {
+        const a = await tenantWithOwner("restore-cross-a");
+        const b = await tenantWithOwner("restore-cross-b");
+        await membershipRepository.demoteOwner(a.owner._id, a.organization._id, "admin");
+
+        expect(await membershipRepository.restoreOwner(a.owner._id, b.organization._id, "admin")).toBeNull();
+        expect((await MembershipModel.findById(a.owner._id))!.role).toBe("admin");
+      });
+    });
+
+    describe("countOwners", () => {
+      it("counts one for an ordinary tenant", async () => {
+        const { organization } = await tenantWithOwner("count-one");
+
+        expect(await membershipRepository.countOwners(organization._id)).toBe(1);
+      });
+
+      it("counts zero inside the window between the two writes", async () => {
+        const { organization, owner } = await tenantWithOwner("count-zero");
+        await membershipRepository.demoteOwner(owner._id, organization._id, "admin");
+
+        expect(await membershipRepository.countOwners(organization._id)).toBe(0);
+      });
+
+      it("counts only this organization's owner", async () => {
+        const a = await tenantWithOwner("count-scope-a");
+        await tenantWithOwner("count-scope-b");
+
+        expect(await membershipRepository.countOwners(a.organization._id)).toBe(1);
+      });
+    });
+
+    /*
+      The invariant every guard above exists to protect, asserted against the
+      DATABASE rather than against application code: index B refuses a second
+      owner document outright.
+    */
+    it("cannot store two owners in one organization", async () => {
+      const { organization, target } = await tenantWithOwner("two-owners");
+
+      await expect(
+        MembershipModel.updateOne({ _id: target._id }, { $set: { role: "owner" } }),
+      ).rejects.toMatchObject({ code: 11000 });
+
+      expect(await membershipRepository.countOwners(organization._id)).toBe(1);
+    });
+  });
 });

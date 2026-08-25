@@ -11,6 +11,10 @@ const ROLES: MembershipRole[] = ["owner", "admin", "supervisor", "agent"];
 const ALL_PERMISSIONS: Permission[] = [
   "organization.read",
   "organization.manage",
+  // Joined the catalogue in ADR-028, the slice that gave the owner a route to
+  // hand the tenant over through. The FIRST permission `admin` does not also
+  // hold — see "owner is admin plus exactly one permission" below.
+  "organization.transfer_ownership",
   "member.read",
   "member.manage",
   // Joined the catalogue in ADR-025, the slice that gave agents routes and a
@@ -85,6 +89,9 @@ describe("can", () => {
     owner: {
       "organization.read": true,
       "organization.manage": true,
+      // ADR-028 §2. The one row in this matrix that separates owner from
+      // admin, and the whole meaning of the word "owner" in Serviqo.
+      "organization.transfer_ownership": true,
       "member.read": true,
       "member.manage": true,
       "conversation.read": true,
@@ -94,6 +101,13 @@ describe("can", () => {
     admin: {
       "organization.read": true,
       "organization.manage": true,
+      /*
+        NOT granted, and this is the assertion that stops a future slice from
+        widening admin by accident. An admin who could transfer ownership could
+        take the tenant from the person who created it — a privilege-escalation
+        primitive dressed as an administrative convenience (ADR-028 §2).
+      */
+      "organization.transfer_ownership": false,
       "member.read": true,
       "member.manage": true,
       "conversation.read": true,
@@ -103,6 +117,7 @@ describe("can", () => {
     supervisor: {
       "organization.read": true,
       "organization.manage": false,
+      "organization.transfer_ownership": false,
       "member.read": true,
       "member.manage": false,
       // Oversees queues, so reads and answers conversations; still cannot
@@ -114,6 +129,7 @@ describe("can", () => {
     agent: {
       "organization.read": true,
       "organization.manage": false,
+      "organization.transfer_ownership": false,
       "member.read": false,
       "member.manage": false,
       // The role whose whole description is handling conversations, and as
@@ -138,8 +154,40 @@ describe("can", () => {
     }
   }
 
-  it("gives owner and admin the same authority today", () => {
-    expect([...permissionsFor("owner")].sort()).toEqual([...permissionsFor("admin")].sort());
+  /*
+    The successor to "gives owner and admin the same authority today", which
+    held from ADR-017 until ADR-028 and is now false by design.
+
+    Stated as an exact set difference rather than as "owner has more": the
+    point is that the gap is EXACTLY ONE permission and exactly which one, so
+    granting `organization.transfer_ownership` to admin, or quietly widening
+    the gap with a second owner-only permission, both fail here (ADR-028 §2).
+  */
+  it("makes owner exactly admin plus organization.transfer_ownership", () => {
+    const ownerOnly = permissionsFor("owner").filter(
+      (permission) => !(permissionsFor("admin") as readonly Permission[]).includes(permission),
+    );
+    const adminOnly = permissionsFor("admin").filter(
+      (permission) => !(permissionsFor("owner") as readonly Permission[]).includes(permission),
+    );
+
+    expect(ownerOnly).toEqual(["organization.transfer_ownership"]);
+    expect(adminOnly).toEqual([]);
+  });
+
+  /*
+    The property ADR-028 §2 relies on when it argues the refusals in §6 are
+    safe to answer specifically: the caller holding this permission can already
+    read the roster those refusals describe.
+  */
+  it("gives every holder of organization.transfer_ownership the roster too", () => {
+    for (const role of ROLES) {
+      if (can(role, "organization.transfer_ownership")) expect(can(role, "member.read")).toBe(true);
+    }
+  });
+
+  it("grants organization.transfer_ownership to exactly one role", () => {
+    expect(ROLES.filter((role) => can(role, "organization.transfer_ownership"))).toEqual(["owner"]);
   });
 
   // The gradient the middleware tests rely on: not every role holds every

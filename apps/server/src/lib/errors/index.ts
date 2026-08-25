@@ -440,6 +440,91 @@ export class OrganizationOwnerProtectedError extends AppError {
 }
 
 /**
+ * An ownership transfer named the acting owner's own membership
+ * (ADR-028 §6.2).
+ *
+ * "Transfer to yourself" and "transfer to someone who is already the owner"
+ * are the SAME condition rather than two: index B allows at most one owner per
+ * organization, and `organization.transfer_ownership` is held only by `owner`,
+ * so the one membership in this tenant whose role is `owner` is necessarily
+ * the caller's own. One check covers both, and the message says the half the
+ * caller can act on.
+ *
+ * Distinct from `MemberSelfModificationError` above, which ADR-027 §7b wrote
+ * for a different question — "you may not change or remove your own
+ * membership", whose remedy is "ask someone else". Here the caller is entitled
+ * to act on their own membership; they simply chose the wrong recipient, and
+ * the remedy is "choose a different member". One code covering both would be a
+ * code no client could branch on.
+ *
+ * Answered specifically, and safely so for ADR-027 §8's reason applied one
+ * step further: this permission is held only by `owner`, who also holds
+ * `member.read`, so the caller can already fetch the roster that shows who the
+ * owner is. It discloses nothing `GET …/members` would not.
+ */
+export class OwnershipTransferSelfTargetError extends AppError {
+  readonly httpStatus = 409;
+  readonly code = "OWNERSHIP_TRANSFER_SELF_TARGET";
+}
+
+/**
+ * The member named by an ownership transfer cannot receive it (ADR-028 §6.3,
+ * §6.4).
+ *
+ * ONE error for "the membership is not `active`" and for "the `User` behind it
+ * does not exist, is not `active`, or has never verified its email" — the same
+ * three-part gate `currentUser.service.ts`, `refresh.service.ts`,
+ * `organizationOnboarding.service.ts` and `member.service.ts` each apply,
+ * applied here to the recipient of a tenant.
+ *
+ * Collapsed into one refusal on purpose. Both mean "that person cannot receive
+ * this", both have the same remedy — pick someone else, or fix their account
+ * first — and separating them would let a caller distinguish "membership
+ * suspended" from "account suspended" for no benefit they can act on.
+ *
+ * The check matters because handing a tenant to someone who cannot sign into
+ * it manufactures an organization that is unowned in practice, which is the
+ * state ADR-028 §8 exists to prevent, one step removed.
+ *
+ * 409 rather than 422: the instruction is processable and the target is real
+ * and reachable — what is wrong is the target's current state, which is a
+ * conflict with the request rather than an unprocessable entity.
+ */
+export class OwnershipTransferTargetInvalidError extends AppError {
+  readonly httpStatus = 409;
+  readonly code = "OWNERSHIP_TRANSFER_TARGET_INVALID";
+}
+
+/**
+ * Ownership moved while this transfer was in flight (ADR-028 §8b, §9).
+ *
+ * Raised when the guarded demote matches no document — the caller was the
+ * owner when `requireOrganization` read the membership and is not the owner by
+ * the time the write runs — and when the guarded promote matches none, after
+ * the demote has been compensated.
+ *
+ * This is the visible half of the concurrency design. Two simultaneous
+ * transfers both attempt to demote the same single owner document; MongoDB's
+ * per-document atomicity means exactly one matches, and the loser writes
+ * nothing, never reaches the promotion, and answers this. That is what makes
+ * "one transfer wins" a property of the database rather than of a comparison
+ * that races.
+ *
+ * Names no user and no membership. Which request won is not this caller's
+ * business, and a refusal is the wrong place to make a disclosure decision the
+ * roster projection makes carefully elsewhere.
+ *
+ * Its message is one of the few that says what to do next, for the reason
+ * `ConversationReopenConflictError`'s does: "reload and look again" is not
+ * guessable from the word "conflict", and the state to reload is one the
+ * caller's own team page already shows them.
+ */
+export class OwnershipTransferConflictError extends AppError {
+  readonly httpStatus = 409;
+  readonly code = "OWNERSHIP_TRANSFER_CONFLICT";
+}
+
+/**
  * A caller aimed a member operation at their own membership (ADR-027 §7b).
  *
  * Compared against `req.principal.userId` — the verified subject of the

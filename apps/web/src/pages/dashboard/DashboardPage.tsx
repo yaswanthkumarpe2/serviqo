@@ -54,6 +54,18 @@ export function DashboardPage() {
 
   const [activeOrganization, setActiveOrganization] = useState<ActiveOrganizationContext | null>(null);
 
+  /**
+   * Bumped when something the server knows about the reader's standing has
+   * changed and this page's copy is stale (ADR-028 §16).
+   *
+   * Its only writer today is a completed ownership transfer. The switcher
+   * re-reads `GET /organizations/:id` when this changes, so the role every
+   * section below is given comes back from the database on a fresh request —
+   * which is what removes the previous owner's owner-only controls without a
+   * reload, and without this page ever deciding what their new role is.
+   */
+  const [organizationContextNonce, setOrganizationContextNonce] = useState(0);
+
   // ProtectedRoute guarantees a session before this renders; the guard keeps
   // the component honest rather than asserting non-null.
   if (session === null) return null;
@@ -157,7 +169,11 @@ export function DashboardPage() {
           one thing it must not say while it does not yet know.
         */}
         {!isLoading && user !== null && (
-          <OrganizationSwitcher memberships={memberships} onActiveOrganizationChange={setActiveOrganization} />
+          <OrganizationSwitcher
+            memberships={memberships}
+            onActiveOrganizationChange={setActiveOrganization}
+            reloadNonce={organizationContextNonce}
+          />
         )}
 
         {/*
@@ -220,6 +236,7 @@ export function DashboardPage() {
             organizationId={activeOrganization.organizationId}
             role={activeOrganization.role}
             currentUserId={user?.id ?? null}
+            onOrganizationContextStale={() => setOrganizationContextNonce((nonce) => nonce + 1)}
           />
         )}
 
