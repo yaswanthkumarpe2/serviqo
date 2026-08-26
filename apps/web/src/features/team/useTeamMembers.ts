@@ -2,9 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { AuthApiError } from "@/features/auth/authApi";
 import { useAuth } from "@/features/auth/useAuth";
-import { addMember, changeMemberRole, fetchMembers, removeMember } from "./membersApi";
+import { addMember, changeMemberRole, changeMemberStatus, fetchMembers, removeMember } from "./membersApi";
 
-import type { AssignableRole, OrganizationMember } from "./membersApi";
+import type { AssignableRole, OrganizationMember, SettableStatus } from "./membersApi";
 
 /**
  * All of the Team Management section's state and effects, kept out of the
@@ -22,7 +22,7 @@ import type { AssignableRole, OrganizationMember } from "./membersApi";
 export type TeamStatus = "loading" | "ready" | "error" | "forbidden";
 
 /** Which mutation is in flight, or `null`. One value, because they are mutually exclusive per row. */
-export type TeamActionKind = "add" | "role" | "remove";
+export type TeamActionKind = "add" | "role" | "status" | "remove";
 
 export interface UseTeamMembersOptions {
   organizationId: string;
@@ -45,6 +45,8 @@ export interface TeamMembers {
 
   add: (email: string, role: AssignableRole) => Promise<boolean>;
   changeRole: (membershipId: string, role: AssignableRole) => Promise<boolean>;
+  /** Suspends or reactivates one member (ADR-029 §1). */
+  changeStatus: (membershipId: string, status: SettableStatus) => Promise<boolean>;
   remove: (membershipId: string) => Promise<boolean>;
 }
 
@@ -65,6 +67,13 @@ const NOT_INVITABLE_ERROR =
   "That email cannot be added. The person needs a verified Serviqo account before they can join.";
 const OWNER_PROTECTED_ERROR = "The organization owner cannot be changed or removed.";
 const SELF_MODIFICATION_ERROR = "You cannot change or remove your own membership.";
+/*
+  Names both legal transitions, because the reader's page may simply be stale —
+  a colleague may have suspended or reactivated the same person since it loaded
+  (ADR-029 §6).
+*/
+const STATUS_TRANSITION_ERROR =
+  "That member's status has already changed. Only an active member can be suspended, and only a suspended one can be reactivated.";
 const FORBIDDEN_ERROR = "Your role cannot manage this organization's members.";
 const GONE_ERROR = "That member is no longer part of this organization.";
 const RATE_LIMITED_ERROR = "Too many attempts. Please wait a few minutes and try again.";
@@ -83,6 +92,8 @@ function actionMessageFor(caught: unknown): string {
       return OWNER_PROTECTED_ERROR;
     case "MEMBER_SELF_MODIFICATION":
       return SELF_MODIFICATION_ERROR;
+    case "MEMBER_STATUS_TRANSITION_INVALID":
+      return STATUS_TRANSITION_ERROR;
     case "INSUFFICIENT_PERMISSION":
       return FORBIDDEN_ERROR;
     case "TOO_MANY_REQUESTS":
@@ -250,6 +261,34 @@ export function useTeamMembers({ organizationId }: UseTeamMembersOptions): TeamM
     [authorizedFetch, organizationId, run],
   );
 
+  const changeStatus = useCallback(
+    (membershipId: string, status: SettableStatus) =>
+      run("status", membershipId, async () => {
+        const { member, releasedConversations } = await changeMemberStatus(
+          authorizedFetch,
+          organizationId,
+          membershipId,
+          status,
+        );
+        const who = member.user?.name ?? "That member";
+
+        if (status === "active") return `${who} was reactivated and can sign in again.`;
+
+        /*
+          The release count is stated for the reason removal states it
+          (ADR-029 §10): conversations that person was handling are now
+          unassigned and back in the queue, and a manager who did not expect
+          that should find out here rather than from the inbox.
+        */
+        return releasedConversations === 0
+          ? `${who} was suspended and can no longer sign in to this organization.`
+          : `${who} was suspended. ${releasedConversations} conversation${
+              releasedConversations === 1 ? "" : "s"
+            } returned to the unassigned queue.`;
+      }),
+    [authorizedFetch, organizationId, run],
+  );
+
   const remove = useCallback(
     (membershipId: string) =>
       run("remove", membershipId, async () => {
@@ -281,6 +320,7 @@ export function useTeamMembers({ organizationId }: UseTeamMembersOptions): TeamM
     actionNotice,
     add,
     changeRole,
+    changeStatus,
     remove,
   };
 }

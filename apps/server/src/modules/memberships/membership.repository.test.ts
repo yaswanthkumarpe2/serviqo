@@ -863,4 +863,157 @@ describe("Membership persistence", () => {
       expect(await membershipRepository.countOwners(organization._id)).toBe(1);
     });
   });
+
+  describe("membership status writes (ADR-029 §6, §7)", () => {
+    async function tenantWithStatuses(slug: string) {
+      const [ownerUser, memberUser, organization] = await Promise.all([
+        createUser(`status-owner-${slug}@example.com`),
+        createUser(`status-member-${slug}@example.com`),
+        createOrganization(`status-org-${slug}`),
+      ]);
+      const owner = await membershipRepository.create({
+        userId: ownerUser._id,
+        organizationId: organization._id,
+        role: "owner",
+      });
+      const member = await membershipRepository.create({
+        userId: memberUser._id,
+        organizationId: organization._id,
+        role: "agent",
+      });
+      return { organization, owner, member };
+    }
+
+    it("suspends an active membership and returns the updated document", async () => {
+      const { organization, member } = await tenantWithStatuses("suspend");
+
+      const updated = await membershipRepository.updateStatusForOrganization(
+        member._id,
+        organization._id,
+        "active",
+        "suspended",
+      );
+
+      expect(updated!.status).toBe("suspended");
+      expect((await MembershipModel.findById(member._id))!.status).toBe("suspended");
+    });
+
+    it("reactivates a suspended membership", async () => {
+      const { organization, member } = await tenantWithStatuses("reactivate");
+      await MembershipModel.updateOne({ _id: member._id }, { $set: { status: "suspended" } });
+
+      const updated = await membershipRepository.updateStatusForOrganization(
+        member._id,
+        organization._id,
+        "suspended",
+        "active",
+      );
+
+      expect(updated!.status).toBe("active");
+    });
+
+    /*
+      THE CONCURRENCY GUARD (ADR-029 §6). `status: from` is in the filter, so a
+      second suspension of the same person matches nothing — which is exactly
+      what the loser of two managers acting at once observes.
+    */
+    it("matches nothing the second time, so only one caller can make a transition", async () => {
+      const { organization, member } = await tenantWithStatuses("twice");
+
+      expect(
+        await membershipRepository.updateStatusForOrganization(member._id, organization._id, "active", "suspended"),
+      ).not.toBeNull();
+      expect(
+        await membershipRepository.updateStatusForOrganization(member._id, organization._id, "active", "suspended"),
+      ).toBeNull();
+    });
+
+    it("refuses when the current status is not the expected one", async () => {
+      const { organization, member } = await tenantWithStatuses("wrong-from");
+
+      // The document is `active`; a caller expecting `suspended` finds nothing.
+      expect(
+        await membershipRepository.updateStatusForOrganization(member._id, organization._id, "suspended", "active"),
+      ).toBeNull();
+      expect((await MembershipModel.findById(member._id))!.status).toBe("active");
+    });
+
+    it("refuses an invited membership in either direction", async () => {
+      const { organization, member } = await tenantWithStatuses("invited");
+      await MembershipModel.updateOne({ _id: member._id }, { $set: { status: "invited" } });
+
+      expect(
+        await membershipRepository.updateStatusForOrganization(member._id, organization._id, "active", "suspended"),
+      ).toBeNull();
+      expect(
+        await membershipRepository.updateStatusForOrganization(member._id, organization._id, "suspended", "active"),
+      ).toBeNull();
+      expect((await MembershipModel.findById(member._id))!.status).toBe("invited");
+    });
+
+    /*
+      THE OWNER BACKSTOP (ADR-029 §7). The service refuses the owner first and
+      raises the actionable error; this filter is what makes the WRITE unable
+      to land on an owner document even if a future branch reached it wrongly.
+      A suspended owner is a fourth route to ADR-016 §3's unrecoverable tenant.
+    */
+    it("cannot suspend the owner, whatever the caller asks for", async () => {
+      const { organization, owner } = await tenantWithStatuses("owner");
+
+      expect(
+        await membershipRepository.updateStatusForOrganization(owner._id, organization._id, "active", "suspended"),
+      ).toBeNull();
+      expect((await MembershipModel.findById(owner._id))!.status).toBe("active");
+    });
+
+    it("cannot be aimed at another organization's membership", async () => {
+      const a = await tenantWithStatuses("cross-a");
+      const b = await tenantWithStatuses("cross-b");
+
+      expect(
+        await membershipRepository.updateStatusForOrganization(b.member._id, a.organization._id, "active", "suspended"),
+      ).toBeNull();
+      expect((await MembershipModel.findById(b.member._id))!.status).toBe("active");
+    });
+
+    it("returns null for an id belonging to nothing", async () => {
+      const { organization } = await tenantWithStatuses("unknown");
+
+      expect(
+        await membershipRepository.updateStatusForOrganization(
+          new Types.ObjectId(),
+          organization._id,
+          "active",
+          "suspended",
+        ),
+      ).toBeNull();
+    });
+
+    it("writes no field other than status", async () => {
+      const { organization, member } = await tenantWithStatuses("fields");
+
+      const updated = await membershipRepository.updateStatusForOrganization(
+        member._id,
+        organization._id,
+        "active",
+        "suspended",
+      );
+
+      expect(updated!.role).toBe("agent");
+      expect(updated!.organizationId.toString()).toBe(organization._id.toString());
+      expect(updated!.userId.toString()).toBe(member.userId.toString());
+    });
+
+    /*
+      Suspension must not disturb the ownership invariant in any direction —
+      it writes `status` and ownership lives on `role` (ADR-029 §7).
+    */
+    it("leaves the organization's single owner untouched", async () => {
+      const { organization, member } = await tenantWithStatuses("invariant");
+
+      await membershipRepository.updateStatusForOrganization(member._id, organization._id, "active", "suspended");
+
+      expect(await membershipRepository.countOwners(organization._id)).toBe(1);
+    });
+  });
 });

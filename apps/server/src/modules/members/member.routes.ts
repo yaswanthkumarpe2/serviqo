@@ -6,7 +6,7 @@ import { requirePermission } from "../../middleware/requirePermission";
 import { validateBody } from "../../middleware/validate";
 import { createMemberController } from "./member.controller";
 import { createMemberService } from "./member.service";
-import { addMemberSchema, updateMemberRoleSchema } from "./member.validation";
+import { addMemberSchema, updateMemberRoleSchema, updateMemberStatusSchema } from "./member.validation";
 
 import type { RateLimiters } from "../../lib/rateLimit";
 
@@ -109,6 +109,37 @@ export function createMemberRouter({ rateLimiters }: MemberRouterDependencies): 
     requirePermission("member.manage"),
     validateBody(updateMemberRoleSchema),
     controller.changeRole,
+  );
+
+  /*
+    Suspension and reactivation (ADR-029 §1) — the route that finally gives
+    `MembershipStatus` a writer, after two of its three values sat unwritable
+    since ADR-010.
+
+    ONE route rather than `/suspend` and `/reactivate`, and the test the
+    comment above implies is the one that decides it: does the body value do
+    AUTHORIZATION work? Here it does not — both directions need
+    `member.manage` and nothing else, so `status` selects a TRANSITION rather
+    than a permission. Two endpoints with one guard, one service, and one set
+    of refusals is the duplication ADR-026 §7 refused when it declined a
+    separate `/reopen`. Ownership transfer went the other way (ADR-028 §1)
+    precisely because it needed a DIFFERENT permission.
+
+    `authenticatedWrite`, the existing class (ADR-029 §11). No new class:
+    `memberInvite` exists because adding a member discloses whether an account
+    exists, and `ownershipTransfer` exists because it is the rarest and most
+    destructive operation in the product. This is ordinary team administration
+    of the same shape and frequency as the role change above, and it discloses
+    nothing a caller holding `member.read` cannot already fetch.
+  */
+  router.patch(
+    "/:membershipId/status",
+    requireAccessToken,
+    rateLimiters.authenticatedWrite,
+    requireOrganization,
+    requirePermission("member.manage"),
+    validateBody(updateMemberStatusSchema),
+    controller.changeStatus,
   );
 
   /*

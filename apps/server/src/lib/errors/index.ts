@@ -440,6 +440,38 @@ export class OrganizationOwnerProtectedError extends AppError {
 }
 
 /**
+ * A membership status change asked for a transition that does not exist
+ * (ADR-029 §6).
+ *
+ * ONE error for every non-transition: suspending an already-suspended member,
+ * reactivating an already-active one, and touching an `invited` membership in
+ * either direction.
+ *
+ * A NO-OP IS REFUSED RATHER THAN ABSORBED, which is the debatable half and is
+ * chosen deliberately. `PATCH` invites an idempotent reading, and
+ * `conversationRepository.setStatus` takes exactly the opposite position for
+ * conversations — "both transitions are idempotent, so there is no 'only if
+ * currently open' precondition to express." The difference is what the field
+ * means: a conversation's status is a workflow label, and a membership's
+ * status is an ACCESS-CONTROL DECISION. Two managers working one roster, or
+ * one manager on a stale page, are precisely the situations where answering
+ * `200` would report a revocation that had already happened — or had not.
+ *
+ * `invited` shares this refusal rather than getting its own, because a manager
+ * cannot resolve it in either direction: they can neither accept an invitation
+ * on someone's behalf nor suspend access that was never granted (ADR-027 §3).
+ *
+ * Answered SPECIFICALLY, and safely so for ADR-027 §8's reason: `member.manage`
+ * is strictly wider than `member.read` in the catalogue, so a caller who can
+ * reach this route can already fetch the roster that shows every status this
+ * message describes. It discloses nothing `GET …/members` would not.
+ */
+export class MemberStatusTransitionError extends AppError {
+  readonly httpStatus = 409;
+  readonly code = "MEMBER_STATUS_TRANSITION_INVALID";
+}
+
+/**
  * An ownership transfer named the acting owner's own membership
  * (ADR-028 §6.2).
  *

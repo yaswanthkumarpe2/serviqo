@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import { ROLE_PERMISSIONS, can } from "../memberships/permissions";
-import { ASSIGNABLE_ROLES, addMemberSchema, updateMemberRoleSchema } from "./member.validation";
+import {
+  ASSIGNABLE_ROLES,
+  SETTABLE_STATUSES,
+  addMemberSchema,
+  updateMemberRoleSchema,
+  updateMemberStatusSchema,
+} from "./member.validation";
 
 import type { MembershipRole } from "../memberships/membership.model";
 
@@ -127,5 +133,81 @@ describe("updateMemberRoleSchema", () => {
 
   it("refuses a missing role", () => {
     expect(updateMemberRoleSchema.safeParse({}).success).toBe(false);
+  });
+});
+
+/**
+ * The status schema (ADR-029 §3, §4).
+ *
+ * The two assertions that matter most and are invisible when broken:
+ *
+ * - `invited` is refused, so a manager cannot manufacture a pending
+ *   invitation that nobody sent and nobody can accept (ADR-027 §3).
+ * - Every identity field sent alongside `status` is STRIPPED, so the route
+ *   cannot be aimed at another membership, another tenant, or another role by
+ *   a body — which is why no handler downstream contains a comparison
+ *   defending against one.
+ */
+describe("updateMemberStatusSchema", () => {
+  it.each([["active"], ["suspended"]])("accepts %s", (status) => {
+    const parsed = updateMemberStatusSchema.safeParse({ status });
+
+    expect(parsed.success).toBe(true);
+    expect(parsed.data).toEqual({ status });
+  });
+
+  /*
+    THE decision of §3. `invited` is a real `MembershipStatus` and is
+    deliberately not settable: accepting an invitation is the invitee's action.
+  */
+  it("refuses invited — an invitation is accepted, not assigned", () => {
+    expect(updateMemberStatusSchema.safeParse({ status: "invited" }).success).toBe(false);
+    expect(SETTABLE_STATUSES).not.toContain("invited");
+  });
+
+  it("names exactly the two statuses a request may set", () => {
+    expect([...SETTABLE_STATUSES]).toEqual(["active", "suspended"]);
+  });
+
+  it.each([["removed"], ["deleted"], ["Active"], ["ACTIVE"], [""], ["owner"]])(
+    "refuses %j",
+    (status) => {
+      expect(updateMemberStatusSchema.safeParse({ status }).success).toBe(false);
+    },
+  );
+
+  it.each([[1], [null], [{}], [["active"]], [true]])("refuses a non-string value (%j)", (status) => {
+    expect(updateMemberStatusSchema.safeParse({ status }).success).toBe(false);
+  });
+
+  it("refuses a missing status", () => {
+    expect(updateMemberStatusSchema.safeParse({}).success).toBe(false);
+  });
+
+  // ---- ADR-029 §4: identity fields are stripped, not rejected ----
+
+  it("strips a forged membershipId, organizationId, userId, and role", () => {
+    const parsed = updateMemberStatusSchema.safeParse({
+      status: "suspended",
+      membershipId: "507f1f77bcf86cd799439011",
+      organizationId: "507f1f77bcf86cd799439012",
+      userId: "507f1f77bcf86cd799439013",
+      role: "owner",
+      invitedByUserId: "507f1f77bcf86cd799439014",
+    });
+
+    expect(parsed.success).toBe(true);
+    expect(Object.keys(parsed.data!)).toEqual(["status"]);
+  });
+
+  /*
+    There is deliberately no way to state the CURRENT status either: "only an
+    active membership may be suspended" is checked against the document the
+    server loaded, never against a client's claim about it (ADR-029 §4).
+  */
+  it("strips a claimed current status", () => {
+    const parsed = updateMemberStatusSchema.safeParse({ status: "active", currentStatus: "suspended" });
+
+    expect(parsed.data).toEqual({ status: "active" });
   });
 });

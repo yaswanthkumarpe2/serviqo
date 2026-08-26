@@ -2,17 +2,23 @@ import { z } from "zod";
 
 import { ROLE_PERMISSIONS } from "../memberships/permissions";
 
-import type { MembershipRole } from "../memberships/membership.model";
+import type { MembershipRole, MembershipStatus } from "../memberships/membership.model";
 
 /**
- * Request schemas for the team-management routes (ADR-027 §4, §6).
+ * Request schemas for the team-management routes (ADR-027 §4, §6;
+ * ADR-029 §3–4).
  *
- * Two schemas, and what they do NOT name is the security property. Neither
- * carries `userId`, `organizationId`, `membershipId`, `invitedByUserId`, or
- * `status` — no schema in this slice does. Zod object schemas strip
- * unrecognized keys (ADR-007 §6), so a client that posts one has it
- * STRIPPED rather than rejected: a forged value never becomes observable to a
- * controller at all.
+ * Three schemas, and what they do NOT name is the security property. None
+ * carries `userId`, `organizationId`, `membershipId`, or `invitedByUserId`.
+ * Zod object schemas strip unrecognized keys (ADR-007 §6), so a client that
+ * posts one has it STRIPPED rather than rejected: a forged value never becomes
+ * observable to a controller at all.
+ *
+ * `status` is the one identity-adjacent field that IS nameable, and only by
+ * `updateMemberStatusSchema` at the bottom — the route whose entire purpose is
+ * setting it (ADR-029 §1). `addMemberSchema` still writes `active` as a
+ * literal, because who may join is not the same question as who may be
+ * suspended, and the two routes carry different meanings for the same word.
  *
  * That is ADR-022 §5's rule — "assigned as a literal … never a parameter that
  * traces back to request input" — applied to identity, exactly as ADR-026 §2
@@ -110,3 +116,45 @@ export const updateMemberRoleSchema = z.object({
 });
 
 export type UpdateMemberRoleInput = z.infer<typeof updateMemberRoleSchema>;
+
+/**
+ * The statuses a request may name (ADR-029 §3).
+ *
+ * SPELLED OUT rather than derived, unlike `ASSIGNABLE_ROLES` above, and the
+ * difference is not a stylistic one: `ROLE_PERMISSIONS` is a runtime value
+ * that can be enumerated, while `MembershipStatus` is a TypeScript type with
+ * no runtime counterpart — there is nothing to derive from. The identical
+ * situation `agentInbox.validation.ts` documents for `ConversationStatus`.
+ *
+ * `satisfies` ties the literal list back to the type anyway, so a fourth
+ * status added to `membership.model.ts` fails to compile here until this file
+ * decides whether a request may name it.
+ *
+ * `invited` IS ABSENT, and that absence is the decision (ADR-027 §3,
+ * ADR-029 §3). An invitation is accepted by the invitee; a manager writing
+ * `invited` onto an active membership would be manufacturing a pending
+ * invitation that nobody sent and nobody can accept. The email-backed flow
+ * will own that value and will not reach it through this route.
+ */
+export const SETTABLE_STATUSES = ["active", "suspended"] as const satisfies readonly MembershipStatus[];
+
+/**
+ * `PATCH /organizations/:organizationId/members/:membershipId/status`
+ * (ADR-029 §1, §4).
+ *
+ * The path names the field being changed and the body carries the value —
+ * ADR-026 §2's shape, identical to the sibling `/role` route above and to
+ * `PATCH …/conversations/:id/status`.
+ *
+ * One field, and what it does NOT carry is the security property. There is no
+ * `membershipId` (it is the path segment), no `organizationId` (the mount
+ * path), no `userId` or `role` (never the client's to state), and no
+ * `currentStatus`: "only an active membership may be suspended" is checked
+ * against the document the SERVER loaded, never against a client's claim about
+ * what that document says (ADR-029 §4).
+ */
+export const updateMemberStatusSchema = z.object({
+  status: z.enum(SETTABLE_STATUSES),
+});
+
+export type UpdateMemberStatusInput = z.infer<typeof updateMemberStatusSchema>;

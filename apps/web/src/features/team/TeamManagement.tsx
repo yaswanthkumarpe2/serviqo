@@ -85,6 +85,22 @@ export function TeamManagement({
   const [confirmingRemovalOf, setConfirmingRemovalOf] = useState<string | null>(null);
 
   /**
+   * Which membership the manager is being asked to confirm SUSPENDING, or
+   * `null` (ADR-029 §14).
+   *
+   * Its own slot rather than a shared "confirming" value with a kind, because
+   * the two confirmations ask different questions and a single slot would let
+   * one row's removal dialog be reinterpreted as a suspension by a state
+   * change elsewhere. One value per question, and both are cleared on the
+   * other opening.
+   *
+   * REACTIVATION HAS NO SLOT. It restores access rather than taking it away,
+   * it is undone by suspending again, and a confirmation on every safe action
+   * is how people learn to click through the unsafe ones.
+   */
+  const [confirmingSuspensionOf, setConfirmingSuspensionOf] = useState<string | null>(null);
+
+  /**
    * The confirmation of a completed ownership transfer (ADR-028 §16).
    *
    * Held HERE rather than inside `TransferOwnership`, and that placement is the
@@ -126,10 +142,15 @@ export function TeamManagement({
     await team.remove(membershipId);
   }
 
+  async function handleSuspend(membershipId: string) {
+    setConfirmingSuspensionOf(null);
+    await team.changeStatus(membershipId, "suspended");
+  }
+
   /** Whether any mutation is in flight — every control is disabled while one is. */
   const isBusy = team.pendingAction !== null;
 
-  function isPending(kind: "add" | "role" | "remove", membershipId: string | null): boolean {
+  function isPending(kind: "add" | "role" | "status" | "remove", membershipId: string | null): boolean {
     return team.pendingAction?.kind === kind && team.pendingAction.membershipId === membershipId;
   }
 
@@ -196,6 +217,72 @@ export function TeamManagement({
                 </span>
               )}
 
+              {/*
+                Suspend / Reactivate (ADR-029 §14) — one control per row, whose
+                direction is decided by the status the SERVER reported.
+
+                An `invited` row gets neither: a manager can neither accept an
+                invitation on someone's behalf nor suspend access that was never
+                granted, so offering a button would be offering a 409. The row
+                already explains itself through `STATUS_HINT` above.
+              */}
+              {member.status === "active" &&
+                (confirmingSuspensionOf === member.id ? (
+                  /*
+                    Suspension CONFIRMS, and the confirmation names the person
+                    and states the consequence — it cuts a colleague's access
+                    immediately and silently releases their conversations. The
+                    same treatment removal gets, for the same reason.
+                  */
+                  <span className="team__confirm" role="alertdialog" aria-label="Confirm suspension">
+                    <span className="team__confirmText">
+                      Suspend {member.user?.name ?? "this member"}? They lose access to this
+                      organization immediately, and any conversations they hold return to the
+                      unassigned queue.
+                    </span>
+                    <Button size="sm" disabled={isBusy} onClick={() => void handleSuspend(member.id)}>
+                      Yes, suspend
+                    </Button>
+                    <button
+                      type="button"
+                      className="team__cancel"
+                      disabled={isBusy}
+                      onClick={() => setConfirmingSuspensionOf(null)}
+                    >
+                      Cancel
+                    </button>
+                  </span>
+                ) : (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={isBusy}
+                    onClick={() => {
+                      // One question open at a time.
+                      setConfirmingRemovalOf(null);
+                      setConfirmingSuspensionOf(member.id);
+                    }}
+                  >
+                    {isPending("status", member.id) ? "Suspending…" : "Suspend"}
+                  </Button>
+                ))}
+
+              {/*
+                Reactivation does NOT confirm (ADR-029 §14): it restores access
+                rather than taking it away, and it is undone by suspending
+                again.
+              */}
+              {member.status === "suspended" && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={isBusy}
+                  onClick={() => void team.changeStatus(member.id, "active")}
+                >
+                  {isPending("status", member.id) ? "Reactivating…" : "Reactivate"}
+                </Button>
+              )}
+
               {confirmingRemovalOf === member.id ? (
                 /*
                   Removal is irreversible from this surface — re-adding needs
@@ -229,7 +316,11 @@ export function TeamManagement({
                   variant="secondary"
                   size="sm"
                   disabled={isBusy}
-                  onClick={() => setConfirmingRemovalOf(member.id)}
+                  onClick={() => {
+                    // One question open at a time.
+                    setConfirmingSuspensionOf(null);
+                    setConfirmingRemovalOf(member.id);
+                  }}
                 >
                   {isPending("remove", member.id) ? "Removing…" : "Remove"}
                 </Button>

@@ -12,6 +12,7 @@ import { logger } from "../lib/logger";
 import { INVALID_TOKEN_MESSAGE, SESSION_REFUSED_MESSAGE } from "../middleware/requireWidgetToken";
 import { conversationEvents } from "../modules/conversations/conversationEvents";
 import { conversationRepository } from "../modules/conversations/conversation.repository";
+import { membershipEvents } from "../modules/memberships/membershipEvents";
 import { messageEvents } from "../modules/messages/messageEvents";
 import { createMessageService } from "../modules/messages/message.service";
 import { OBJECT_ID_PATTERN, createMessageSchema } from "../modules/widget/widgetConversation.validation";
@@ -23,6 +24,7 @@ import { SocketRateLimiter } from "./socketRateLimit";
 
 import type { AuthLogger } from "../modules/auth/authLogging";
 import type { ConversationUpdatedEvent } from "../modules/conversations/conversationEvents";
+import type { MembershipRevokedEvent } from "../modules/memberships/membershipEvents";
 import type { MessageCreatedEvent } from "../modules/messages/messageEvents";
 import type { AgentSocketPrincipal } from "./socketAuthentication";
 import type { WidgetPrincipal } from "../modules/widget/widgetToken";
@@ -158,18 +160,97 @@ export function createSocketServer(httpServer: HttpServer, options: CreateSocket
   });
 
   /*
+    THE REVOCATION SUBSCRIBER (ADR-029 §9), and the first one in this file that
+    does not emit anything.
+
+    Both of Serviqo's membership gates run exactly once — `requireOrganization`
+    per request (ADR-017 §2) and `authenticateSocketHandshake` per connection
+    (ADR-025 §9) — while the two broadcasts above perform ZERO membership
+    lookups per event, deliberately, because re-proving membership per event
+    would put a database round-trip on every message in the product. So a
+    member whose access was just revoked keeps receiving this tenant's traffic
+    for as long as their socket happens to stay open.
+
+    This closes it, for suspension (ADR-029 §6) and for removal (ADR-027 §10)
+    alike — the service publishes from both paths.
+
+    NOTHING IS DELIVERED TO ANYONE. That is what separates this from the roster
+    broadcast ADR-027 §15 declined: no connected client is told that a
+    membership changed, no colleague learns who was suspended, and the payload
+    never reaches a wire. The only observable effect is that one person's own
+    connections end.
+
+    NO CUSTOMER SOCKET IS REACHABLE FROM HERE. The filter matches on the AGENT
+    identity `socketAuthentication` established; a widget socket carries a
+    customer principal with no `userId` at all, so the `kind === "agent"` check
+    is a type guard and a security boundary at once.
+
+    Scoped to the tenant's inbox room rather than the whole server, so one
+    organization's revocation cannot reach a socket of another — the same room
+    scoping every broadcast in this file relies on (ADR-025 §9). A person who
+    is an agent in two tenants keeps the other tenant's connection, which is
+    correct: this tenant revoked them, not Serviqo.
+  */
+  const unsubscribeMemberships = membershipEvents.subscribe((event: MembershipRevokedEvent) => {
+    const { organizationId, userId, reason } = event;
+
+    /*
+      `fetchSockets()` is async and this subscriber is synchronous — the seam's
+      `publish` is deliberately fire-and-forget so a durable membership write
+      is never failed by the transport. Errors are swallowed into a log line
+      for the same reason: the member is already revoked at both gates, and
+      this is the belt to that pair of braces.
+    */
+    void (async () => {
+      try {
+        const sockets = await io.in(organizationInboxRoomName(organizationId)).fetchSockets();
+
+        let disconnected = 0;
+        for (const socket of sockets) {
+          const identity = socket.data.identity;
+          if (identity?.kind !== "agent") continue;
+          if (identity.principal.userId !== userId) continue;
+
+          // `true` closes the underlying connection rather than only the
+          // namespace, so the client cannot keep the transport and re-join.
+          socket.disconnect(true);
+          disconnected += 1;
+        }
+
+        logger.info(
+          { event: "socket.membership.revoked", organizationId, userId, reason, disconnectedSockets: disconnected },
+          "Closed a revoked member's agent sockets",
+        );
+      } catch (err) {
+        logger.error(
+          {
+            event: "socket.membership.revoke_failed",
+            organizationId,
+            userId,
+            reason,
+            failureType: err instanceof Error ? err.name : "UnknownError",
+          },
+          "A revoked member's agent sockets could not be closed",
+        );
+      }
+    })();
+  });
+
+  /*
     Tied to the HTTP server's lifecycle rather than left to be tidied by hand
     (ADR-025 §2): a module-scope emitter with per-instance subscribers is safe
     only if the subscribers are actually removed, and a leaked one holding a
     closed `io` is a broadcast into nothing at best.
 
-    BOTH subscriptions, from one handler — a second `once("close", …)` would
-    work equally well today and would be the place a third subscription
-    quietly forgot to register.
+    ALL THREE subscriptions, from one handler — which is exactly why ADR-025 §2
+    put them together rather than in a `once("close", …)` each: this is the
+    third, and it registered here because there was one obvious place for it to
+    go.
   */
   httpServer.once("close", () => {
     unsubscribeMessages();
     unsubscribeConversations();
+    unsubscribeMemberships();
   });
 
   /*

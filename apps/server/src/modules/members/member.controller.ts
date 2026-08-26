@@ -3,7 +3,7 @@ import { created, success } from "../../lib/response";
 import { OBJECT_ID_PATTERN } from "./member.validation";
 
 import type { MemberService } from "./member.service";
-import type { AddMemberInput, UpdateMemberRoleInput } from "./member.validation";
+import type { AddMemberInput, UpdateMemberRoleInput, UpdateMemberStatusInput } from "./member.validation";
 import type { RequestHandler } from "express";
 
 export interface MemberControllerDependencies {
@@ -20,8 +20,10 @@ export interface MemberControllerDependencies {
  * response.
  *
  * Note what these handlers never read: `req.body.organizationId`,
- * `req.body.userId`, `req.body.membershipId`, `req.body.status`,
- * `req.body.invitedByUserId`, `req.query.organizationId`. The tenant comes from
+ * `req.body.userId`, `req.body.membershipId`, `req.body.invitedByUserId`,
+ * `req.query.organizationId` — and `req.body.status` everywhere except
+ * `changeStatus`, the one route whose purpose is setting it (ADR-029 §1).
+ * The tenant comes from
  * `req.organizationContext`, which `requireOrganization` built from the path
  * segment after proving membership (ADR-017 §1, §5); the acting user comes from
  * `req.principal`, which `requireAccessToken` derived from a verified token;
@@ -110,6 +112,40 @@ export function createMemberController({ memberService }: MemberControllerDepend
   };
 
   /**
+   * Suspends or reactivates a member (ADR-029 §1, §6).
+   *
+   * The target is the PATH segment and the value is the body, so a client
+   * cannot express "suspend this person in that organization" — the tenant it
+   * named in the URL is the only one the service can reach.
+   *
+   * `req.body` is safe to assert: `validateBody(updateMemberStatusSchema)`
+   * replaced it with exactly `{ status }`. A `membershipId`, `organizationId`,
+   * `userId`, or `role` sent alongside it was stripped, not rejected, so a
+   * forged value never becomes observable to this handler at all
+   * (ADR-029 §4).
+   *
+   * Answers 200 with the same projection the roster returns, plus the number
+   * of conversations the suspension released — the invisible consequence of
+   * the action, stated for the reason removal states it (ADR-029 §13).
+   */
+  const changeStatus: RequestHandler = async (req, res) => {
+    const { organizationId } = req.organizationContext!;
+    const { userId } = req.principal!;
+    const membershipId = requireWellFormedMembershipId(req.params.membershipId);
+    const { status } = req.body as UpdateMemberStatusInput;
+
+    const { member, releasedConversations } = await memberService.changeStatus(
+      organizationId,
+      membershipId,
+      status,
+      { userId },
+      req.log,
+    );
+
+    success(res, { member, releasedConversations });
+  };
+
+  /**
    * Removes a member and releases their conversations (ADR-027 §7, §10).
    *
    * Answers 200 with the removed member and the number of conversations that
@@ -134,5 +170,5 @@ export function createMemberController({ memberService }: MemberControllerDepend
     success(res, { member: removed, releasedConversations });
   };
 
-  return { listMembers, addMember, changeRole, removeMember };
+  return { listMembers, addMember, changeRole, changeStatus, removeMember };
 }

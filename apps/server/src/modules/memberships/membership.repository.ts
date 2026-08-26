@@ -174,6 +174,49 @@ export const membershipRepository = {
   },
 
   /**
+   * Changes one membership's STATUS, scoped by both ids and guarded on the
+   * status it expects to find (ADR-029 §6, §7).
+   *
+   * `status: from` IS IN THE FILTER, so the transition is a precondition of the
+   * write rather than a check that preceded it. Two managers suspending the
+   * same person simultaneously both find `active`; MongoDB applies each update
+   * atomically to that one document, so exactly ONE matches and the other
+   * matches nothing and is refused. The same property `demoteOwner` relies on
+   * (ADR-028 §8b), applied to a different field.
+   *
+   * `role: { $ne: "owner" }` IS A BACKSTOP, never the error path. The service
+   * checks the owner membership first and raises
+   * `OrganizationOwnerProtectedError`, which is the answer a caller can act on
+   * (ADR-029 §7); this filter exists so the WRITE cannot land on an owner
+   * document even if a future branch reached it wrongly. A suspended owner is
+   * a fourth route to ADR-016 §3's unrecoverable tenant, and one guard for it
+   * is not enough.
+   *
+   * `null` means the membership is gone, belongs to another tenant, is the
+   * owner, or is no longer in `from` — and the caller must not distinguish
+   * them, because the service already established which of those it is before
+   * calling. A `null` here is a lost race, not a diagnosis.
+   *
+   * Deliberately NOT a general `update(id, patch)`, and deliberately not a
+   * `setStatus(id, status)` without `from`. The narrowness rule this file's
+   * header states: a method that can write any field is a method that can
+   * write `organizationId` by accident, and a method that can write any status
+   * is one that can silently absorb a no-op.
+   */
+  async updateStatusForOrganization(
+    membershipId: ObjectIdLike,
+    organizationId: ObjectIdLike,
+    from: MembershipStatus,
+    to: MembershipStatus,
+  ): Promise<MembershipDocument | null> {
+    return MembershipModel.findOneAndUpdate(
+      { _id: membershipId, organizationId, status: from, role: { $ne: "owner" } },
+      { $set: { status: to } },
+      { returnDocument: "after" },
+    );
+  },
+
+  /**
    * STEP 1 OF OWNERSHIP TRANSFER: demotes the current owner (ADR-028 §8).
    *
    * `role: "owner"` IS IN THE FILTER, and that is the whole concurrency

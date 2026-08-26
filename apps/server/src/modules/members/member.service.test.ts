@@ -6,6 +6,8 @@ import { ConversationModel } from "../conversations/conversation.model";
 import { conversationEvents } from "../conversations/conversationEvents";
 import { conversationRepository } from "../conversations/conversation.repository";
 import { MembershipModel } from "../memberships/membership.model";
+import { membershipEvents } from "../memberships/membershipEvents";
+import { can } from "../memberships/permissions";
 import { OrganizationModel } from "../organizations/organization.model";
 import { UserModel } from "../users/user.model";
 import { createMemberService } from "./member.service";
@@ -539,6 +541,371 @@ describe("memberService", () => {
       // The ids ARE present — an operator needs them to answer "who did what".
       expect(output).toContain(actor.userId);
       expect(output).toContain(newcomer._id.toString());
+    });
+  });
+
+  // ==================== suspension / reactivation (ADR-029) ====================
+
+  describe("changeStatus", () => {
+    /** One conversation in this tenant, claimed by the given user. */
+    async function assignedConversation(organizationId: string, userId: string) {
+      const conversation = await conversationRepository.create(organizationId, new Types.ObjectId());
+      await conversationRepository.claimForUser(conversation._id, organizationId, userId);
+      return conversation;
+    }
+
+    /** Collects every membership-revoked event published while a block runs. */
+    async function withRevocations<T>(fn: () => Promise<T>) {
+      const events: { organizationId: string; userId: string; reason: string }[] = [];
+      const unsubscribe = membershipEvents.subscribe((event) => events.push(event));
+      try {
+        return { result: await fn(), events };
+      } finally {
+        unsubscribe();
+      }
+    }
+
+    // ---- the two transitions that exist ----
+
+    it("suspends an active member", async () => {
+      const t = await tenant();
+      const capture = createCapturingLogger();
+
+      const { member } = await service.changeStatus(
+        t.organizationId,
+        t.agentMembershipId,
+        "suspended",
+        t.actor,
+        capture.log,
+      );
+
+      expect(member.status).toBe("suspended");
+      expect((await MembershipModel.findById(t.agentMembershipId))!.status).toBe("suspended");
+    });
+
+    it("reactivates a suspended member", async () => {
+      const t = await tenant();
+      await MembershipModel.updateOne({ _id: t.agentMembershipId }, { $set: { status: "suspended" } });
+
+      const { member } = await service.changeStatus(t.organizationId, t.agentMembershipId, "active", {
+        userId: t.actor.userId,
+      });
+
+      expect(member.status).toBe("active");
+      expect((await MembershipModel.findById(t.agentMembershipId))!.status).toBe("active");
+    });
+
+    it("writes no field other than status", async () => {
+      const t = await tenant();
+
+      await service.changeStatus(t.organizationId, t.agentMembershipId, "suspended", t.actor);
+
+      const stored = await MembershipModel.findById(t.agentMembershipId);
+      expect(stored!.role).toBe("agent");
+      expect(stored!.organizationId.toString()).toBe(t.organizationId);
+    });
+
+    // ---- the transitions that do not (ADR-029 §6) ----
+
+    it.each([
+      ["active", "active"],
+      ["suspended", "suspended"],
+    ] as const)("refuses the no-op %s → %s rather than absorbing it", async (from, to) => {
+      const t = await tenant();
+      await MembershipModel.updateOne({ _id: t.agentMembershipId }, { $set: { status: from } });
+
+      await expect(
+        service.changeStatus(t.organizationId, t.agentMembershipId, to, t.actor),
+      ).rejects.toMatchObject({ code: "MEMBER_STATUS_TRANSITION_INVALID", httpStatus: 409 });
+
+      expect((await MembershipModel.findById(t.agentMembershipId))!.status).toBe(from);
+    });
+
+    it.each([["active"], ["suspended"]] as const)(
+      "refuses an invited membership going to %s",
+      async (to) => {
+        const t = await tenant();
+        await MembershipModel.updateOne({ _id: t.agentMembershipId }, { $set: { status: "invited" } });
+
+        await expect(
+          service.changeStatus(t.organizationId, t.agentMembershipId, to, t.actor),
+        ).rejects.toMatchObject({ code: "MEMBER_STATUS_TRANSITION_INVALID" });
+
+        expect((await MembershipModel.findById(t.agentMembershipId))!.status).toBe("invited");
+      },
+    );
+
+    // ---- the structural refusals (ADR-029 §7) ----
+
+    /*
+      A SUSPENDED OWNER is a fourth route to ADR-016 §3's unrecoverable tenant:
+      an owner who cannot sign in, nobody able to administer the organization,
+      and nobody able to transfer it out because `organization.transfer_ownership`
+      is owner-only (ADR-028 §2).
+    */
+    it("refuses to suspend the owner", async () => {
+      const t = await tenant();
+      const ownerMembership = await MembershipModel.findOne({
+        organizationId: t.organizationId,
+        role: "owner",
+      });
+
+      await expect(
+        service.changeStatus(t.organizationId, ownerMembership!._id.toString(), "suspended", {
+          userId: t.agentUser._id.toString(),
+        }),
+      ).rejects.toMatchObject({ code: "ORGANIZATION_OWNER_PROTECTED", httpStatus: 409 });
+
+      expect((await MembershipModel.findById(ownerMembership!._id))!.status).toBe("active");
+    });
+
+    it("leaves exactly one active owner after an owner suspension is refused", async () => {
+      const t = await tenant();
+      const ownerMembership = await MembershipModel.findOne({
+        organizationId: t.organizationId,
+        role: "owner",
+      });
+
+      await service
+        .changeStatus(t.organizationId, ownerMembership!._id.toString(), "suspended", { userId: t.agentUser._id.toString() })
+        .catch(() => undefined);
+
+      const owners = await MembershipModel.find({ organizationId: t.organizationId, role: "owner" });
+      expect(owners).toHaveLength(1);
+      expect(owners[0]!.status).toBe("active");
+    });
+
+    it("refuses the caller's own membership", async () => {
+      const t = await tenant();
+
+      await expect(
+        service.changeStatus(t.organizationId, t.agentMembershipId, "suspended", { userId: t.agentUser._id.toString() }),
+      ).rejects.toMatchObject({ code: "MEMBER_SELF_MODIFICATION" });
+    });
+
+    it("refuses an unknown membership with the generic not-found error", async () => {
+      const t = await tenant();
+
+      await expect(
+        service.changeStatus(t.organizationId, new Types.ObjectId().toString(), "suspended", {
+          userId: t.actor.userId,
+        }),
+      ).rejects.toMatchObject({ code: "NOT_FOUND", httpStatus: 404 });
+    });
+
+    /*
+      ADR-029 §5 — isolation produced by the query. Another tenant's membership
+      is refused IDENTICALLY to one that does not exist.
+    */
+    it("refuses another organization's membership identically to an unknown one", async () => {
+      const t = await tenant();
+      const other = await tenant();
+
+      const crossTenant = await service
+        .changeStatus(t.organizationId, other.agentMembershipId, "suspended", t.actor)
+        .catch((e: Error) => e);
+      const unknown = await service
+        .changeStatus(t.organizationId, new Types.ObjectId().toString(), "suspended", t.actor)
+        .catch((e: Error) => e);
+
+      expect(crossTenant).toMatchObject({ code: "NOT_FOUND" });
+      expect((crossTenant as Error).message).toBe((unknown as Error).message);
+      expect((await MembershipModel.findById(other.agentMembershipId))!.status).toBe("active");
+    });
+
+    // ---- assignment cleanup (ADR-029 §10) ----
+
+    it("releases the suspended member's conversations and publishes each one", async () => {
+      const t = await tenant();
+      const first = await assignedConversation(t.organizationId, t.agentUser._id.toString());
+      const second = await assignedConversation(t.organizationId, t.agentUser._id.toString());
+
+      const { result, events } = await withPublishedEvents(() =>
+        service.changeStatus(t.organizationId, t.agentMembershipId, "suspended", t.actor),
+      );
+
+      expect(result.releasedConversations).toBe(2);
+      expect(events).toHaveLength(2);
+      expect((await ConversationModel.findById(first._id))!.assignedTo).toBeNull();
+      expect((await ConversationModel.findById(second._id))!.assignedTo).toBeNull();
+    });
+
+    /* The conversations themselves survive — only the assignment is cleared. */
+    it("preserves the conversations it releases", async () => {
+      const t = await tenant();
+      const conversation = await assignedConversation(t.organizationId, t.agentUser._id.toString());
+
+      await service.changeStatus(t.organizationId, t.agentMembershipId, "suspended", t.actor);
+
+      const stored = await ConversationModel.findById(conversation._id);
+      expect(stored).not.toBeNull();
+      expect(stored!.organizationId.toString()).toBe(t.organizationId);
+      expect(stored!.status).toBe(conversation.status);
+    });
+
+    it("does not touch another member's assignments", async () => {
+      const t = await tenant();
+      const theirs = await assignedConversation(t.organizationId, t.agentUser._id.toString());
+      const ownersOwn = await assignedConversation(t.organizationId, t.actor.userId);
+
+      await service.changeStatus(t.organizationId, t.agentMembershipId, "suspended", t.actor);
+
+      expect((await ConversationModel.findById(theirs._id))!.assignedTo).toBeNull();
+      expect((await ConversationModel.findById(ownersOwn._id))!.assignedTo!.toString()).toBe(t.actor.userId);
+    });
+
+    /*
+      UNCONDITIONAL, not `can()`-derived (ADR-029 §10). Under today's catalogue
+      `agent` holds `conversation.assign`, so a `can()`-gated release would
+      release NOTHING and strand the conversations on someone locked out —
+      exactly ADR-026 §15's hole reopened. This asserts the premise directly.
+    */
+    it("releases even though the suspended member's role still holds conversation.assign", async () => {
+      const t = await tenant();
+      await assignedConversation(t.organizationId, t.agentUser._id.toString());
+
+      const { releasedConversations } = await service.changeStatus(
+        t.organizationId,
+        t.agentMembershipId,
+        "suspended",
+        t.actor,
+      );
+
+      expect(can("agent", "conversation.assign")).toBe(true);
+      expect(releasedConversations).toBe(1);
+    });
+
+    /* ADR-029 §10: reactivation restores access and NOTHING else. */
+    it("does not restore assignments on reactivation", async () => {
+      const t = await tenant();
+      const conversation = await assignedConversation(t.organizationId, t.agentUser._id.toString());
+
+      await service.changeStatus(t.organizationId, t.agentMembershipId, "suspended", t.actor);
+      const { result, events } = await withPublishedEvents(() =>
+        service.changeStatus(t.organizationId, t.agentMembershipId, "active", t.actor),
+      );
+
+      expect(result.releasedConversations).toBe(0);
+      expect(events).toEqual([]);
+      expect((await ConversationModel.findById(conversation._id))!.assignedTo).toBeNull();
+    });
+
+    // ---- the revocation seam (ADR-029 §9) ----
+
+    it("publishes a revocation when suspending", async () => {
+      const t = await tenant();
+
+      const { events } = await withRevocations(() =>
+        service.changeStatus(t.organizationId, t.agentMembershipId, "suspended", t.actor),
+      );
+
+      expect(events).toEqual([
+        { organizationId: t.organizationId, userId: t.agentUser._id.toString(), reason: "suspended" },
+      ]);
+    });
+
+    /* Reactivation is not a revocation — a "reconnect now" push would be a
+       client instruction, which this seam is not. */
+    it("publishes nothing when reactivating", async () => {
+      const t = await tenant();
+      await MembershipModel.updateOne({ _id: t.agentMembershipId }, { $set: { status: "suspended" } });
+
+      const { events } = await withRevocations(() =>
+        service.changeStatus(t.organizationId, t.agentMembershipId, "active", t.actor),
+      );
+
+      expect(events).toEqual([]);
+    });
+
+    it("publishes nothing when the transition is refused", async () => {
+      const t = await tenant();
+
+      const { events } = await withRevocations(async () =>
+        service
+          .changeStatus(t.organizationId, t.agentMembershipId, "active", t.actor)
+          .catch(() => undefined),
+      );
+
+      expect(events).toEqual([]);
+    });
+
+    /*
+      ADR-029 §9's second writer. Removal produces the identical revoked state
+      and had the identical live-socket hole; one subscriber, two writers.
+    */
+    it("publishes a revocation when a member is removed", async () => {
+      const t = await tenant();
+
+      const { events } = await withRevocations(() =>
+        service.removeMember(t.organizationId, t.agentMembershipId, t.actor),
+      );
+
+      expect(events).toEqual([{ organizationId: t.organizationId, userId: t.agentUser._id.toString(), reason: "removed" }]);
+    });
+
+    it("carries only two ids and a reason — never a name, an email, or a role", () => {
+      const seen: Record<string, unknown>[] = [];
+      const unsubscribe = membershipEvents.subscribe((event) => seen.push(event as unknown as Record<string, unknown>));
+      membershipEvents.publish({ organizationId: "org", userId: "user", reason: "suspended" });
+      unsubscribe();
+
+      expect(Object.keys(seen[0]!).sort()).toEqual(["organizationId", "reason", "userId"]);
+    });
+
+    // ---- log hygiene (ADR-029 §12) ----
+
+    it("logs ids, statuses, and a count — never a name or an email", async () => {
+      const t = await tenant();
+      const capture = createCapturingLogger();
+
+      await service.changeStatus(t.organizationId, t.agentMembershipId, "suspended", t.actor, capture.log);
+
+      expect(capture.find("member.status_changed")).toMatchObject({
+        organizationId: t.organizationId,
+        actorUserId: t.actor.userId,
+        membershipId: t.agentMembershipId,
+        targetUserId: t.agentUser._id.toString(),
+        previousStatus: "active",
+        status: "suspended",
+        role: "agent",
+        releasedConversations: 0,
+      });
+      expect(capture.serialized()).not.toContain(SECRET_NAME);
+      expect(capture.serialized()).not.toContain(SECRET_EMAIL_PREFIX);
+      expect(capture.serialized()).not.toContain("hashed-value");
+    });
+
+    it.each([
+      ["invalid_transition", "active" as const],
+    ])("puts %s in the log and never in the thrown error", async (reason, to) => {
+      const t = await tenant();
+      const capture = createCapturingLogger();
+
+      const error = await service
+        .changeStatus(t.organizationId, t.agentMembershipId, to, t.actor, capture.log)
+        .catch((e: Error) => e);
+
+      expect(capture.find("member.status_change_refused")).toMatchObject({ reason });
+      expect((error as Error).message).not.toContain(reason);
+      expect(capture.serialized()).not.toContain(SECRET_NAME);
+      expect(capture.serialized()).not.toContain(SECRET_EMAIL_PREFIX);
+    });
+
+    it("never logs a name or an email when refusing the owner", async () => {
+      const t = await tenant();
+      const ownerMembership = await MembershipModel.findOne({
+        organizationId: t.organizationId,
+        role: "owner",
+      });
+      const capture = createCapturingLogger();
+
+      await service
+        .changeStatus(t.organizationId, ownerMembership!._id.toString(), "suspended", { userId: t.agentUser._id.toString() }, capture.log)
+        .catch(() => undefined);
+
+      expect(capture.find("member.status_change_refused")).toMatchObject({ reason: "owner_protected" });
+      expect(capture.serialized()).not.toContain(SECRET_NAME);
+      expect(capture.serialized()).not.toContain(SECRET_EMAIL_PREFIX);
     });
   });
 });

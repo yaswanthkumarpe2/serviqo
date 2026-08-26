@@ -161,6 +161,60 @@ export function changeMemberRole(
 }
 
 /**
+ * The statuses a client may ask for (ADR-029 §3).
+ *
+ * `invited` is absent, and its absence is the point: an invitation is accepted
+ * by the invitee, so no manager request may set it. The server's schema refuses
+ * the value regardless — this type only stops the client from building a
+ * request it knows will be refused, exactly as `AssignableRole` does for
+ * `owner`.
+ */
+export type SettableStatus = "active" | "suspended";
+
+/** What a status change reports back (ADR-029 §13). */
+export interface ChangeMemberStatusResult {
+  member: OrganizationMember;
+  /**
+   * How many conversations were released because the suspended member held
+   * them. Always `0` for a reactivation, which restores access and no
+   * assignments (ADR-029 §10).
+   */
+  releasedConversations: number;
+}
+
+/**
+ * Suspends or reactivates one member (ADR-029 §1, §6).
+ *
+ * The target is a PATH segment and the value is the body — the same shape
+ * `changeMemberRole` above uses, so this call cannot express "suspend this
+ * person in that organization". The tenant in the URL is the only one the
+ * server will reach.
+ *
+ * ONE function for both directions, matching the server's one route: both need
+ * `member.manage`, so `status` selects a transition rather than a permission.
+ *
+ * Answers 409 for the owner membership, for the caller's own, and for any
+ * transition that is not `active → suspended` or `suspended → active` —
+ * including both no-ops, which the server refuses rather than absorbing.
+ */
+export function changeMemberStatus(
+  authorizedFetch: AuthorizedFetch,
+  organizationId: string,
+  membershipId: string,
+  status: SettableStatus,
+): Promise<ChangeMemberStatusResult> {
+  return callMembers<ChangeMemberStatusResult>(
+    authorizedFetch,
+    membersPath(organizationId, `/${encodeURIComponent(membershipId)}/status`),
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    },
+  );
+}
+
+/**
  * Removes a member from the organization (ADR-027 §7, §10).
  *
  * No body — the target is the path and there is nothing else to say.

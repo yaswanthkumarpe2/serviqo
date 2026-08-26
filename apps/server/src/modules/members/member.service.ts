@@ -3,6 +3,7 @@ import {
   MemberNotFoundError,
   MemberNotInvitableError,
   MemberSelfModificationError,
+  MemberStatusTransitionError,
   OrganizationOwnerProtectedError,
 } from "../../lib/errors";
 import { logger } from "../../lib/logger";
@@ -10,13 +11,14 @@ import { failureType } from "../auth/authLogging";
 import { conversationRepository } from "../conversations/conversation.repository";
 import { conversationEvents, toConversationUpdatedEvent } from "../conversations/conversationEvents";
 import { membershipRepository } from "../memberships/membership.repository";
+import { membershipEvents } from "../memberships/membershipEvents";
 import { can } from "../memberships/permissions";
 import { normalizeEmail } from "../users/user.model";
 import { userRepository } from "../users/user.repository";
 import { sortMembers, toMemberResponse } from "./member.responses";
 
 import type { AuthLogger } from "../auth/authLogging";
-import type { MembershipDocument, MembershipRole } from "../memberships/membership.model";
+import type { MembershipDocument, MembershipRole, MembershipStatus } from "../memberships/membership.model";
 import type { MemberResponse } from "./member.responses";
 import type { AddMemberInput } from "./member.validation";
 
@@ -60,6 +62,13 @@ const OWNER_PROTECTED_MESSAGE =
 
 const SELF_MODIFICATION_MESSAGE = "You cannot change or remove your own membership";
 
+/**
+ * Names both legal transitions, because "conflict" alone leaves a manager
+ * unable to tell a stale page from a mistake (ADR-029 §6).
+ */
+const STATUS_TRANSITION_MESSAGE =
+  "That member's status cannot change that way. Only an active member can be suspended, and only a suspended member can be reactivated.";
+
 function isDuplicateKeyError(err: unknown): boolean {
   return typeof err === "object" && err !== null && (err as { code?: unknown }).code === DUPLICATE_KEY_ERROR;
 }
@@ -74,6 +83,7 @@ type RefusalReason =
   | "already_a_member"
   | "owner_protected"
   | "self_modification"
+  | "invalid_transition"
   | "membership_not_found";
 
 /** Who is acting. Both fields come from the server, never from request input (ADR-027 §4). */
@@ -123,6 +133,24 @@ export interface MemberService {
     actor: MemberActor,
     log?: AuthLogger,
   ): Promise<MemberResponse>;
+
+  /**
+   * Suspends or reactivates one membership (ADR-029 §6, §8, §10).
+   *
+   * Refuses the owner membership, the caller's own, and every transition that
+   * is not `active → suspended` or `suspended → active` — including both
+   * no-ops and anything involving `invited`.
+   *
+   * Suspension releases the member's conversations and closes their live agent
+   * sockets. Reactivation restores access and deliberately nothing else.
+   */
+  changeStatus(
+    organizationId: string,
+    membershipId: string,
+    status: MembershipStatus,
+    actor: MemberActor,
+    log?: AuthLogger,
+  ): Promise<{ member: MemberResponse; releasedConversations: number }>;
 
   /**
    * Removes a member from the organization and releases their conversations
@@ -285,6 +313,37 @@ export function createMemberService(): MemberService {
       );
       return 0;
     }
+  }
+
+  /**
+   * Announces that this person's staff access to this tenant has ended
+   * (ADR-029 §9).
+   *
+   * The ONLY subscriber today is `createSocketServer`, which closes that
+   * person's agent sockets. It exists because both membership gates run once —
+   * `requireOrganization` per request and `socketAuthentication` per handshake
+   * — while the Socket.IO fan-out performs zero membership lookups per event.
+   * Without this, a revoked member's already-open socket keeps receiving the
+   * tenant's `message:new` and `conversation:updated` traffic until it happens
+   * to close.
+   *
+   * Called from BOTH revocation paths — suspension and removal — because they
+   * produce the identical state. ADR-027 §10's removal shipped the same hole
+   * and did not name it; one subscriber, two writers, and the older gap closes
+   * with the newer one.
+   *
+   * NOT called on reactivation: the member simply connects again, and a
+   * "reconnect now" push would be a client instruction, which this seam is not.
+   *
+   * `publish` is best-effort and never throws, like both sibling seams — the
+   * membership write is already durable, so nothing here may fail it.
+   */
+  function announceRevocation(
+    organizationId: string,
+    targetUserId: string,
+    reason: "suspended" | "removed",
+  ): void {
+    membershipEvents.publish({ organizationId, userId: targetUserId, reason });
   }
 
   /** Batches the roster's `User` lookups into one query — never one per row (ADR-027 §14). */
@@ -505,6 +564,158 @@ export function createMemberService(): MemberService {
       return toMemberResponse(updated, user);
     },
 
+    async changeStatus(
+      organizationId: string,
+      membershipId: string,
+      status: MembershipStatus,
+      actor: MemberActor,
+      log: AuthLogger = logger,
+    ): Promise<{ member: MemberResponse; releasedConversations: number }> {
+      const membership = await requireMembership(
+        organizationId,
+        membershipId,
+        actor.userId,
+        "member.status_change_refused",
+        log,
+      );
+
+      /*
+        The two structural refusals every member WRITE shares (ADR-027 §7),
+        reused unchanged. Owner-protection carries the weight here: a SUSPENDED
+        OWNER is a fourth route to ADR-016 §3's unrecoverable tenant — an owner
+        who cannot sign in, with nobody able to administer the organization and
+        nobody able to transfer it out, because ADR-028 §2 gives
+        `organization.transfer_ownership` to `owner` alone.
+
+        The repository filter carries `role: { $ne: "owner" }` as well. That is
+        a backstop rather than a duplicate: this branch produces the actionable
+        error, and the filter makes the WRITE unable to land on an owner
+        document even if a future branch reached it wrongly (ADR-029 §7).
+      */
+      assertWriteable(membership, actor.userId, organizationId, "member.status_change_refused", log);
+
+      const previousStatus = membership.status;
+      const targetUserId = membership.userId.toString();
+
+      const context = {
+        organizationId,
+        actorUserId: actor.userId,
+        membershipId,
+        targetUserId,
+        previousStatus,
+        status,
+      };
+
+      /*
+        THE TRANSITION TABLE (ADR-029 §6). Exactly two transitions exist:
+
+          active    → suspended   ✅
+          suspended → active      ✅
+
+        Everything else is refused, INCLUDING BOTH NO-OPS. `PATCH` invites an
+        idempotent reading and `conversationRepository.setStatus` takes the
+        opposite position for conversations — the difference is that a
+        membership's status is an access-control decision, and answering `200`
+        for a revocation that had already happened (or had not) is how a
+        manager on a stale page comes to believe they acted when they did not.
+
+        An `invited` membership lands here too, and cannot be resolved in
+        either direction by a manager: they can neither accept an invitation on
+        someone's behalf nor suspend access that was never granted
+        (ADR-027 §3).
+      */
+      const isSuspending = previousStatus === "active" && status === "suspended";
+      const isReactivating = previousStatus === "suspended" && status === "active";
+
+      if (!isSuspending && !isReactivating) {
+        throw refuse(
+          log,
+          "member.status_change_refused",
+          "invalid_transition",
+          context,
+          new MemberStatusTransitionError(STATUS_TRANSITION_MESSAGE),
+        );
+      }
+
+      const updated = await membershipRepository.updateStatusForOrganization(
+        membershipId,
+        organizationId,
+        previousStatus,
+        status,
+      );
+
+      /*
+        `status: previousStatus` is in the filter, so `null` means a concurrent
+        request already made this transition — two managers suspending the same
+        person, where MongoDB's per-document atomicity lets exactly one win.
+        The loser is refused with the same message a stale page would get,
+        because from the caller's side those are the same situation.
+
+        It also covers the membership being removed between the read and the
+        write, and the owner backstop matching. All three are answered
+        identically on purpose: the service already proved which of them it was
+        before calling, so a `null` here is a lost race rather than a
+        diagnosis (ADR-029 §6).
+      */
+      if (updated === null) {
+        throw refuse(
+          log,
+          "member.status_change_refused",
+          "invalid_transition",
+          context,
+          new MemberStatusTransitionError(STATUS_TRANSITION_MESSAGE),
+        );
+      }
+
+      let releasedConversations = 0;
+
+      if (isSuspending) {
+        /*
+          Revocation first, bookkeeping second — the ordering `removeMember`
+          established and for the identical reason (ADR-027 §10).
+        */
+        announceRevocation(organizationId, targetUserId, "suspended");
+
+        /*
+          UNCONDITIONAL, not derived from `can()` (ADR-029 §10).
+
+          `changeRole` above and ADR-028 §13 both gate their release on
+          `can(newRole, "conversation.assign")`, because a role change takes
+          away ONE PERMISSION. Suspension takes away THE WHOLE TENANT: a
+          suspended member fails `requireOrganization` before any permission is
+          consulted, so no role they still nominally hold can matter. Applying
+          the `can()` predicate here would be applying a test whose premise
+          does not hold — and under today's catalogue it would release nothing,
+          stranding conversations on someone locked out, which is exactly
+          ADR-026 §15's hole reopened.
+        */
+        releasedConversations = await releaseAssignments(organizationId, targetUserId, log);
+      }
+
+      /*
+        Reactivation restores ACCESS AND NOTHING ELSE (ADR-029 §10). The
+        conversations released on suspension went back to the unassigned queue
+        and colleagues may have claimed them since; silently re-assigning would
+        take live work off other people's desks without anyone asking. There is
+        also no record of the prior assignment to restore from, and adding one
+        would be building a suspension-history feature inside a status route.
+      */
+
+      log.info(
+        { event: "member.status_changed", ...context, role: updated.role, releasedConversations },
+        isSuspending ? "Member suspended" : "Member reactivated",
+      );
+
+      /*
+        The `User` is re-read rather than carried from `requireMembership`,
+        which loaded only the membership — one lookup for one row is not the
+        N+1 the list path avoids. The same shape `changeRole` uses.
+      */
+      const user = await userRepository.findById(targetUserId);
+
+      return { member: toMemberResponse(updated, user), releasedConversations };
+    },
+
     async removeMember(
       organizationId: string,
       membershipId: string,
@@ -551,6 +762,13 @@ export function createMemberService(): MemberService {
           new MemberNotFoundError(MEMBER_NOT_FOUND_MESSAGE),
         );
       }
+
+      /*
+        The live socket, closed (ADR-029 §9). BEFORE the assignment cleanup,
+        for the same reason the delete comes before it: cutting the channel is
+        the security-relevant half, and bookkeeping must not delay it.
+      */
+      announceRevocation(organizationId, targetUserId, "removed");
 
       // ADR-026 §15's carried-forward limitation, closed.
       const releasedConversations = await releaseAssignments(organizationId, targetUserId, log);
