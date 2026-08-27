@@ -1,0 +1,102 @@
+/*
+  Product surface, matching the dashboard: Inter, borders over shadows,
+  emerald reserved for the primary action — which here is the Create button
+  and nothing else.
+*/
+
+.orgForm {
+  margin-bottom: 40px;
+  max-width: 640px;
+}
+
+.orgForm__hint {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--text-2);
+  line-height: 1.6;
+}
+
+.orgForm__form {
+  margin-top: 18px;
+}
+
+.orgForm__label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-2);
+  margin-bottom: 6px;
+}
+
+.orgForm__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.orgForm__input {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 12px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.orgForm__input:focus-visible {
+  outline: 2px solid var(--em-600);
+  outline-offset: 1px;
+  border-color: transparent;
+}
+
+.orgForm__input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.orgForm__error {
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+/*
+  The result of the request, not a persisted list. Slice 17 has no way to ask
+  the server which organizations the caller owns — that arrives with /me's
+  membership field in the next slice.
+*/
+.orgForm__created {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.orgForm__createdName {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.orgForm__createdMeta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+/* The part the user did not choose, so it reads as an identifier. */
+.orgForm__slug {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+@media (max-width: 560px) {
+  .orgForm__row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

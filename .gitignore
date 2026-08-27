@@ -8,6 +8,10 @@ dist/
 build/
 *.tsbuildinfo
 
+# Generated widget bundle (apps/web/vite.widget.config.ts) — built, not
+# authored; apps/web/public/ otherwise holds no source assets today.
+apps/web/public/widget.js
+
 # Environment variables
 .env
 .env.local

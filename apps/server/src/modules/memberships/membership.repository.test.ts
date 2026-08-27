@@ -467,4 +467,553 @@ describe("Membership persistence", () => {
 
     expect(membership.toJSON()).not.toHaveProperty("__v");
   });
+
+  /**
+   * ADR-027 §9's tenant-scoped surface — the four methods the team-management
+   * slice added.
+   *
+   * The property every one of these asserts is the same, and it is the whole
+   * isolation mechanism: `organizationId` is a MANDATORY key in the query, so
+   * a membership under another organization is NOT LOCATED rather than being
+   * located and refused. No code compares tenants; the query simply misses.
+   */
+  describe("tenant-scoped member operations (ADR-027)", () => {
+    async function twoOrganizations() {
+      const [userA, userB, orgA, orgB] = await Promise.all([
+        createUser("scoped-a@example.com"),
+        createUser("scoped-b@example.com"),
+        createOrganization("scoped-org-a"),
+        createOrganization("scoped-org-b"),
+      ]);
+      return { userA, userB, orgA, orgB };
+    }
+
+    describe("findByIdForOrganization", () => {
+      it("finds a membership in its own organization", async () => {
+        const { userA, orgA } = await twoOrganizations();
+        const created = await membershipRepository.create({
+          userId: userA._id,
+          organizationId: orgA._id,
+          role: "agent",
+        });
+
+        const found = await membershipRepository.findByIdForOrganization(created._id, orgA._id);
+
+        expect(found).not.toBeNull();
+        expect(found!._id.toString()).toBe(created._id.toString());
+      });
+
+      it("returns null for a membership under another organization", async () => {
+        const { userA, orgA, orgB } = await twoOrganizations();
+        const created = await membershipRepository.create({
+          userId: userA._id,
+          organizationId: orgA._id,
+          role: "agent",
+        });
+
+        expect(await membershipRepository.findByIdForOrganization(created._id, orgB._id)).toBeNull();
+      });
+
+      it("returns null for an id belonging to nothing — indistinguishable from the cross-tenant miss", async () => {
+        const { orgA } = await twoOrganizations();
+
+        expect(await membershipRepository.findByIdForOrganization(new Types.ObjectId(), orgA._id)).toBeNull();
+      });
+    });
+
+    describe("listForOrganization", () => {
+      it("returns only that organization's memberships", async () => {
+        const { userA, userB, orgA, orgB } = await twoOrganizations();
+        await membershipRepository.create({ userId: userA._id, organizationId: orgA._id, role: "owner" });
+        await membershipRepository.create({ userId: userB._id, organizationId: orgB._id, role: "owner" });
+
+        const rows = await membershipRepository.listForOrganization(orgA._id);
+
+        expect(rows).toHaveLength(1);
+        expect(rows[0]!.userId.toString()).toBe(userA._id.toString());
+      });
+
+      it("includes invited and suspended memberships — the roster shows why someone cannot get in", async () => {
+        const { userA, userB, orgA } = await twoOrganizations();
+        await membershipRepository.create({
+          userId: userA._id,
+          organizationId: orgA._id,
+          role: "agent",
+          status: "invited",
+        });
+        await membershipRepository.create({
+          userId: userB._id,
+          organizationId: orgA._id,
+          role: "agent",
+          status: "suspended",
+        });
+
+        const statuses = (await membershipRepository.listForOrganization(orgA._id)).map((m) => m.status);
+
+        expect(statuses.sort()).toEqual(["invited", "suspended"]);
+      });
+
+      it("returns an empty list for an organization with no memberships", async () => {
+        expect(await membershipRepository.listForOrganization(new Types.ObjectId())).toEqual([]);
+      });
+
+      it("orders deterministically, so two reads agree", async () => {
+        const { orgA } = await twoOrganizations();
+        for (let i = 0; i < 5; i += 1) {
+          const user = await createUser(`ordered-${i}@example.com`);
+          await membershipRepository.create({ userId: user._id, organizationId: orgA._id, role: "agent" });
+        }
+
+        const first = (await membershipRepository.listForOrganization(orgA._id)).map((m) => m._id.toString());
+        const second = (await membershipRepository.listForOrganization(orgA._id)).map((m) => m._id.toString());
+
+        expect(second).toEqual(first);
+      });
+    });
+
+    describe("updateRoleForOrganization", () => {
+      it("changes the role and returns the updated document", async () => {
+        const { userA, orgA } = await twoOrganizations();
+        const created = await membershipRepository.create({
+          userId: userA._id,
+          organizationId: orgA._id,
+          role: "agent",
+        });
+
+        const updated = await membershipRepository.updateRoleForOrganization(created._id, orgA._id, "admin");
+
+        expect(updated!.role).toBe("admin");
+        expect((await MembershipModel.findById(created._id))!.role).toBe("admin");
+      });
+
+      it("refuses to reach a membership in another organization", async () => {
+        const { userA, orgA, orgB } = await twoOrganizations();
+        const created = await membershipRepository.create({
+          userId: userA._id,
+          organizationId: orgA._id,
+          role: "agent",
+        });
+
+        expect(await membershipRepository.updateRoleForOrganization(created._id, orgB._id, "admin")).toBeNull();
+        // And it did not write.
+        expect((await MembershipModel.findById(created._id))!.role).toBe("agent");
+      });
+
+      it("writes no field other than role", async () => {
+        const { userA, orgA } = await twoOrganizations();
+        const created = await membershipRepository.create({
+          userId: userA._id,
+          organizationId: orgA._id,
+          role: "agent",
+          status: "suspended",
+        });
+
+        const updated = await membershipRepository.updateRoleForOrganization(created._id, orgA._id, "supervisor");
+
+        expect(updated!.status).toBe("suspended");
+        expect(updated!.organizationId.toString()).toBe(orgA._id.toString());
+        expect(updated!.userId.toString()).toBe(userA._id.toString());
+      });
+    });
+
+    describe("deleteForOrganization", () => {
+      it("removes the membership and returns the removed document", async () => {
+        const { userA, orgA } = await twoOrganizations();
+        const created = await membershipRepository.create({
+          userId: userA._id,
+          organizationId: orgA._id,
+          role: "agent",
+        });
+
+        const removed = await membershipRepository.deleteForOrganization(created._id, orgA._id);
+
+        // The caller needs `userId` off the returned document to release that
+        // person's conversation assignments (ADR-027 §10).
+        expect(removed!.userId.toString()).toBe(userA._id.toString());
+        expect(await MembershipModel.findById(created._id)).toBeNull();
+      });
+
+      it("cannot be aimed at another organization's membership", async () => {
+        const { userA, orgA, orgB } = await twoOrganizations();
+        const created = await membershipRepository.create({
+          userId: userA._id,
+          organizationId: orgA._id,
+          role: "agent",
+        });
+
+        expect(await membershipRepository.deleteForOrganization(created._id, orgB._id)).toBeNull();
+        expect(await MembershipModel.findById(created._id)).not.toBeNull();
+      });
+
+      it("returns null for an id belonging to nothing", async () => {
+        const { orgA } = await twoOrganizations();
+
+        expect(await membershipRepository.deleteForOrganization(new Types.ObjectId(), orgA._id)).toBeNull();
+      });
+    });
+  });
+
+  describe("ownership transfer writes (ADR-028 §8)", () => {
+    async function tenantWithOwner(slug: string) {
+      const [ownerUser, targetUser, organization] = await Promise.all([
+        createUser(`owner-${slug}@example.com`),
+        createUser(`target-${slug}@example.com`),
+        createOrganization(`owner-org-${slug}`),
+      ]);
+      const owner = await membershipRepository.create({
+        userId: ownerUser._id,
+        organizationId: organization._id,
+        role: "owner",
+      });
+      const target = await membershipRepository.create({
+        userId: targetUser._id,
+        organizationId: organization._id,
+        role: "agent",
+      });
+      return { organization, owner, target };
+    }
+
+    describe("demoteOwner", () => {
+      it("demotes the owner and returns the updated document", async () => {
+        const { organization, owner } = await tenantWithOwner("demote");
+
+        const demoted = await membershipRepository.demoteOwner(owner._id, organization._id, "admin");
+
+        expect(demoted!.role).toBe("admin");
+        expect((await MembershipModel.findById(owner._id))!.role).toBe("admin");
+      });
+
+      /*
+        THE CONCURRENCY GUARD (ADR-028 §8b). `role: "owner"` is in the filter,
+        so a second call finds nothing — which is exactly what the loser of two
+        simultaneous transfers observes, and the reason it can never reach the
+        promotion.
+      */
+      it("matches nothing the second time, so only one caller can demote", async () => {
+        const { organization, owner } = await tenantWithOwner("demote-twice");
+
+        expect(await membershipRepository.demoteOwner(owner._id, organization._id, "admin")).not.toBeNull();
+        expect(await membershipRepository.demoteOwner(owner._id, organization._id, "admin")).toBeNull();
+      });
+
+      it("cannot be aimed at another organization's owner", async () => {
+        const { organization, owner } = await tenantWithOwner("demote-cross-a");
+        const other = await tenantWithOwner("demote-cross-b");
+
+        expect(await membershipRepository.demoteOwner(owner._id, other.organization._id, "admin")).toBeNull();
+        expect(await membershipRepository.demoteOwner(other.owner._id, organization._id, "admin")).toBeNull();
+        expect((await MembershipModel.findById(owner._id))!.role).toBe("owner");
+        expect((await MembershipModel.findById(other.owner._id))!.role).toBe("owner");
+      });
+
+      it("refuses a membership that is not the owner", async () => {
+        const { organization, target } = await tenantWithOwner("demote-nonowner");
+
+        expect(await membershipRepository.demoteOwner(target._id, organization._id, "admin")).toBeNull();
+      });
+
+      it("writes no field other than role", async () => {
+        const { organization, owner } = await tenantWithOwner("demote-fields");
+
+        const demoted = await membershipRepository.demoteOwner(owner._id, organization._id, "admin");
+
+        expect(demoted!.status).toBe("active");
+        expect(demoted!.organizationId.toString()).toBe(organization._id.toString());
+      });
+    });
+
+    describe("promoteToOwner", () => {
+      it("promotes an active non-owner once the owner slot is free", async () => {
+        const { organization, owner, target } = await tenantWithOwner("promote");
+        await membershipRepository.demoteOwner(owner._id, organization._id, "admin");
+
+        const promoted = await membershipRepository.promoteToOwner(target._id, organization._id);
+
+        expect(promoted!.role).toBe("owner");
+        expect(await MembershipModel.countDocuments({ organizationId: organization._id, role: "owner" })).toBe(1);
+      });
+
+      /*
+        INDEX B IS THE FINAL AUTHORITY — ADR-027 §8's rule for index A, applied
+        to index B, and the reason the service wraps this call in a `try`.
+
+        A filter constrains the document being MATCHED, not the collection:
+        `role: { $ne: "owner" }` proves the TARGET is not already the owner and
+        says nothing about any other row. So with the owner slot still
+        occupied, the filter matches and the WRITE is rejected. The caller
+        treats this throw exactly as it treats `null` — the promotion did not
+        land, so compensate — and the ordinary flow never reaches it, because
+        `demoteOwner` has already vacated the slot.
+      */
+      it("raises a duplicate key while an owner still exists, and writes nothing", async () => {
+        const { organization, target } = await tenantWithOwner("promote-occupied");
+
+        await expect(membershipRepository.promoteToOwner(target._id, organization._id)).rejects.toMatchObject({
+          code: 11000,
+        });
+        expect((await MembershipModel.findById(target._id))!.role).toBe("agent");
+        expect(await membershipRepository.countOwners(organization._id)).toBe(1);
+      });
+
+      /*
+        The narrow thing `role: { $ne: "owner" }` DOES buy: a promotion never
+        reports success for a document that was already the owner, which would
+        otherwise mask a demote that silently did not happen.
+      */
+      it("refuses a membership that is already the owner", async () => {
+        const { organization, owner } = await tenantWithOwner("promote-already-owner");
+
+        expect(await membershipRepository.promoteToOwner(owner._id, organization._id)).toBeNull();
+      });
+
+      it.each([["invited"], ["suspended"]] as const)("refuses a %s membership", async (status) => {
+        const { organization, owner, target } = await tenantWithOwner(`promote-${status}`);
+        await MembershipModel.updateOne({ _id: target._id }, { $set: { status } });
+        await membershipRepository.demoteOwner(owner._id, organization._id, "admin");
+
+        expect(await membershipRepository.promoteToOwner(target._id, organization._id)).toBeNull();
+        expect(await MembershipModel.countDocuments({ organizationId: organization._id, role: "owner" })).toBe(0);
+      });
+
+      it("cannot be aimed at another organization's membership", async () => {
+        const a = await tenantWithOwner("promote-cross-a");
+        const b = await tenantWithOwner("promote-cross-b");
+        await membershipRepository.demoteOwner(a.owner._id, a.organization._id, "admin");
+
+        expect(await membershipRepository.promoteToOwner(b.target._id, a.organization._id)).toBeNull();
+        expect((await MembershipModel.findById(b.target._id))!.role).toBe("agent");
+      });
+
+      it("returns null for an id belonging to nothing", async () => {
+        const { organization, owner } = await tenantWithOwner("promote-unknown");
+        await membershipRepository.demoteOwner(owner._id, organization._id, "admin");
+
+        expect(await membershipRepository.promoteToOwner(new Types.ObjectId(), organization._id)).toBeNull();
+      });
+    });
+
+    describe("restoreOwner", () => {
+      it("restores a membership this request demoted", async () => {
+        const { organization, owner } = await tenantWithOwner("restore");
+        await membershipRepository.demoteOwner(owner._id, organization._id, "admin");
+
+        const restored = await membershipRepository.restoreOwner(owner._id, organization._id, "admin");
+
+        expect(restored!.role).toBe("owner");
+        expect(await MembershipModel.countDocuments({ organizationId: organization._id, role: "owner" })).toBe(1);
+      });
+
+      /*
+        The guard that keeps this from being a general "make this the owner"
+        primitive: it restores only a document still holding the role the
+        demote left it in.
+      */
+      it("refuses when the role is not the one the demote left behind", async () => {
+        const { organization, owner } = await tenantWithOwner("restore-changed");
+        await membershipRepository.demoteOwner(owner._id, organization._id, "admin");
+        await MembershipModel.updateOne({ _id: owner._id }, { $set: { role: "agent" } });
+
+        expect(await membershipRepository.restoreOwner(owner._id, organization._id, "admin")).toBeNull();
+      });
+
+      it("cannot be aimed at another organization", async () => {
+        const a = await tenantWithOwner("restore-cross-a");
+        const b = await tenantWithOwner("restore-cross-b");
+        await membershipRepository.demoteOwner(a.owner._id, a.organization._id, "admin");
+
+        expect(await membershipRepository.restoreOwner(a.owner._id, b.organization._id, "admin")).toBeNull();
+        expect((await MembershipModel.findById(a.owner._id))!.role).toBe("admin");
+      });
+    });
+
+    describe("countOwners", () => {
+      it("counts one for an ordinary tenant", async () => {
+        const { organization } = await tenantWithOwner("count-one");
+
+        expect(await membershipRepository.countOwners(organization._id)).toBe(1);
+      });
+
+      it("counts zero inside the window between the two writes", async () => {
+        const { organization, owner } = await tenantWithOwner("count-zero");
+        await membershipRepository.demoteOwner(owner._id, organization._id, "admin");
+
+        expect(await membershipRepository.countOwners(organization._id)).toBe(0);
+      });
+
+      it("counts only this organization's owner", async () => {
+        const a = await tenantWithOwner("count-scope-a");
+        await tenantWithOwner("count-scope-b");
+
+        expect(await membershipRepository.countOwners(a.organization._id)).toBe(1);
+      });
+    });
+
+    /*
+      The invariant every guard above exists to protect, asserted against the
+      DATABASE rather than against application code: index B refuses a second
+      owner document outright.
+    */
+    it("cannot store two owners in one organization", async () => {
+      const { organization, target } = await tenantWithOwner("two-owners");
+
+      await expect(
+        MembershipModel.updateOne({ _id: target._id }, { $set: { role: "owner" } }),
+      ).rejects.toMatchObject({ code: 11000 });
+
+      expect(await membershipRepository.countOwners(organization._id)).toBe(1);
+    });
+  });
+
+  describe("membership status writes (ADR-029 §6, §7)", () => {
+    async function tenantWithStatuses(slug: string) {
+      const [ownerUser, memberUser, organization] = await Promise.all([
+        createUser(`status-owner-${slug}@example.com`),
+        createUser(`status-member-${slug}@example.com`),
+        createOrganization(`status-org-${slug}`),
+      ]);
+      const owner = await membershipRepository.create({
+        userId: ownerUser._id,
+        organizationId: organization._id,
+        role: "owner",
+      });
+      const member = await membershipRepository.create({
+        userId: memberUser._id,
+        organizationId: organization._id,
+        role: "agent",
+      });
+      return { organization, owner, member };
+    }
+
+    it("suspends an active membership and returns the updated document", async () => {
+      const { organization, member } = await tenantWithStatuses("suspend");
+
+      const updated = await membershipRepository.updateStatusForOrganization(
+        member._id,
+        organization._id,
+        "active",
+        "suspended",
+      );
+
+      expect(updated!.status).toBe("suspended");
+      expect((await MembershipModel.findById(member._id))!.status).toBe("suspended");
+    });
+
+    it("reactivates a suspended membership", async () => {
+      const { organization, member } = await tenantWithStatuses("reactivate");
+      await MembershipModel.updateOne({ _id: member._id }, { $set: { status: "suspended" } });
+
+      const updated = await membershipRepository.updateStatusForOrganization(
+        member._id,
+        organization._id,
+        "suspended",
+        "active",
+      );
+
+      expect(updated!.status).toBe("active");
+    });
+
+    /*
+      THE CONCURRENCY GUARD (ADR-029 §6). `status: from` is in the filter, so a
+      second suspension of the same person matches nothing — which is exactly
+      what the loser of two managers acting at once observes.
+    */
+    it("matches nothing the second time, so only one caller can make a transition", async () => {
+      const { organization, member } = await tenantWithStatuses("twice");
+
+      expect(
+        await membershipRepository.updateStatusForOrganization(member._id, organization._id, "active", "suspended"),
+      ).not.toBeNull();
+      expect(
+        await membershipRepository.updateStatusForOrganization(member._id, organization._id, "active", "suspended"),
+      ).toBeNull();
+    });
+
+    it("refuses when the current status is not the expected one", async () => {
+      const { organization, member } = await tenantWithStatuses("wrong-from");
+
+      // The document is `active`; a caller expecting `suspended` finds nothing.
+      expect(
+        await membershipRepository.updateStatusForOrganization(member._id, organization._id, "suspended", "active"),
+      ).toBeNull();
+      expect((await MembershipModel.findById(member._id))!.status).toBe("active");
+    });
+
+    it("refuses an invited membership in either direction", async () => {
+      const { organization, member } = await tenantWithStatuses("invited");
+      await MembershipModel.updateOne({ _id: member._id }, { $set: { status: "invited" } });
+
+      expect(
+        await membershipRepository.updateStatusForOrganization(member._id, organization._id, "active", "suspended"),
+      ).toBeNull();
+      expect(
+        await membershipRepository.updateStatusForOrganization(member._id, organization._id, "suspended", "active"),
+      ).toBeNull();
+      expect((await MembershipModel.findById(member._id))!.status).toBe("invited");
+    });
+
+    /*
+      THE OWNER BACKSTOP (ADR-029 §7). The service refuses the owner first and
+      raises the actionable error; this filter is what makes the WRITE unable
+      to land on an owner document even if a future branch reached it wrongly.
+      A suspended owner is a fourth route to ADR-016 §3's unrecoverable tenant.
+    */
+    it("cannot suspend the owner, whatever the caller asks for", async () => {
+      const { organization, owner } = await tenantWithStatuses("owner");
+
+      expect(
+        await membershipRepository.updateStatusForOrganization(owner._id, organization._id, "active", "suspended"),
+      ).toBeNull();
+      expect((await MembershipModel.findById(owner._id))!.status).toBe("active");
+    });
+
+    it("cannot be aimed at another organization's membership", async () => {
+      const a = await tenantWithStatuses("cross-a");
+      const b = await tenantWithStatuses("cross-b");
+
+      expect(
+        await membershipRepository.updateStatusForOrganization(b.member._id, a.organization._id, "active", "suspended"),
+      ).toBeNull();
+      expect((await MembershipModel.findById(b.member._id))!.status).toBe("active");
+    });
+
+    it("returns null for an id belonging to nothing", async () => {
+      const { organization } = await tenantWithStatuses("unknown");
+
+      expect(
+        await membershipRepository.updateStatusForOrganization(
+          new Types.ObjectId(),
+          organization._id,
+          "active",
+          "suspended",
+        ),
+      ).toBeNull();
+    });
+
+    it("writes no field other than status", async () => {
+      const { organization, member } = await tenantWithStatuses("fields");
+
+      const updated = await membershipRepository.updateStatusForOrganization(
+        member._id,
+        organization._id,
+        "active",
+        "suspended",
+      );
+
+      expect(updated!.role).toBe("agent");
+      expect(updated!.organizationId.toString()).toBe(organization._id.toString());
+      expect(updated!.userId.toString()).toBe(member.userId.toString());
+    });
+
+    /*
+      Suspension must not disturb the ownership invariant in any direction —
+      it writes `status` and ownership lives on `role` (ADR-029 §7).
+    */
+    it("leaves the organization's single owner untouched", async () => {
+      const { organization, member } = await tenantWithStatuses("invariant");
+
+      await membershipRepository.updateStatusForOrganization(member._id, organization._id, "active", "suspended");
+
+      expect(await membershipRepository.countOwners(organization._id)).toBe(1);
+    });
+  });
 });

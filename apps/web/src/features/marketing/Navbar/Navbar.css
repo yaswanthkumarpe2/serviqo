@@ -16,19 +16,8 @@
   gap: 8px;
   height: 62px;
 }
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  font-weight: 600;
-  font-size: 16px;
-  letter-spacing: -0.01em;
-}
-.brand__mark {
-  display: grid;
-  place-items: center;
-  flex: 0 0 auto;
-}
+/* .brand / .brand__mark moved to styles/globals.css — the auth and
+   workspace shells render the wordmark without loading this file. */
 .nav__links {
   display: flex;
   align-items: center;

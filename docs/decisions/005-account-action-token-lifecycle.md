@@ -42,10 +42,13 @@ must be deterministic.
 
 `purpose: "email_verification" | "password_reset"`
 
-Invitations, magic-login, MFA codes, OAuth state, and API keys are
-explicitly out of scope. Membership invitations in particular are a
-separate future flow with organization context that this model does not
-carry.
+Invitations, magic-login, MFA codes, OAuth state, API keys, and customer
+visitor credentials are explicitly out of scope. Membership invitations in
+particular are a separate future flow with organization context that this
+model does not carry. Customer visitor credentials are out of scope for a
+more fundamental reason — customers are a different principal type that
+never authenticates and owns no account at all
+([ADR-010](./010-principal-types-organization-users-and-customers.md)).
 
 ### 3. Purpose is part of validation, not metadata
 

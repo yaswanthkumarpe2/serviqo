@@ -1,0 +1,301 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import {
+  AuthApiError,
+  NETWORK_ERROR,
+  UNEXPECTED_RESPONSE,
+  login,
+  logout,
+  logoutAllDevices,
+  refresh,
+} from "./authApi";
+
+const credentials = { email: "ada@example.com", password: "DO_NOT_LEAK_THIS_PASSWORD" };
+
+function mockFetch(status: number, body: unknown) {
+  const fetchMock = vi.fn().mockResolvedValue({
+    ok: status >= 200 && status < 300,
+    status,
+    json: () => Promise.resolve(body),
+  } as Response);
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+const successBody = {
+  success: true,
+  data: {
+    user: { id: "u1", name: "Ada Lovelace", email: "ada@example.com" },
+    accessToken: "header.payload.signature",
+    expiresIn: 900,
+  },
+};
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+describe("login", () => {
+  it("posts JSON to the versioned auth path", async () => {
+    const fetchMock = mockFetch(200, successBody);
+
+    await login(credentials);
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe("/api/v1/auth/login");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toEqual(credentials);
+  });
+
+  // The refresh cookie is SameSite=Strict and path-scoped; a request that
+  // does not carry credentials would never receive it.
+  it("sends credentials so the refresh cookie is accepted", async () => {
+    const fetchMock = mockFetch(200, successBody);
+
+    await login(credentials);
+
+    expect(fetchMock.mock.calls[0]![1].credentials).toBe("same-origin");
+  });
+
+  it("unwraps the success envelope", async () => {
+    mockFetch(200, successBody);
+
+    await expect(login(credentials)).resolves.toEqual(successBody.data);
+  });
+
+  it("surfaces the server's code and message on a failure envelope", async () => {
+    mockFetch(401, {
+      success: false,
+      error: { code: "INVALID_CREDENTIALS", message: "Email or password is incorrect" },
+    });
+
+    await expect(login(credentials)).rejects.toMatchObject({
+      code: "INVALID_CREDENTIALS",
+      message: "Email or password is incorrect",
+      status: 401,
+    });
+  });
+
+  it("carries field-level details through", async () => {
+    mockFetch(400, {
+      success: false,
+      error: {
+        code: "VALIDATION_ERROR",
+        message: "Request validation failed",
+        details: [{ field: "password", message: "Password is required" }],
+      },
+    });
+
+    await expect(login(credentials)).rejects.toMatchObject({
+      code: "VALIDATION_ERROR",
+      issues: [{ field: "password", message: "Password is required" }],
+    });
+  });
+
+  it("defaults issues to an empty list when the server sends none", async () => {
+    mockFetch(403, { success: false, error: { code: "EMAIL_NOT_VERIFIED", message: "Verify your email address" } });
+
+    await expect(login(credentials)).rejects.toMatchObject({ issues: [] });
+  });
+
+  it("names a transport failure without leaking its cause", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValue(new TypeError("Failed to fetch http://internal-host:3001")),
+    );
+
+    const error = await login(credentials).catch((err: unknown) => err);
+
+    expect(error).toBeInstanceOf(AuthApiError);
+    expect((error as AuthApiError).code).toBe(NETWORK_ERROR);
+    expect((error as AuthApiError).message).not.toContain("internal-host");
+  });
+
+  it("rejects a non-envelope body rather than trusting it", async () => {
+    mockFetch(200, { token: "not-our-shape" });
+
+    await expect(login(credentials)).rejects.toMatchObject({ code: UNEXPECTED_RESPONSE });
+  });
+
+  it("rejects an error response whose body is not JSON", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: false, status: 502, json: () => Promise.reject(new Error("no json")) } as Response),
+    );
+
+    await expect(login(credentials)).rejects.toMatchObject({ code: UNEXPECTED_RESPONSE, status: 502 });
+  });
+});
+
+describe("refresh", () => {
+  it("posts to the versioned refresh path", async () => {
+    const fetchMock = mockFetch(200, successBody);
+
+    await refresh();
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe("/api/v1/auth/refresh");
+    expect(init.method).toBe("POST");
+  });
+
+  // ADR-012 §1: the credential is the cookie and only the cookie. A body or a
+  // bearer header would be a second place to look for one.
+  it("sends no body and no headers", async () => {
+    const fetchMock = mockFetch(200, successBody);
+
+    await refresh();
+
+    const [, init] = fetchMock.mock.calls[0]!;
+    expect(init.body).toBeUndefined();
+    expect(init.headers).toBeUndefined();
+  });
+
+  it("sends credentials so the browser attaches the refresh cookie", async () => {
+    const fetchMock = mockFetch(200, successBody);
+
+    await refresh();
+
+    expect(fetchMock.mock.calls[0]![1].credentials).toBe("same-origin");
+  });
+
+  it("unwraps the same shape login returns", async () => {
+    mockFetch(200, successBody);
+
+    await expect(refresh()).resolves.toEqual(successBody.data);
+  });
+
+  // The ordinary answer for a browser that is simply not signed in.
+  it("surfaces the server's refusal code on a 401", async () => {
+    mockFetch(401, {
+      success: false,
+      error: { code: "INVALID_REFRESH_TOKEN", message: "Refresh token is invalid or expired" },
+    });
+
+    await expect(refresh()).rejects.toMatchObject({ code: "INVALID_REFRESH_TOKEN", status: 401 });
+  });
+
+  it("names a transport failure without echoing its message", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch http://internal-host:3001")));
+
+    const error = await refresh().catch((err: unknown) => err);
+
+    expect((error as AuthApiError).code).toBe(NETWORK_ERROR);
+    expect((error as AuthApiError).message).not.toContain("internal-host");
+  });
+
+  it("rejects a non-envelope body rather than trusting it", async () => {
+    mockFetch(200, { accessToken: "not-our-shape" });
+
+    await expect(refresh()).rejects.toMatchObject({ code: UNEXPECTED_RESPONSE });
+  });
+});
+
+describe("logout", () => {
+  const logoutBody = { success: true, data: {} };
+
+  it("posts to the versioned logout path", async () => {
+    const fetchMock = mockFetch(200, logoutBody);
+
+    await logout();
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe("/api/v1/auth/logout");
+    expect(init.method).toBe("POST");
+  });
+
+  // ADR-013 §3: the credential is the cookie and only the cookie.
+  it("sends no body and no headers", async () => {
+    const fetchMock = mockFetch(200, logoutBody);
+
+    await logout();
+
+    const [, init] = fetchMock.mock.calls[0]!;
+    expect(init.body).toBeUndefined();
+    expect(init.headers).toBeUndefined();
+  });
+
+  it("sends credentials so the browser attaches the refresh cookie", async () => {
+    const fetchMock = mockFetch(200, logoutBody);
+
+    await logout();
+
+    expect(fetchMock.mock.calls[0]![1].credentials).toBe("same-origin");
+  });
+
+  // The endpoint answers 200 on every path, so there is nothing to report.
+  it("resolves with nothing", async () => {
+    mockFetch(200, logoutBody);
+
+    await expect(logout()).resolves.toBeUndefined();
+  });
+
+  it("rejects only when the request could not be made", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch http://internal-host:3001")));
+
+    const error = await logout().catch((err: unknown) => err);
+
+    expect((error as AuthApiError).code).toBe(NETWORK_ERROR);
+    expect((error as AuthApiError).message).not.toContain("internal-host");
+  });
+});
+
+describe("logoutAllDevices", () => {
+  const logoutAllBody = { success: true, data: {} };
+
+  it("posts to the versioned logout-all path", async () => {
+    const fetchMock = mockFetch(200, logoutAllBody);
+
+    await logoutAllDevices();
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe("/api/v1/auth/logout-all");
+    expect(init.method).toBe("POST");
+  });
+
+  // ADR-014 §3: the credential is the cookie and only the cookie.
+  it("sends no body and no headers", async () => {
+    const fetchMock = mockFetch(200, logoutAllBody);
+
+    await logoutAllDevices();
+
+    const [, init] = fetchMock.mock.calls[0]!;
+    expect(init.body).toBeUndefined();
+    expect(init.headers).toBeUndefined();
+  });
+
+  it("sends credentials so the browser attaches the refresh cookie", async () => {
+    const fetchMock = mockFetch(200, logoutAllBody);
+
+    await logoutAllDevices();
+
+    expect(fetchMock.mock.calls[0]![1].credentials).toBe("same-origin");
+  });
+
+  it("resolves with nothing", async () => {
+    mockFetch(200, logoutAllBody);
+
+    await expect(logoutAllDevices()).resolves.toBeUndefined();
+  });
+
+  it("rejects only when the request could not be made", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch http://internal-host:3001")));
+
+    const error = await logoutAllDevices().catch((err: unknown) => err);
+
+    expect((error as AuthApiError).code).toBe(NETWORK_ERROR);
+    expect((error as AuthApiError).message).not.toContain("internal-host");
+  });
+
+  // It must not reach the single-session endpoint by accident.
+  it("never calls the single-session logout path", async () => {
+    const fetchMock = mockFetch(200, logoutAllBody);
+
+    await logoutAllDevices();
+
+    expect(fetchMock.mock.calls.every(([url]) => !String(url).endsWith("/auth/logout"))).toBe(true);
+  });
+});

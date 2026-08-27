@@ -25,7 +25,7 @@ The web application is built with React and TypeScript, leveraging Vite for ligh
 - **Experience Zones**: The application is code-split by distinct experience zones to prevent a monolithic component tree:
   - Marketing (`/`)
   - Authentication (`/auth`)
-  - Customer Portal (`/customer/*`)
+  - Customer chat surface (`/customer/*`) — unauthenticated; customers never log in (see §8)
   - Agent Dashboard (`/app/*`)
   - Administration (`/admin/*`)
   - Help Center (`/help/*`)
@@ -97,7 +97,8 @@ Security is paramount, utilizing a robust, role-based access control (RBAC) syst
 
 - **Tokens**: JWT-based authentication (signed/verified via `jose`) featuring short-lived access tokens and refresh token rotation, stored in secure HTTP-only cookies where appropriate.
 - **Password Hashing**: Argon2id.
-- **Roles**: Centralized RBAC with distinct roles: Owner, Admin, Supervisor, Agent, Customer.
+- **Principal types**: Serviqo authenticates **organization users** only. Customers are a separate principal type — website visitors who never register, log in, or hold a Session — represented by a future `Customer` model with its own visitor identity mechanism. See [ADR-010](./docs/decisions/010-principal-types-organization-users-and-customers.md).
+- **Roles**: Centralized RBAC with distinct organization-user roles: Owner, Admin, Supervisor, Agent.
 - **Permissions**: Granular permission-based authorization (e.g., `conversation.read`, `ticket.update`).
 - **Enforcement**: Middleware enforces authorization rules on every HTTP route and Socket event. The system is designed to support custom roles and granular permissions in the future.
 
@@ -148,4 +149,10 @@ Visibility into system health and performance is crucial for the platform's reli
 - **Health Checks**: Standardized endpoints for orchestrator/load balancer health verifications.
 
 ## 13. Current State
-**Phase 0 Complete.** The repository structure is fully established. Design reference files (tokens, UI direction, prototype) are preserved in the `reference/` directory. No implementation code exists yet.
+**Phases 0–1 complete; Phase 2 substantially complete.**
+
+`apps/web` and `apps/server` are both implemented and tested. The backend runs on Express + Mongoose with `User`, `Organization`, `Membership`, `Session`, and `AccountToken` persisted, a full organization-user authentication surface (registration, verification, login, refresh rotation, logout, logout-all, `GET /api/v1/auth/me`), and organization onboarding (`POST /api/v1/organizations`).
+
+Sections 5–11 above describe the **target** architecture. The parts not yet built are Socket.IO (§6), Redis (§5), the AI subsystem (§9), and the automation engine (§10); the domain modules listed in §4 exist only for auth, users, organizations, memberships, sessions, and account tokens. `packages/*`, `infrastructure/`, `scripts/`, and `tests/` in §2 are planned locations that do not exist yet — the monorepo currently contains `apps/`, `docs/`, and `reference/` only.
+
+Architectural decisions are recorded in `docs/decisions/`.

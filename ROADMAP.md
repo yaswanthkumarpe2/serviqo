@@ -16,17 +16,62 @@ Note that phases may be adjusted when technically justified. Each phase follows:
   - Verified responsive behavior at desktop/tablet/mobile against the approved reference
   - Routing deferred — Phase 1 ships a single marketing route with no router dependency yet
 
-- 🔲 **Phase 2: Authentication + Organization onboarding**
-  - User registration and login flows
-  - JWT-based authentication mechanism
-  - Organization (Tenant) creation process
-  - Initial database models for Users and Organizations
+- 🟡 **Phase 2: Authentication + Organization onboarding** (substantially complete)
+  - ✅ Database models: `User`, `Organization`, `Membership`, `Session`, `AccountToken`
+  - ✅ Registration, email verification, and login
+  - ✅ JWT access tokens with refresh-token rotation and reuse detection ([ADR-004](./docs/decisions/004-refresh-token-rotation-and-reuse-detection.md), [ADR-011](./docs/decisions/011-login-and-session-issuance.md), [ADR-012](./docs/decisions/012-refresh-token-rotation-endpoint.md))
+  - ✅ Logout and logout-all ([ADR-013](./docs/decisions/013-logout-and-session-revocation.md), [ADR-014](./docs/decisions/014-logout-all-devices.md))
+  - ✅ Access-token verification and `GET /api/v1/auth/me` ([ADR-015](./docs/decisions/015-access-token-verification-and-current-user.md))
+  - ✅ Organization creation with its owner membership ([ADR-016](./docs/decisions/016-organization-onboarding-and-the-first-membership.md))
+  - 🔲 Organization context on `/me`, and rate limiting (the [ADR-007 §13](./docs/decisions/007-registration-flow-and-account-enumeration.md) deployment gate)
+  - ✅ Widget installation: staff-facing widget key, allowed-origin management, and key rotation ([ADR-020](./docs/decisions/020-widget-installation-configuration-surface.md))
 
-- 🔲 **Phase 3: User / Team / Role management**
-  - Implement RBAC (Owner, Admin, Supervisor, Agent, Customer)
-  - Team creation and management
-  - Invitation system for joining organizations
-  - Profile management for users
+- 🟡 **Phase 3: User / Team / Role management** (RBAC, team management, role management, ownership transfer and the membership lifecycle complete; invitations and profile management deferred)
+  - ✅ RBAC (Owner, Admin, Supervisor, Agent) — organization users only ([ADR-010](./docs/decisions/010-principal-types-organization-users-and-customers.md), [ADR-017](./docs/decisions/017-organization-context-and-rbac.md))
+  - ✅ Team management — the organization member roster, adding a member, changing a
+    member's role, and removing one, behind `member.read`/`member.manage`
+    ([ADR-027](./docs/decisions/027-team-management-and-membership-lifecycle.md))
+  - ✅ `GET`/`POST`/`PATCH`/`DELETE /api/v1/organizations/:organizationId/members…` —
+    the four member routes, tenant-scoped by membership id ([ADR-027](./docs/decisions/027-team-management-and-membership-lifecycle.md) §1)
+  - ✅ Removing a member releases their conversation assignments and broadcasts
+    `conversation:updated`, closing [ADR-026](./docs/decisions/026-conversation-assignment-and-status.md) §15's
+    stale-assignment limitation ([ADR-027](./docs/decisions/027-team-management-and-membership-lifecycle.md) §10)
+  - ✅ Team Management section in the dashboard — roster, role control, add-member
+    form, confirmed removal, and permission-aware controls
+    ([ADR-027](./docs/decisions/027-team-management-and-membership-lifecycle.md) §16)
+  - ✅ Ownership transfer — `POST /api/v1/organizations/:organizationId/ownership`
+    behind the new owner-only `organization.transfer_ownership` permission, the
+    first permission that separates `owner` from `admin`. The previous owner
+    becomes `admin`; two guarded writes against index B's partial unique
+    constraint make "exactly one owner" a database property rather than a
+    comparison that races
+    ([ADR-028](./docs/decisions/028-organization-ownership-transfer.md) §1, §2, §7, §8),
+    closing [ADR-027](./docs/decisions/027-team-management-and-membership-lifecycle.md) §7a's
+    deferral. Runs without a transaction, so the ownerless failure window is
+    stated rather than implied
+    ([ADR-028](./docs/decisions/028-organization-ownership-transfer.md) §10)
+  - ✅ Transfer-ownership control in the dashboard's Team section — owner-only,
+    eligible-members picker, named confirmation, and a context refresh that
+    takes the previous owner's owner-only controls away
+    ([ADR-028](./docs/decisions/028-organization-ownership-transfer.md) §16)
+  - ✅ Suspend / reactivate a membership — `PATCH /api/v1/organizations/:organizationId/members/:membershipId/status`
+    behind `member.manage`, writing the `MembershipStatus` values that had no
+    writer since ADR-010. Takes effect on the suspended member's very next
+    request with the token they already hold, because `requireOrganization`
+    re-reads the membership every time and nothing caches a status — this
+    slice adds no gate, it gives the existing one something to refuse
+    ([ADR-029](./docs/decisions/029-membership-suspension-and-reactivation.md) §1, §6, §8)
+  - ✅ Suspension releases the member's conversations and closes their live
+    agent sockets, through the domain-event seam's third instance and its
+    first non-broadcast subscriber — which also closes the same live-socket
+    revocation gap for [ADR-027](./docs/decisions/027-team-management-and-membership-lifecycle.md) §10's
+    removal path ([ADR-029](./docs/decisions/029-membership-suspension-and-reactivation.md) §9, §10)
+  - ✅ Suspend / Reactivate controls in the dashboard's Team section —
+    confirmed in the revoking direction only, and never offered for the owner
+    ([ADR-029](./docs/decisions/029-membership-suspension-and-reactivation.md) §14)
+  - 🔲 Invitation system for joining organizations — needs real email delivery
+    ([ADR-027](./docs/decisions/027-team-management-and-membership-lifecycle.md) §3)
+  - 🔲 Profile management for users
 
 - 🔲 **Phase 4: Customer chat experience**
   - Basic real-time chat interface for customers
@@ -34,23 +79,58 @@ Note that phases may be adjusted when technically justified. Each phase follows:
   - File attachment support in chat
   - Chat history loading
 
-- 🔲 **Phase 5: Agent workspace**
-  - Dashboard for agents to view assigned conversations
-  - Multi-conversation handling UI
-  - Customer profile and context panel
-  - Internal notes for agents
+- 🟡 **Phase 5: Agent workspace** (inbox, assignment and lifecycle complete; context panel and notes deferred)
+  - ✅ Agent Inbox in the dashboard — conversation list, message history,
+    composer, live incoming messages and live agent replies, unread
+    indication, and loading/empty/error/forbidden states ([ADR-025](./docs/decisions/025-agent-inbox-and-live-agent-replies.md))
+  - ✅ `GET`/`POST /api/v1/organizations/:organizationId/conversations…` — the
+    staff-facing surface, behind `conversation.read` / `conversation.reply`
+  - ✅ Assignment and ownership — `assignedTo` on `Conversation`, claim and
+    release behind `conversation.assign`, `?assignee=me|unassigned` queues,
+    and live `conversation:updated` so one agent's claim reaches the others
+    without a refresh ([ADR-026](./docs/decisions/026-conversation-assignment-and-status.md))
+  - 🟡 Reassignment — an agent releases their own conversation; taking one
+    from a colleague is refused for every role and needs its own permission
+    and a notification design (ADR-026 §4, §15). Narrowed by
+    [ADR-027](./docs/decisions/027-team-management-and-membership-lifecycle.md) §10:
+    a colleague who has been removed from the organization no longer strands
+    their queue — removal releases their assignments and broadcasts the change.
+  - 🔲 Multi-conversation handling UI
+  - 🔲 Customer profile and context panel
+  - 🔲 Internal notes for agents
 
-- 🔲 **Phase 6: Persistent conversations / messages**
-  - Database schema for conversations and messages
-  - Efficient querying and indexing
-  - Unread message counters
-  - Archiving and closing conversations
+- 🟡 **Phase 6: Persistent conversations / messages** (persistence, API, delivery and archiving complete; persisted unread state deferred)
+  - ✅ `Conversation` and `Message` models, one open conversation per customer enforced by a partial unique index ([ADR-022](./docs/decisions/022-persistent-conversations-and-messages.md))
+  - ✅ `requireWidgetToken`: the customer-facing authentication and tenant boundary
+  - ✅ `POST /api/v1/widget/conversations`, `POST`/`GET /api/v1/widget/conversations/:id/messages` — resolve-or-create, send, and cursor-paginated history
+  - 🟡 Unread message counters — the inbox shows a session-local indicator
+    (ADR-025 §12); nothing is persisted, because "read" for a conversation
+    several agents share is read-receipt design
+  - ✅ Archiving and closing conversations — `PATCH …/conversations/:id/status`
+    behind `conversation.reply`, and `status` now has behaviour: a closed
+    conversation refuses messages from BOTH the customer and the agent, and
+    reopening is refused when the customer has since opened a newer one
+    ([ADR-026](./docs/decisions/026-conversation-assignment-and-status.md) §6, §7)
+  - ✅ Delivery — a message reaches the other party live in both directions,
+    over the Socket.IO transport (ADR-023) and the domain event seam
+    ([ADR-025](./docs/decisions/025-agent-inbox-and-live-agent-replies.md) §2)
 
-- 🔲 **Phase 7: Socket.IO real-time communication**
-  - Server-side Socket.IO configuration
-  - Client-side socket connection management
-  - Typing indicators and read receipts
-  - Socket event handling and error recovery
+- 🚧 **Phase 7: Socket.IO real-time communication**
+  - ✅ Server-side Socket.IO configuration (attached to the existing HTTP server)
+  - ✅ Widget-JWT handshake authentication; organization- and customer-scoped rooms
+  - ✅ Conversation join, customer message send, real-time delivery, disconnect/reconnect
+  - ✅ Socket rate limiting and safe (redacted) logging
+  - ✅ Agent handshake authentication and one inbox room per organization —
+    the staff access token verified with the same primitives
+    `requireOrganization` uses, no second auth system ([ADR-025](./docs/decisions/025-agent-inbox-and-live-agent-replies.md) §8, §9)
+  - ✅ Client-side socket connection management in the widget UI — message
+    list, composer, history over REST, reconnect with re-join and cursor
+    catch-up, and id-based duplicate suppression (ADR-024)
+  - ✅ Broadcasting messages produced outside a socket handler — the message
+    service publishes a `message.created` domain event and the socket server
+    subscribes to it, so REST sends and agent replies both broadcast without
+    the producer knowing Socket.IO exists ([ADR-025](./docs/decisions/025-agent-inbox-and-live-agent-replies.md) §2, closing ADR-023 §12)
+  - 🔲 Typing indicators and read receipts
 
 - 🔲 **Phase 8: Redis presence / scaling / reliability**
   - Agent online/offline presence tracking

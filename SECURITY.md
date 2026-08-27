@@ -8,23 +8,96 @@ Security is architecture, not final polish. It is built into every layer of the 
 ## 2. Tenant Isolation
 As a multi-tenant SaaS, isolation is paramount.
 - `organizationId` is required on every resource and database model.
-- Repository-layer enforcement ensures queries always filter by the requesting user's organization.
+- Repository-layer enforcement ensures queries always filter by the requesting user's organization. **Implemented** for the first tenant-owned model: `customerRepository` takes `organizationId` as a mandatory argument on every read and write, and exposes no `findAll`, no unscoped `find`, and no `findByEmail` — so "fetch everything, then filter in memory" is not expressible against it rather than merely discouraged ([ADR-019](docs/decisions/019-customer-principal-and-widget-visitor-identity.md) §4). `Conversation` and `Ticket` inherit this pattern.
 - Socket.IO rooms are strictly scoped to organizations.
 - AI/RAG retrieval is logically separated so one tenant's data cannot answer another tenant's queries.
 - File storage paths and access controls are scoped by tenant.
 - Company A must never access Company B data under any circumstances.
 
 ## 3. Authentication
+- Authentication applies to **organization users** only. Customers never authenticate into Serviqo — see [ADR-010](docs/decisions/010-principal-types-organization-users-and-customers.md).
+- Serviqo now runs **two credential systems**, permanently and deliberately ([ADR-019](docs/decisions/019-customer-principal-and-widget-visitor-identity.md) §8). A staff access token and a widget visitor token are separated by two independent controls: **different signing secrets** (`JWT_ACCESS_SECRET` / `JWT_WIDGET_SECRET`) and **different audiences** (`serviqo-dashboard` / `serviqo-widget`). Either alone would be sufficient; both are enforced. The process **refuses to boot** if the two secrets are set to the same value, because that would silently reduce the separation to the audience claim alone.
+- A widget token carries no email, name, role, or permission — it lives in a page Serviqo does not control, readable by any script on that page.
 - Implementing short-lived access tokens (JWT).
 - Secure refresh-token rotation to maintain sessions without permanent credentials.
 - Password hashing using Argon2id (memory-hard, OWASP-recommended default).
-- Strict rate limiting on all authentication-related endpoints to prevent brute-force attacks.
+- Strict rate limiting on all authentication-related endpoints to prevent brute-force attacks — **implemented** in six classes: the five in [ADR-018](docs/decisions/018-rate-limiting-and-security-headers.md) §3, plus `widgetSession` for the public customer endpoint ([ADR-019](docs/decisions/019-customer-principal-and-widget-visitor-identity.md) §11). Customer traffic is limited separately from staff traffic because it is high-volume, anonymous, and unauthenticated by design, so neither population can exhaust the other's budget.
+  - **Deployment gate — PARTIALLY RELEASED.** ADR-007 §13's blanket prohibition is lifted for **single-node** deployments and restated for everything else. Read the table in §3a below before deploying.
 - Robust session and device management, allowing users to view and revoke active sessions.
 - Server-side session revocation capabilities.
 
+## 3a. Deployment gate status
+
+Rate limiting exists and is correct for a single process. Two prerequisites
+remain, and both are about **where** the process runs rather than about the
+policy.
+
+| Deployment shape | Status | Why |
+|---|---|---|
+| Local development, one process | ✅ Released | Every request reaches the process holding the counters. |
+| Single-node staging or production, no proxy | ✅ Released | Same. |
+| **Any deployment behind a reverse proxy / load balancer** | ⛔ **Blocked** | `trust proxy` is off, so `req.ip` is the proxy's address and every client shares one bucket — a self-inflicted outage (ADR-018 §7). |
+| **Multi-node (Phase 8 onward)** | ⛔ **Blocked** | Counters live in process memory, so N nodes grant N× the intended budget and a restart resets everything (ADR-018 §2). |
+| **Multi-node revocation of live sockets** | ⛔ **Blocked** | Suspending or removing a member closes their open agent sockets in THIS process only. With N nodes, connections held elsewhere survive until their next request or reconnect, both of which are gated (ADR-029 §9, §16). Closed by the Redis adapter's cross-node disconnect, which is Phase 8's. |
+
+**Before deploying behind a proxy**, both of these must be done:
+
+1. Set Express's `trust proxy` to the exact number of trusted hops, or to
+   the proxy's address — **never `true`**, which trusts the whole chain and
+   lets any client forge `X-Forwarded-For` to buy a fresh limit budget.
+2. Verify `req.ip` reports the real client address, not the proxy's.
+
+**Before going multi-node**, the limiter needs a shared store. The seam is
+prepared: every limiter is built in `lib/rateLimit` and takes its store from
+one place, so a Redis-backed store is a constructor argument rather than a
+rewrite. Redis is deliberately not installed today (ADR-018 §1–2).
+
+The limits themselves are documented with their justification in ADR-018 §3.
+The credential class deliberately shares its numbers with the account
+lockout policy in `config/constants.ts`; changing one without the other puts
+them back into disagreement.
+
+### Standalone `mongod`: one multi-document operation has a stated window
+
+A third single-node gate, of a different kind — it is about **durability
+guarantees** rather than about request routing.
+
+MongoDB transactions require a replica set. Development runs a standalone
+`mongod` and the suites use `MongoMemoryServer` (ADR-016 §3), so no code path
+in Serviqo opens a transaction and none should be added until the deployment
+provides one.
+
+| Operation | Status | Why |
+|---|---|---|
+| Every write except one | ✅ Released | Single-document, therefore atomic in MongoDB, or compensable without exposing a broken invariant (ADR-016 §4). |
+| **Ownership transfer** (`POST /organizations/:id/ownership`) | 🟡 **Released with a stated window** | Two documents must change together. Index B forbids a second owner, so every legal ordering passes through a moment with zero owners (ADR-028 §8a). |
+
+What that window is, and is not:
+
+- It lasts **one database round-trip**, between the demote and the promote.
+- Both writes are **guarded on the role they expect to find**, so concurrent
+  transfers cannot both win and cannot produce two owners — index B makes
+  two owners impossible regardless.
+- A failed promotion **compensates**, restoring the previous owner.
+- If the process dies inside the window, the organization is left with no
+  owner. Every membership survives and the previous owner retains `admin`, so
+  the tenant stays fully administrable; the single lost capability is
+  transferring ownership again. This is **not** ADR-016 §3's unrecoverable
+  orphan.
+- Recovery is operator-side. **No self-service adoption path exists or should
+  be added** — "let an authenticated user claim an ownerless organization" is
+  an account-takeover primitive (ADR-016 §3).
+- `organization.ownership_transfer_compensation_failed` is the log line to
+  alert on; it is the only signal that the window was entered and not closed.
+
+**Before relying on ownership transfer under load or in production**, run
+MongoDB as a replica set and wrap the two writes in a transaction. That is a
+deployment change plus a small service change, and ADR-028 §10 records exactly
+which two writes it applies to.
+
 ## 4. Authorization / RBAC
 - A centralized permission system governs all actions.
-- Defined roles: Owner, Admin, Supervisor, Agent, Customer.
+- Defined organization-user roles: Owner, Admin, Supervisor, Agent. Customers hold no role and are authorized per-resource, not by RBAC (ADR-010).
 - Authorization is checked on every API route AND every real-time socket event.
 - UI elements are hidden based on roles, but security relies entirely on server-side validation, never on the client UI.
 
@@ -34,8 +107,11 @@ As a multi-tenant SaaS, isolation is paramount.
 - Files are stored using generated, unpredictable UUID names, completely disregarding user-supplied filenames to prevent path traversal and other exploits.
 
 ## 6. API Security
-- Global and route-specific rate limiting.
-- Implementation of secure HTTP headers (CORS, CSP, X-Frame-Options, Strict-Transport-Security, X-Content-Type-Options).
+- Global and route-specific rate limiting — **implemented** (§3, §3a).
+- Secure HTTP headers — **implemented** via `helmet`, configured for a JSON API rather than for documents: `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`, `Cross-Origin-Resource-Policy: same-origin`, HSTS in production only, and `X-Powered-By` removed. See [ADR-018](docs/decisions/018-rate-limiting-and-security-headers.md) §9.
+  - **CORS is still deliberately absent**, and ADR-019 §13 records why it could not land in the widget-identity slice as ADR-018 §9 expected. A cross-origin `POST` with a JSON content type triggers an `OPTIONS` preflight, and **a preflight carries no request body** — so it carries no `widgetKey`, so the server cannot resolve which tenant's origin list to answer with. Every fix is a decision about the widget's wire protocol, which belongs to the slice that builds the client.
+  - What **did** ship is the enforcing half: a **per-tenant allowed-origin policy**, validated at configuration time and checked on every widget request before any customer is created (ADR-019 §10). Origins reject wildcards, non-http(s) schemes, and anything carrying a path, query, fragment, or userinfo. An empty list means **closed**, never "any origin". No `Access-Control-Allow-Origin` is sent in any value, `*` included.
+  - The header policy above applies to **API responses**; the future embeddable widget serves an HTML document that must be framed by tenant sites, so it needs its own headers rather than inheriting `frame-ancestors 'none'`.
 - Safe error responses: Stack traces and internal server details are never exposed to the client.
 - Request IDs are generated for every request to enable secure, traceable logging without exposing sensitive data.
 
@@ -60,4 +136,17 @@ As a multi-tenant SaaS, isolation is paramount.
 - We maintain a minimal dependency surface area to reduce potential supply chain vulnerabilities.
 
 ## 11. Current Status
-**Important Note:** These are architectural principles and planned security measures. The platform is currently in early development (Phase 0). No independent security audit or compliance certification (e.g., SOC2, ISO27001, HIPAA) is claimed or currently exists.
+**Important Note:** These are architectural principles and planned security measures, and most remain planned. No independent security audit or compliance certification (e.g., SOC2, ISO27001, HIPAA) is claimed or currently exists.
+
+Implemented today: Argon2id password hashing, short-lived access tokens with refresh-token rotation and reuse detection, `HttpOnly`/`SameSite=Strict`/`Path`-scoped refresh cookies, server-side session revocation (single and all-device), bearer access-token verification with issuer/audience pinning, Zod request validation at the HTTP boundary, structured logging with request IDs, and safe error responses.
+
+Also implemented: six-class rate limiting (§3, §3a), security response headers via `helmet` (§6), and RBAC enforcement through `requireOrganization` / `requirePermission` with per-request role resolution from the database (§4).
+
+Also implemented (ADR-019): the `Customer` principal as a tenant-owned model with no credential of any kind, a public per-tenant `widgetKey` (256 bits of entropy, unique under a partial index so pre-existing organizations still write), a per-tenant allowed-origin policy that is closed by default, and stateless widget visitor tokens under their own secret and audience. The public `POST /api/v1/widget/session` endpoint is covered by its own rate-limiter class and answers every refusal — unknown key, suspended tenant, disallowed origin — with one opaque `403`, so it cannot be used to enumerate tenants.
+
+Not yet implemented, and load-bearing for the sections above:
+- **A shared rate-limit store and proxy configuration** (§3a) — the two remaining deployment blockers.
+- **CORS response headers** (§6) — `cors` is not installed. The per-tenant allowed-origin **policy** is implemented and enforced; the `Access-Control-Allow-Origin` header is not sent, because a preflight cannot name the tenant (ADR-019 §13). No browser client exists to read it yet.
+- **A staff surface for `widgetKey` and `allowedOrigins`** — nothing reads a tenant's widget key back to them and nothing lets them configure their origins, so the fields are inert until the widget-installation slice (ADR-019 §14). This is the sharpest limitation of the customer-identity slice.
+- **Widget token revocation** — widget tokens are stateless and valid until they expire (24h). Nothing can shorten that. The authority at stake is one customer's own identity in one tenant, and this becomes reconsiderable when a token grants read access to message history (ADR-019 §14).
+- **Audit logging** (§9), **file upload validation** (§5), and **AI security** (§8) — no implementation.

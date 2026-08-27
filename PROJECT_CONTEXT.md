@@ -35,15 +35,17 @@ The eventual capabilities of the Serviqo platform include:
 Every resource in Serviqo is scoped by an Organization ID. Tenant isolation is strictly enforced at the server-side repository layer. **Company A must NEVER access Company B data under any circumstances.** No database queries should be executed without explicitly verifying the organization context.
 
 ## 5. User Roles
-Serviqo relies on Centralized Role-Based Access Control (RBAC) with permission-based authorization (e.g., `conversation.read`, `ticket.update`, `ai.configure`). The primary roles are:
+Serviqo relies on Centralized Role-Based Access Control (RBAC) with permission-based authorization (e.g., `conversation.read`, `ticket.update`, `ai.configure`). Roles are held by **organization users** — people who work for a tenant — and are granted through Membership. The roles are:
 - **Owner:** Full organizational control, billing, and destruction.
 - **Admin:** System configuration, team management, and global settings.
 - **Supervisor:** Department/team management, queue oversight, SLA monitoring.
 - **Agent:** Standard operator handling conversations and tickets.
-- **Customer:** End-user receiving support (external to the organization).
-The architecture supports the addition of custom roles in the future.
+The architecture supports the addition of custom roles in the future; those would be additional organization-user positions.
+
+**Customer is not a role.** A customer is the end-user receiving support — a website visitor who arrives through the chat widget, never registers, never logs in, and holds no Membership. Customers are a separate principal type represented by the `Customer` model, which **now exists**: tenant-scoped, anonymous-first, with optional name and email, and no password, session, membership, or role of any kind. A visitor's browser holds a stateless widget token issued by `POST /api/v1/widget/session` — a credential system entirely separate from staff authentication. See [ADR-010](./docs/decisions/010-principal-types-organization-users-and-customers.md) and [ADR-019](./docs/decisions/019-customer-principal-and-widget-visitor-identity.md).
 
 ## 6. Authentication Architecture
+Authentication applies to organization users only; customers never authenticate (see §5).
 - **Features:** Registration, login, logout, email verification, forgot/reset password, refresh sessions, organization onboarding, agent invitations.
 - **Security:** Short-lived access tokens, refresh-token rotation, secure HTTP-only cookies, robust password hashing, strict rate limiting.
 
@@ -168,15 +170,26 @@ The project uses a monorepo architecture:
 - **Never trust frontend-supplied identifiers.**
 
 ## 23. Current State
-**Phase 0 is complete.** 
-Currently, **ONLY** design reference files exist (landing page prototype, design tokens, design direction document). 
-- There is NO production React app.
-- There is NO backend.
-- There is NO database.
-- There is NO Socket.IO implementation.
-- There is NO Redis caching.
-- There is NO AI or RAG infrastructure.
-*All features described in the Vision are strictly PLANNED, not implemented.*
+**Phases 0–1 are complete. Phase 2 (authentication and organization onboarding) is substantially complete.**
+
+Built and verified:
+- React + TypeScript + Vite frontend (`apps/web`), including the marketing landing page, sign-in, and an authenticated dashboard.
+- Node + Express + TypeScript backend (`apps/server`) on MongoDB via Mongoose.
+- Persistence models: `User`, `Organization`, `Membership`, `Session`, `AccountToken`.
+- Authentication: registration, email verification, login, refresh-token rotation with reuse detection, logout, logout-all, and access-token verification behind `GET /api/v1/auth/me`.
+- Organization onboarding: `POST /api/v1/organizations` creates a tenant and its owner `Membership` (see [ADR-016](./docs/decisions/016-organization-onboarding-and-the-first-membership.md)).
+- Widget installation: staff holding `organization.manage` can read their widget key, replace the allowed-origin list, and rotate the key from the dashboard, behind `GET/PUT/POST /api/v1/organizations/:id/widget-config[...]` (see [ADR-020](./docs/decisions/020-widget-installation-configuration-surface.md)).
+
+Not built yet:
+- The `Customer`, `Conversation`, and `Message` models EXIST (ADR-019, ADR-022). A widget visitor can open a session, resolve their conversation, send messages, and read history back through `POST/GET /api/v1/widget/conversations[...]` — but nothing DELIVERS a message to anyone but its sender yet (see the next line). There is still NO `Ticket` model.
+- There is NO Socket.IO implementation, so a message sent through the widget API is not visible to a human or AI agent by any means — it is durable, not real-time.
+- There is NO Redis caching or presence.
+- There is NO AI, RAG, or Catalogue infrastructure.
+- There is NO embeddable widget UI. The server side of widget IDENTITY exists (`widgetKey`, allowed origins, `POST /api/v1/widget/session`, visitor tokens), and staff can now read and configure it (ADR-020); no chat bubble, chat window, or embed script does.
+- There is NO rate limiting — see the deployment gate in §22 and [ADR-007 §13](./docs/decisions/007-registration-flow-and-account-enumeration.md).
+- RBAC roles are stored on `Membership` but no permission enforcement middleware exists yet.
+
+*Everything else described in the Vision remains PLANNED, not implemented. Architectural decisions are recorded in `docs/decisions/`.*
 
 ## 24. Development Phases
 0. **Phase 0:** Repository Initialization & Design Reference Setup (COMPLETED)
