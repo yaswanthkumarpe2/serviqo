@@ -16,6 +16,8 @@
     "dev:server": "npm run dev --workspace=apps/server",
     "build:web": "npm run build --workspace=apps/web",
     "build:server": "npm run build --workspace=apps/server",
+    "build": "npm run build:web && npm run build:server",
+    "start": "node apps/server/dist/main.js",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",

@@ -104,6 +104,17 @@ const envSchema = z
     JWT_ACCESS_SECRET: jwtAccessSecretSchema,
     JWT_WIDGET_SECRET: jwtWidgetSecretSchema,
     LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
+    /*
+     * Resend configuration (ADR-007 §10's production EmailProvider).
+     *
+     * Optional here on purpose: development and test both run
+     * ConsoleEmailProvider and need neither. `resolveEmailProvider`
+     * (lib/email/index.ts) is where NODE_ENV=production requires both —
+     * that keeps the "which env needs a real provider" decision in one
+     * place instead of duplicating it as a schema-level refinement.
+     */
+    RESEND_API_KEY: z.string().min(1).optional(),
+    EMAIL_FROM: z.string().min(1).optional(),
   })
   /*
     The two signing keys must differ, enforced at boot rather than documented
