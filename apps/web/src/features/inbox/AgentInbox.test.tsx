@@ -71,7 +71,13 @@ function stubInbox(options: InboxStubOptions = {}) {
   const base = stubAuthFetch();
 
   const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
-    const path = String(url);
+    /*
+      Path only. These stubs route the way the server does — on the path, with
+      the query read separately — so a request that legitimately carries
+      `?cursor=`/`?limit=` still reaches the handler that answers it instead of
+      falling through to the auth fallback as an unrecognized URL.
+    */
+    const path = String(url).split("?")[0]!;
     const method = (init?.method ?? "GET").toUpperCase();
 
     const sendMatch = /\/api\/v1\/organizations\/([^/]+)\/conversations\/([^/]+)\/messages$/.exec(path);
@@ -192,7 +198,8 @@ describe("AgentInbox", () => {
       vi.stubGlobal(
         "fetch",
         vi.fn().mockImplementation((url: string) => {
-          if (String(url).endsWith("/conversations")) return Promise.reject(new TypeError("network down"));
+          if (String(url).split("?")[0]!.endsWith("/conversations"))
+            return Promise.reject(new TypeError("network down"));
           return Promise.resolve(jsonResponse(200, { success: true, data: {} }));
         }),
       );

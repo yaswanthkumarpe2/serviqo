@@ -203,6 +203,39 @@ export function AgentInbox({ organizationId, socketFactory }: AgentInboxProps) {
                 );
               })}
             </ul>
+
+            {/*
+              The end of the list is not the end of the history. The first page
+              is the tenant's most recently active conversations (ADR-025 §5);
+              without this control every conversation older than that page is
+              in the database and unreachable from the dashboard.
+
+              Rendered only when the server said there is more — an always-on
+              button that sometimes returns nothing would make "no older
+              conversations" indistinguishable from "the request failed".
+            */}
+            {inbox.hasOlderConversations && (
+              <div className="inbox__more">
+                <button
+                  type="button"
+                  className="inbox__moreButton"
+                  onClick={() => void inbox.loadOlderConversations()}
+                  disabled={inbox.isLoadingOlderConversations}
+                >
+                  {inbox.isLoadingOlderConversations ? "Loading…" : "Load older conversations"}
+                </button>
+              </div>
+            )}
+
+            {/*
+              Beside the button rather than replacing the list: a failure here
+              costs the page that did not arrive, never the ones already read.
+            */}
+            {inbox.olderConversationsError !== null && (
+              <p className="inbox__state inbox__state--error" role="alert">
+                {inbox.olderConversationsError}
+              </p>
+            )}
           </nav>
 
           <div className="inbox__thread">
@@ -309,6 +342,27 @@ export function AgentInbox({ organizationId, socketFactory }: AgentInboxProps) {
                           <MessageBubble key={message.id} message={message} />
                         ))}
                       </ul>
+                    )}
+
+                    {/*
+                      A thread loads whole, so this is reached only past
+                      `MAX_THREAD_PAGES` — ten thousand messages. It says
+                      "newer", not "older", because messages page oldest-first:
+                      what a truncated thread is missing is its most recent
+                      end, and a button offering "older" would send an agent
+                      the wrong way.
+                    */}
+                    {inbox.hasMoreMessages && (
+                      <div className="inbox__more">
+                        <button
+                          type="button"
+                          className="inbox__moreButton"
+                          onClick={() => void inbox.loadMoreMessages()}
+                          disabled={inbox.isLoadingMoreMessages}
+                        >
+                          {inbox.isLoadingMoreMessages ? "Loading…" : "Load newer messages"}
+                        </button>
+                      </div>
                     )}
 
                     {selected.status === "closed" ? (

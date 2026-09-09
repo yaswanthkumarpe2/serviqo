@@ -11,7 +11,7 @@ import {
 } from "./inboxApi";
 import { createInboxRealtimeClient } from "./inboxRealtime";
 
-import type { InboxConversation, InboxConversationStatus, InboxMessage } from "./inboxApi";
+import type { InboxConversation, InboxConversationStatus, InboxMessage, MessagePage } from "./inboxApi";
 import type { InboxRealtimeStatus, InboxSocketFactory } from "./inboxRealtime";
 
 /**
@@ -53,12 +53,37 @@ export interface AgentInbox {
   error: string | null;
   conversations: InboxConversation[];
 
+  /**
+   * Whether older conversations exist beyond the ones loaded (ADR-025 §5).
+   *
+   * The list pages BACKWARDS — the server sorts by `lastMessageAt` descending
+   * — so "more" here means older, and the first page is the tenant's most
+   * recently active conversations.
+   */
+  hasOlderConversations: boolean;
+  isLoadingOlderConversations: boolean;
+  /** A failure to extend the list. Separate from `error`, which is about the list existing at all. */
+  olderConversationsError: string | null;
+  loadOlderConversations: () => Promise<void>;
+
   selectedConversationId: string | null;
   selectConversation: (conversationId: string) => void;
 
   threadStatus: ThreadStatus;
   threadError: string | null;
   messages: InboxMessage[];
+
+  /**
+   * Whether the thread was truncated by `MAX_THREAD_PAGES` and NEWER messages
+   * remain unread (ADR-025 §5).
+   *
+   * Reachable only in a conversation longer than `MAX_THREAD_PAGES` pages,
+   * which is far outside ordinary support traffic — it exists so that nothing
+   * is unreachable, not as a control agents are expected to meet.
+   */
+  hasMoreMessages: boolean;
+  isLoadingMoreMessages: boolean;
+  loadMoreMessages: () => Promise<void>;
 
   /**
    * Conversation id → count of messages that arrived over the socket while
@@ -96,8 +121,33 @@ export interface AgentInbox {
   setConversationStatus: (status: InboxConversationStatus) => Promise<void>;
 }
 
+/**
+ * The page size both reads ask for, and the server's own maximum
+ * (`CONVERSATION_PAGE_MAX_LIMIT` / `MESSAGE_PAGE_MAX_LIMIT`).
+ *
+ * Asking for the ceiling rather than accepting the default is what keeps
+ * `loadThread` below to a small number of round trips: a 250-message
+ * conversation is three requests at 100, and nine at the server's default of
+ * 30.
+ */
+const PAGE_LIMIT = 100;
+
+/**
+ * How many message pages one thread load will follow before stopping.
+ *
+ * There IS a cap, because the loop below is unbounded otherwise and a
+ * pathological conversation would issue a request per hundred messages while
+ * an agent waits. There is a cap this HIGH — 100 pages, ten thousand messages
+ * — because of which end the cap truncates: messages page oldest-first, so
+ * stopping early withholds the NEWEST messages, which are the ones an agent
+ * needs. Nothing is lost, `loadMoreMessages` continues from the cursor, but
+ * the threshold is set where no real support conversation will meet it.
+ */
+const MAX_THREAD_PAGES = 100;
+
 const GENERIC_LIST_ERROR = "Could not load conversations. Please try again.";
 const GENERIC_THREAD_ERROR = "Could not load this conversation. Please try again.";
+const GENERIC_OLDER_ERROR = "Could not load older conversations. Please try again.";
 const GENERIC_SEND_ERROR = "Message not sent. Please try again.";
 
 /**
@@ -140,6 +190,15 @@ export function useAgentInbox({ organizationId, socketFactory }: UseAgentInboxOp
   const [status, setStatus] = useState<InboxStatus>("loading");
   const [error, setError] = useState<string | null>(null);
   const [conversations, setConversations] = useState<InboxConversation[]>([]);
+
+  /** The cursor for the NEXT (older) page of conversations, or `null` at the end of the history. */
+  const [conversationsCursor, setConversationsCursor] = useState<string | null>(null);
+  const [isLoadingOlderConversations, setIsLoadingOlderConversations] = useState(false);
+  const [olderConversationsError, setOlderConversationsError] = useState<string | null>(null);
+
+  /** The cursor for the NEXT (newer) page of the selected thread, or `null` when it is whole. */
+  const [threadCursor, setThreadCursor] = useState<string | null>(null);
+  const [isLoadingMoreMessages, setIsLoadingMoreMessages] = useState(false);
 
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [threadStatus, setThreadStatus] = useState<ThreadStatus>("idle");
@@ -197,8 +256,9 @@ export function useAgentInbox({ organizationId, socketFactory }: UseAgentInboxOp
 
   const loadConversations = useCallback(async () => {
     try {
-      const page = await fetchConversations(authorizedFetch, organizationId);
+      const page = await fetchConversations(authorizedFetch, organizationId, { limit: PAGE_LIMIT });
       setConversations(page.conversations);
+      setConversationsCursor(page.nextCursor);
       setStatus("ready");
     } catch (caught: unknown) {
       // A 401 is a sign-out already in progress; ProtectedRoute redirects.
@@ -234,6 +294,48 @@ export function useAgentInbox({ organizationId, socketFactory }: UseAgentInboxOp
     void loadConversations();
   }, [loadConversations, organizationId]);
 
+  /**
+   * Extends the list with the next page of OLDER conversations (ADR-025 §5).
+   *
+   * Appends rather than replaces, and de-duplicates by id on the way in. The
+   * de-duplication is not defensive tidiness: the sort key is `lastMessageAt`,
+   * so a conversation that receives a message between two page reads moves to
+   * the front of the order and can be returned again in a later page. Keeping
+   * the copy already held — rather than the one just read — preserves whatever
+   * the socket has since merged into that row.
+   *
+   * A failure leaves the conversations already loaded exactly as they are.
+   * Losing a screen of history to a network blip on a "load older" click would
+   * be a far worse answer than a message beside the button.
+   */
+  const loadOlderConversations = useCallback(async () => {
+    const cursor = conversationsCursor;
+    if (cursor === null || isLoadingOlderConversations) return;
+
+    setIsLoadingOlderConversations(true);
+    setOlderConversationsError(null);
+
+    try {
+      const page = await fetchConversations(authorizedFetch, organizationId, {
+        cursor,
+        limit: PAGE_LIMIT,
+      });
+
+      setConversations((current) => {
+        const held = new Set(current.map((conversation) => conversation.id));
+        return [...current, ...page.conversations.filter((conversation) => !held.has(conversation.id))];
+      });
+      setConversationsCursor(page.nextCursor);
+    } catch (caught: unknown) {
+      // A 401 is a sign-out already in progress; ProtectedRoute redirects.
+      if (caught instanceof AuthApiError && caught.status === 401) return;
+
+      setOlderConversationsError(GENERIC_OLDER_ERROR);
+    } finally {
+      setIsLoadingOlderConversations(false);
+    }
+  }, [authorizedFetch, conversationsCursor, isLoadingOlderConversations, organizationId]);
+
   // ---- the selected thread ----
 
   /**
@@ -256,6 +358,8 @@ export function useAgentInbox({ organizationId, socketFactory }: UseAgentInboxOp
     // it says nothing about.
     setActionError(null);
     setMessages([]);
+    // Whatever remained of the previous thread says nothing about this one.
+    setThreadCursor(null);
 
     // A new thread starts with a fresh identity set: ids from the previous
     // conversation would otherwise suppress nothing useful and grow forever.
@@ -271,19 +375,61 @@ export function useAgentInbox({ organizationId, socketFactory }: UseAgentInboxOp
     });
   }, []);
 
+  /**
+   * Loads the whole selected thread, following the cursor to its end.
+   *
+   * One page is not a conversation. Messages page oldest-first (see
+   * `fetchMessages`), so reading a single page and stopping shows the FIRST
+   * thirty messages of a long exchange and hides everything since — including
+   * the message the customer is waiting on a reply to. That is what this loop
+   * exists to prevent, and it is why the loop follows the cursor rather than
+   * offering an "older messages" control: there is no useful state in which an
+   * agent is looking at the start of a conversation and must ask for the rest.
+   *
+   * Each page is committed as it arrives, and the thread is `ready` after the
+   * first, so a long history fills in visibly instead of holding a spinner
+   * until the last page lands.
+   *
+   * Pages are appended through the same `seenMessageIds` check every other
+   * source uses (ADR-024 §4, ADR-025 §8), so a message the socket delivered
+   * mid-load is not written twice when the page carrying it arrives.
+   */
   useEffect(() => {
     if (selectedConversationId === null) return;
 
     let cancelled = false;
 
-    void fetchMessages(authorizedFetch, organizationId, selectedConversationId)
-      .then((page) => {
+    async function loadThread(conversationId: string) {
+      try {
+        let cursor: string | null = null;
+        let pages = 0;
+
+        do {
+          const page: MessagePage = await fetchMessages(authorizedFetch, organizationId, conversationId, {
+            cursor,
+            limit: PAGE_LIMIT,
+          });
+          if (cancelled) return;
+
+          const fresh = page.messages.filter((message) => !seenMessageIds.current.has(message.id));
+          for (const message of fresh) seenMessageIds.current.add(message.id);
+
+          // Functional update: the socket may have appended to this thread
+          // between two pages, and that message must survive the merge.
+          if (fresh.length > 0) setMessages((current) => [...current, ...fresh]);
+
+          // Ready after the FIRST page — the rest fills in underneath.
+          if (pages === 0) setThreadStatus("ready");
+
+          cursor = page.nextCursor;
+          pages += 1;
+        } while (cursor !== null && pages < MAX_THREAD_PAGES);
+
         if (cancelled) return;
-        for (const message of page.messages) seenMessageIds.current.add(message.id);
-        setMessages(page.messages);
-        setThreadStatus("ready");
-      })
-      .catch((caught: unknown) => {
+        // Non-null only for a conversation past MAX_THREAD_PAGES, which
+        // `loadMoreMessages` continues from.
+        setThreadCursor(cursor);
+      } catch (caught: unknown) {
         if (cancelled) return;
         if (caught instanceof AuthApiError && caught.status === 401) return;
 
@@ -294,12 +440,53 @@ export function useAgentInbox({ organizationId, socketFactory }: UseAgentInboxOp
             : GENERIC_THREAD_ERROR,
         );
         setThreadStatus("error");
-      });
+      }
+    }
+
+    void loadThread(selectedConversationId);
 
     return () => {
       cancelled = true;
     };
   }, [authorizedFetch, organizationId, selectedConversationId]);
+
+  /**
+   * Continues a thread that stopped at `MAX_THREAD_PAGES`, one page further.
+   *
+   * The counterpart to `loadOlderConversations`, and the reason the cap above
+   * costs nothing: the messages beyond it are reachable, just not fetched
+   * unasked.
+   */
+  const loadMoreMessages = useCallback(async () => {
+    const cursor = threadCursor;
+    const conversationId = selectedConversationId;
+    if (cursor === null || conversationId === null || isLoadingMoreMessages) return;
+
+    setIsLoadingMoreMessages(true);
+
+    try {
+      const page = await fetchMessages(authorizedFetch, organizationId, conversationId, {
+        cursor,
+        limit: PAGE_LIMIT,
+      });
+
+      // The selection may have moved while this was in flight; those messages
+      // belong to a conversation nobody is looking at any more.
+      if (selectedRef.current !== conversationId) return;
+
+      const fresh = page.messages.filter((message) => !seenMessageIds.current.has(message.id));
+      for (const message of fresh) seenMessageIds.current.add(message.id);
+
+      if (fresh.length > 0) setMessages((current) => [...current, ...fresh]);
+      setThreadCursor(page.nextCursor);
+    } catch (caught: unknown) {
+      if (caught instanceof AuthApiError && caught.status === 401) return;
+
+      setThreadError(GENERIC_THREAD_ERROR);
+    } finally {
+      setIsLoadingMoreMessages(false);
+    }
+  }, [authorizedFetch, isLoadingMoreMessages, organizationId, selectedConversationId, threadCursor]);
 
   // ---- real-time ----
 
@@ -500,11 +687,18 @@ export function useAgentInbox({ organizationId, socketFactory }: UseAgentInboxOp
     status,
     error,
     conversations,
+    hasOlderConversations: conversationsCursor !== null,
+    isLoadingOlderConversations,
+    olderConversationsError,
+    loadOlderConversations,
     selectedConversationId,
     selectConversation,
     threadStatus,
     threadError,
     messages,
+    hasMoreMessages: threadCursor !== null,
+    isLoadingMoreMessages,
+    loadMoreMessages,
     unreadCounts,
     realtimeStatus,
     isSending,

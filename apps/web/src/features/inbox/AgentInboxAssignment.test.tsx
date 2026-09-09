@@ -76,7 +76,13 @@ function stubInbox(options: StubOptions = {}): StubResult {
   const calls: StubResult["calls"] = [];
 
   const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
-    const path = String(url);
+    /*
+      Path only. These stubs route the way the server does — on the path, with
+      the query read separately — so a request that legitimately carries
+      `?cursor=`/`?limit=` still reaches the handler that answers it instead of
+      falling through to the auth fallback as an unrecognized URL.
+    */
+    const path = String(url).split("?")[0]!;
     const method = (init?.method ?? "GET").toUpperCase();
     const body: unknown = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
 
@@ -256,7 +262,9 @@ describe("AgentInbox assignment and status", () => {
       // updated from it rather than by re-reading the list (ADR-026 §2).
       const listReads = stub.fetchMock.mock.calls.filter((call: unknown[]) => {
         const [url, init] = call as [string, RequestInit | undefined];
-        return /\/conversations$/.test(String(url)) && (init?.method ?? "GET").toUpperCase() === "GET";
+        return (
+          /\/conversations$/.test(String(url).split("?")[0]!) && (init?.method ?? "GET").toUpperCase() === "GET"
+        );
       });
       expect(listReads).toHaveLength(1);
     });
@@ -334,7 +342,7 @@ describe("AgentInbox assignment and status", () => {
       vi.stubGlobal(
         "fetch",
         vi.fn().mockImplementation((url: string, init?: RequestInit) => {
-          const path = String(url);
+          const path = String(url).split("?")[0]!;
           const method = (init?.method ?? "GET").toUpperCase();
 
           if (/\/assignment$/.test(path) && method === "PATCH") return Promise.reject(new TypeError("offline"));
@@ -492,7 +500,7 @@ describe("AgentInbox assignment and status", () => {
       vi.stubGlobal(
         "fetch",
         vi.fn().mockImplementation((url: string, init?: RequestInit) => {
-          const path = String(url);
+          const path = String(url).split("?")[0]!;
           const method = (init?.method ?? "GET").toUpperCase();
 
           if (/\/assignment$/.test(path) && method === "PATCH") {
@@ -543,7 +551,7 @@ describe("AgentInbox assignment and status", () => {
       vi.stubGlobal(
         "fetch",
         vi.fn().mockImplementation((url: string, init?: RequestInit) => {
-          const path = String(url);
+          const path = String(url).split("?")[0]!;
           const method = (init?.method ?? "GET").toUpperCase();
 
           if (/\/assignment$/.test(path) && method === "PATCH") {
