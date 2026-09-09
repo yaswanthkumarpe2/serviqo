@@ -4,6 +4,7 @@ import express from "express";
 
 import { resolveEmailProvider } from "./lib/email";
 import { env } from "./lib/env";
+import { isAppOwnedPath } from "./lib/http/appOwnedPath";
 import { createDisabledRateLimiters, createRateLimiters } from "./lib/rateLimit";
 import { errorHandler } from "./middleware/errorHandler";
 import { notFound } from "./middleware/notFound";
@@ -25,25 +26,6 @@ import type { EmailProvider } from "./lib/email/emailProvider";
  */
 const webDistPath = path.join(__dirname, "../../web/dist");
 const webIndexPath = path.join(webDistPath, "index.html");
-
-/**
- * True for any path this app already owns an answer for — the REST API,
- * the Socket.IO handshake, and the health check. The static file server and
- * SPA fallback below must never claim one of these, or an unmatched
- * `/api/v1/...` request would silently become `index.html` (200, wrong
- * content-type, and no more JSON 404) instead of falling through to
- * `notFound`.
- */
-function isAppOwnedPath(pathname: string): boolean {
-  return (
-    pathname === "/api" ||
-    pathname.startsWith("/api/") ||
-    pathname === "/socket.io" ||
-    pathname.startsWith("/socket.io/") ||
-    pathname === "/health" ||
-    pathname.startsWith("/health/")
-  );
-}
 
 export interface CreateAppOptions {
   /**
