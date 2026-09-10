@@ -30,6 +30,14 @@ export interface SignUpFormState {
   isSubmitting: boolean;
   fieldErrors: SignUpFieldErrors;
   formError: string | null;
+  /**
+   * The address that turned out to be taken, or `null`.
+   *
+   * Separate from `formError` because this outcome is not a failure to
+   * recover from by retrying — it is a fork in the road, and the page needs
+   * the address itself to offer the two routes out of it.
+   */
+  existingAccountEmail: string | null;
   setName: (value: string) => void;
   setEmail: (value: string) => void;
   setPassword: (value: string) => void;
@@ -41,11 +49,21 @@ const GENERIC_SIGNUP_ERROR = "Could not create your account. Please try again.";
 /**
  * Maps a registration failure to what the person is told.
  *
- * `RATE_LIMITED` is named because it is the one refusal the person can act
- * on — waiting works. Everything else collapses to one message: the server
- * deliberately does not distinguish "already registered" from "created"
- * (ADR-007 §4), and a client that invented that distinction would undo the
- * protection.
+ * `EMAIL_ALREADY_EXISTS` is handled by the caller rather than here, because
+ * it is not a message — it is a fork, and the page offers two routes out of
+ * it.
+ *
+ * Registration DOES disclose whether an address is registered, deliberately
+ * (ADR-007 §1). A generic answer for both cases would only close enumeration
+ * if the existing address were also emailed a "you already have an account"
+ * notice, which turns an unauthenticated endpoint into an email-sending
+ * oracle aimed at arbitrary addresses — trading enumeration for spam
+ * amplification — and Argon2id timing leaks the difference regardless. That
+ * is a decision this client must surface rather than hide: an admin
+ * onboarding a team has to be told plainly that an address is taken.
+ *
+ * Rate limiting is named because waiting works. Everything else collapses to
+ * one message.
  */
 function signUpErrorFor(caught: unknown): string {
   if (!(caught instanceof AuthApiError)) return GENERIC_SIGNUP_ERROR;
@@ -63,6 +81,7 @@ export function useSignUpForm({ verifyPath }: UseSignUpFormOptions): SignUpFormS
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<SignUpFieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
+  const [existingAccountEmail, setExistingAccountEmail] = useState<string | null>(null);
 
   const handleSubmit = useCallback(
     (event: FormEvent<HTMLFormElement>) => {
@@ -72,6 +91,7 @@ export function useSignUpForm({ verifyPath }: UseSignUpFormOptions): SignUpFormS
       const errors = validateSignUp({ name, email, password });
       setFieldErrors(errors);
       setFormError(null);
+      setExistingAccountEmail(null);
       if (hasSignUpErrors(errors)) return;
 
       setIsSubmitting(true);
@@ -93,6 +113,18 @@ export function useSignUpForm({ verifyPath }: UseSignUpFormOptions): SignUpFormS
           navigate(`${verifyPath}?email=${encodeURIComponent(trimmedEmail)}`, { replace: true });
         })
         .catch((caught: unknown) => {
+          /*
+            The address is taken. ADR-007 §1 anticipates exactly this pairing
+            — someone holding an account they never verified, whose retry
+            returns 409 — and names resend-verification as its single
+            recovery path, so the page must offer that path rather than
+            saying "try again" to someone for whom retrying can never work.
+          */
+          if (caught instanceof AuthApiError && caught.code === "EMAIL_ALREADY_EXISTS") {
+            setExistingAccountEmail(trimmedEmail);
+            return;
+          }
+
           /*
             Field-level details from the server are rendered against their
             fields, which is how a rejected password length reaches the right
@@ -127,6 +159,7 @@ export function useSignUpForm({ verifyPath }: UseSignUpFormOptions): SignUpFormS
     isSubmitting,
     fieldErrors,
     formError,
+    existingAccountEmail,
     setName,
     setEmail,
     setPassword,
