@@ -236,3 +236,63 @@
     padding: 24px 16px 48px;
   }
 }
+
+/* ---- shared by the sign-up and verification forms ---- */
+
+/*
+  The password policy, shown before submission rather than as a rejection.
+  Muted so it reads as guidance beside the field, not as an error already
+  raised against it.
+*/
+.field__hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--muted, #6b7280);
+}
+
+/*
+  A resend confirmation. Deliberately distinct from `.auth__alert`: this is
+  information, and colouring it like a failure would make a working action
+  look broken.
+*/
+.auth__notice {
+  margin-bottom: 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--border, #dcdcd6);
+  border-radius: 8px;
+  background: var(--surface-2, rgba(0, 0, 0, 0.03));
+  font-size: 13px;
+}
+
+/*
+  Six digits, spaced and monospaced so a person can check them against the
+  email a character at a time — the single most common failure here is
+  transcription, not comprehension.
+*/
+.field__input--code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 20px;
+  letter-spacing: 6px;
+  text-align: center;
+}
+
+/*
+  An inline action that reads as a link but is a button, because it performs
+  a request rather than navigating. Keeping it a <button> is what makes it
+  reachable by keyboard and announced correctly.
+*/
+.auth__linkButton {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--brand, #0f6b45);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.auth__linkButton:disabled {
+  cursor: default;
+  opacity: 0.6;
+  text-decoration: none;
+}

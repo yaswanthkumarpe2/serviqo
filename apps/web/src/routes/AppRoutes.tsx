@@ -3,6 +3,8 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { AuthRestoring } from "@/features/auth/AuthRestoring";
 import { useAuth } from "@/features/auth/useAuth";
 import { LoginPage } from "@/pages/auth/LoginPage";
+import { SignUpPage } from "@/pages/auth/SignUpPage";
+import { VerifyEmailPage } from "@/pages/auth/VerifyEmailPage";
 import { DashboardPage } from "@/pages/dashboard/DashboardPage";
 import { LandingPage } from "@/pages/marketing/LandingPage";
 
@@ -33,10 +35,30 @@ function SignInRoute() {
 }
 
 /**
+ * The sign-up route, gated the same way `SignInRoute` is and for the same
+ * reason: someone already signed in has no use for a registration form, and
+ * rendering it for a frame during the restore is the flicker that gating
+ * exists to remove.
+ */
+function SignUpRoute() {
+  const { isAuthenticated, isRestoring } = useAuth();
+
+  if (isRestoring) {
+    return <AuthRestoring />;
+  }
+
+  if (isAuthenticated) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  return <SignUpPage />;
+}
+
+/**
  * Every route in the application.
  *
- * Deliberately flat and eager: three routes do not justify layout routes or
- * lazy boundaries. `ARCHITECTURE.md` §3's code-split experience zones become
+ * Deliberately flat and eager: a handful of routes does not justify layout
+ * routes or lazy boundaries. `ARCHITECTURE.md` §3's code-split experience zones become
  * worth building when there are zones to split — the agent workspace and
  * admin areas do not exist.
  *
@@ -55,6 +77,17 @@ export function AppRoutes() {
       <Route path="/" element={<LandingPage />} />
 
       <Route path="/login" element={<SignInRoute />} />
+
+      <Route path="/signup" element={<SignUpRoute />} />
+
+      {/*
+        Deliberately NOT gated on the session, unlike the two routes above.
+        This page is reached from a link in an email, frequently on a
+        different device, and it must work for someone who is signed in as a
+        DIFFERENT account — bouncing them to the dashboard would strand the
+        address they were asked to verify.
+      */}
+      <Route path="/verify-email" element={<VerifyEmailPage />} />
 
       <Route
         path="/dashboard"
