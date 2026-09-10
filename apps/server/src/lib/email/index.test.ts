@@ -30,7 +30,7 @@ afterEach(() => {
 });
 
 describe("resolveEmailProvider", () => {
-  it("resolves the console provider in development", async () => {
+  it("resolves the console provider in development when no provider is configured", async () => {
     const resolveEmailProvider = await loadResolver("development");
     const provider = resolveEmailProvider();
 
@@ -39,7 +39,7 @@ describe("resolveEmailProvider", () => {
     expect(typeof provider.sendInvitation).toBe("function");
   });
 
-  it("resolves the console provider in test", async () => {
+  it("resolves the console provider in test when no provider is configured", async () => {
     const resolveEmailProvider = await loadResolver("test");
     expect(() => resolveEmailProvider()).not.toThrow();
   });
