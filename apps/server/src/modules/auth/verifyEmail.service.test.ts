@@ -10,7 +10,7 @@ import { accountTokenRepository } from "../accountTokens/accountToken.repository
 import { UserModel } from "../users/user.model";
 import { userRepository } from "../users/user.repository";
 import { createRegistrationService } from "./registration.service";
-import { createFakeEmailProvider, extractToken } from "./testing/fakeEmailProvider";
+import { createFakeEmailProvider } from "./testing/fakeEmailProvider";
 import { createVerificationService } from "./verification.service";
 
 import type { AuthLogger } from "./authLogging";
@@ -44,11 +44,16 @@ function buildServices() {
   };
 }
 
-/** Registers a user and returns the raw token from the captured link. */
-async function registerAndGetToken(services: ReturnType<typeof buildServices>, email = EMAIL) {
+/** Registers a user and returns the six-digit code from the captured email. */
+async function registerAndGetCode(services: ReturnType<typeof buildServices>, email = EMAIL) {
   const user = await services.registration.register({ name: "Ada Lovelace", email, password: PASSWORD });
-  const token = extractToken(services.fake.verifications.at(-1)!.verificationUrl)!;
-  return { user, token };
+  const code = services.fake.verifications.at(-1)!.code;
+  return { user, code };
+}
+
+/** A six-digit value that is not `code`. Never the real one, always well-formed. */
+function wrongCode(code = ""): string {
+  return code === "000000" ? "111111" : "000000";
 }
 
 async function storedUser(email = EMAIL) {
@@ -89,10 +94,10 @@ describe("Email verification consumption", () => {
   describe("valid token", () => {
     it("resolves and sets emailVerifiedAt", async () => {
       const services = buildServices();
-      const { token } = await registerAndGetToken(services);
+      const { code } = await registerAndGetCode(services);
 
       const before = Date.now();
-      await expect(services.verification.verifyEmail({ token })).resolves.toBeUndefined();
+      await expect(services.verification.verifyEmail({ email: EMAIL, code })).resolves.toBeUndefined();
       const after = Date.now();
 
       const user = await storedUser();
@@ -104,9 +109,9 @@ describe("Email verification consumption", () => {
 
     it("marks the redeemed token consumed rather than deleting it", async () => {
       const services = buildServices();
-      const { user, token } = await registerAndGetToken(services);
+      const { user, code } = await registerAndGetCode(services);
 
-      await services.verification.verifyEmail({ token });
+      await services.verification.verifyEmail({ email: EMAIL, code });
 
       // ADR-005 §6: the spent token survives so a replay stays
       // distinguishable from a fabrication.
@@ -117,16 +122,16 @@ describe("Email verification consumption", () => {
 
     it("leaves no outstanding token behind", async () => {
       const services = buildServices();
-      const { user, token } = await registerAndGetToken(services);
+      const { user, code } = await registerAndGetCode(services);
 
-      await services.verification.verifyEmail({ token });
+      await services.verification.verifyEmail({ email: EMAIL, code });
 
       expect(await outstandingCount(user.id)).toBe(0);
     });
 
     it("deletes other outstanding tokens for the same user", async () => {
       const services = buildServices();
-      const { user, token } = await registerAndGetToken(services);
+      const { user, code } = await registerAndGetCode(services);
 
       // A second live token, as the ADR-008 §3 concurrency window allows.
       await accountTokenRepository.create({
@@ -137,17 +142,17 @@ describe("Email verification consumption", () => {
       });
       expect(await outstandingCount(user.id)).toBe(2);
 
-      await services.verification.verifyEmail({ token });
+      await services.verification.verifyEmail({ email: EMAIL, code });
 
       expect(await outstandingCount(user.id)).toBe(0);
     });
 
     it("does not touch another user's tokens or verified state", async () => {
       const services = buildServices();
-      const { token } = await registerAndGetToken(services);
-      const other = await registerAndGetToken(services, "grace@example.com");
+      const { code } = await registerAndGetCode(services);
+      const other = await registerAndGetCode(services, "grace@example.com");
 
-      await services.verification.verifyEmail({ token });
+      await services.verification.verifyEmail({ email: EMAIL, code });
 
       expect(await outstandingCount(other.user.id)).toBe(1);
       expect((await storedUser("grace@example.com"))!.emailVerifiedAt).toBeNull();
@@ -155,7 +160,7 @@ describe("Email verification consumption", () => {
 
     it("does not touch the user's password-reset tokens", async () => {
       const services = buildServices();
-      const { user, token } = await registerAndGetToken(services);
+      const { user, code } = await registerAndGetCode(services);
       await accountTokenRepository.create({
         userId: user.id,
         purpose: "password_reset",
@@ -163,17 +168,17 @@ describe("Email verification consumption", () => {
         expiresAt: new Date(Date.now() + EMAIL_VERIFICATION_TOKEN_TTL_MS),
       });
 
-      await services.verification.verifyEmail({ token });
+      await services.verification.verifyEmail({ email: EMAIL, code });
 
       expect(await AccountTokenModel.countDocuments({ userId: user.id, purpose: "password_reset" })).toBe(1);
     });
 
     it("changes nothing else about the user", async () => {
       const services = buildServices();
-      const { token } = await registerAndGetToken(services);
+      const { code } = await registerAndGetCode(services);
       const before = await UserModel.findOne({ email: EMAIL }).select("+passwordHash");
 
-      await services.verification.verifyEmail({ token });
+      await services.verification.verifyEmail({ email: EMAIL, code });
 
       const after = await UserModel.findOne({ email: EMAIL }).select("+passwordHash");
       expect(after!.email).toBe(before!.email);
@@ -190,23 +195,23 @@ describe("Email verification consumption", () => {
   describe("rejected tokens", () => {
     it("rejects a token that never existed", async () => {
       const services = buildServices();
-      await registerAndGetToken(services);
+      await registerAndGetCode(services);
 
-      await expect(services.verification.verifyEmail({ token: generateSecret() })).rejects.toBeInstanceOf(
+      await expect(services.verification.verifyEmail({ email: EMAIL, code: wrongCode() })).rejects.toBeInstanceOf(
         InvalidVerificationTokenError,
       );
     });
 
     it("rejects an arbitrary non-token string", async () => {
       const services = buildServices();
-      await expect(services.verification.verifyEmail({ token: "obviously-not-a-token" })).rejects.toBeInstanceOf(
+      await expect(services.verification.verifyEmail({ email: EMAIL, code: wrongCode() })).rejects.toBeInstanceOf(
         InvalidVerificationTokenError,
       );
     });
 
     it("rejects an expired token", async () => {
       const services = buildServices();
-      const { user } = await registerAndGetToken(services);
+      const { user } = await registerAndGetCode(services);
 
       const expiredSecret = generateSecret();
       await AccountTokenModel.create({
@@ -216,7 +221,7 @@ describe("Email verification consumption", () => {
         expiresAt: new Date(Date.now() - 1000),
       });
 
-      await expect(services.verification.verifyEmail({ token: expiredSecret })).rejects.toBeInstanceOf(
+      await expect(services.verification.verifyEmail({ email: EMAIL, code: expiredSecret })).rejects.toBeInstanceOf(
         InvalidVerificationTokenError,
       );
       expect((await storedUser())!.emailVerifiedAt).toBeNull();
@@ -224,10 +229,10 @@ describe("Email verification consumption", () => {
 
     it("rejects an already-consumed token", async () => {
       const services = buildServices();
-      const { token } = await registerAndGetToken(services);
-      await services.verification.verifyEmail({ token });
+      const { code } = await registerAndGetCode(services);
+      await services.verification.verifyEmail({ email: EMAIL, code });
 
-      await expect(services.verification.verifyEmail({ token })).rejects.toBeInstanceOf(
+      await expect(services.verification.verifyEmail({ email: EMAIL, code })).rejects.toBeInstanceOf(
         InvalidVerificationTokenError,
       );
     });
@@ -236,7 +241,7 @@ describe("Email verification consumption", () => {
     // password-reset token cannot be redeemed here.
     it("rejects a token issued for a different purpose", async () => {
       const services = buildServices();
-      const { user } = await registerAndGetToken(services);
+      const { user } = await registerAndGetCode(services);
 
       const resetSecret = generateSecret();
       await accountTokenRepository.create({
@@ -246,7 +251,7 @@ describe("Email verification consumption", () => {
         expiresAt: new Date(Date.now() + EMAIL_VERIFICATION_TOKEN_TTL_MS),
       });
 
-      await expect(services.verification.verifyEmail({ token: resetSecret })).rejects.toBeInstanceOf(
+      await expect(services.verification.verifyEmail({ email: EMAIL, code: resetSecret })).rejects.toBeInstanceOf(
         InvalidVerificationTokenError,
       );
       expect((await storedUser())!.emailVerifiedAt).toBeNull();
@@ -258,17 +263,17 @@ describe("Email verification consumption", () => {
 
     it("rejects a token whose user no longer exists", async () => {
       const services = buildServices();
-      const { user, token } = await registerAndGetToken(services);
+      const { user, code } = await registerAndGetCode(services);
       await UserModel.deleteOne({ _id: user.id });
 
-      await expect(services.verification.verifyEmail({ token })).rejects.toBeInstanceOf(
+      await expect(services.verification.verifyEmail({ email: EMAIL, code })).rejects.toBeInstanceOf(
         InvalidVerificationTokenError,
       );
     });
 
     it("gives every rejection the identical message", async () => {
       const services = buildServices();
-      const { user, token } = await registerAndGetToken(services);
+      const { user, code } = await registerAndGetCode(services);
 
       const expiredSecret = generateSecret();
       await AccountTokenModel.create({
@@ -277,11 +282,11 @@ describe("Email verification consumption", () => {
         tokenHash: sha256(expiredSecret),
         expiresAt: new Date(Date.now() - 1000),
       });
-      await services.verification.verifyEmail({ token });
+      await services.verification.verifyEmail({ email: EMAIL, code });
 
       const messages = await Promise.all(
-        [generateSecret(), expiredSecret, token].map((candidate) =>
-          services.verification.verifyEmail({ token: candidate }).catch((err: unknown) => ({
+        [wrongCode(code), expiredSecret, code].map((candidate) =>
+          services.verification.verifyEmail({ email: EMAIL, code: candidate }).catch((err: unknown) => ({
             code: (err as InvalidVerificationTokenError).code,
             status: (err as InvalidVerificationTokenError).httpStatus,
             message: (err as Error).message,
@@ -296,7 +301,7 @@ describe("Email verification consumption", () => {
     it("does not reveal expiry, consumption state, or account existence in the message", async () => {
       const services = buildServices();
       const error = await services.verification
-        .verifyEmail({ token: generateSecret() })
+        .verifyEmail({ email: EMAIL, code: wrongCode() })
         .then(() => null)
         .catch((err: unknown) => err as Error);
 
@@ -311,7 +316,7 @@ describe("Email verification consumption", () => {
   describe("already-verified account", () => {
     it("resolves rather than throwing when a valid token is redeemed twice over", async () => {
       const services = buildServices();
-      const { user, token } = await registerAndGetToken(services);
+      const { user, code } = await registerAndGetCode(services);
 
       // A second live token, then verify with the first.
       const secondSecret = generateSecret();
@@ -321,7 +326,7 @@ describe("Email verification consumption", () => {
         tokenHash: sha256(secondSecret),
         expiresAt: new Date(Date.now() + EMAIL_VERIFICATION_TOKEN_TTL_MS),
       });
-      await services.verification.verifyEmail({ token });
+      await services.verification.verifyEmail({ email: EMAIL, code });
 
       // Re-create a live token to stand in for one that outlived cleanup.
       const thirdSecret = generateSecret();
@@ -332,13 +337,13 @@ describe("Email verification consumption", () => {
         expiresAt: new Date(Date.now() + EMAIL_VERIFICATION_TOKEN_TTL_MS),
       });
 
-      await expect(services.verification.verifyEmail({ token: thirdSecret })).resolves.toBeUndefined();
+      await expect(services.verification.verifyEmail({ email: EMAIL, code: thirdSecret })).resolves.toBeUndefined();
     });
 
     it("does not move the original verification timestamp", async () => {
       const services = buildServices();
-      const { user, token } = await registerAndGetToken(services);
-      await services.verification.verifyEmail({ token });
+      const { user, code } = await registerAndGetCode(services);
+      await services.verification.verifyEmail({ email: EMAIL, code });
       const firstTimestamp = (await storedUser())!.emailVerifiedAt!.getTime();
 
       const laterSecret = generateSecret();
@@ -348,15 +353,15 @@ describe("Email verification consumption", () => {
         tokenHash: sha256(laterSecret),
         expiresAt: new Date(Date.now() + EMAIL_VERIFICATION_TOKEN_TTL_MS),
       });
-      await services.verification.verifyEmail({ token: laterSecret });
+      await services.verification.verifyEmail({ email: EMAIL, code: laterSecret });
 
       expect((await storedUser())!.emailVerifiedAt!.getTime()).toBe(firstTimestamp);
     });
 
     it("still clears outstanding tokens", async () => {
       const services = buildServices();
-      const { user, token } = await registerAndGetToken(services);
-      await services.verification.verifyEmail({ token });
+      const { user, code } = await registerAndGetCode(services);
+      await services.verification.verifyEmail({ email: EMAIL, code });
 
       const leftover = generateSecret();
       await accountTokenRepository.create({
@@ -366,15 +371,15 @@ describe("Email verification consumption", () => {
         expiresAt: new Date(Date.now() + EMAIL_VERIFICATION_TOKEN_TTL_MS),
       });
 
-      await services.verification.verifyEmail({ token: leftover });
+      await services.verification.verifyEmail({ email: EMAIL, code: leftover });
 
       expect(await outstandingCount(user.id)).toBe(0);
     });
 
     it("does not refund the spent token", async () => {
       const services = buildServices();
-      const { user, token } = await registerAndGetToken(services);
-      await services.verification.verifyEmail({ token });
+      const { user, code } = await registerAndGetCode(services);
+      await services.verification.verifyEmail({ email: EMAIL, code });
 
       const secondSecret = generateSecret();
       await accountTokenRepository.create({
@@ -383,10 +388,10 @@ describe("Email verification consumption", () => {
         tokenHash: sha256(secondSecret),
         expiresAt: new Date(Date.now() + EMAIL_VERIFICATION_TOKEN_TTL_MS),
       });
-      await services.verification.verifyEmail({ token: secondSecret });
+      await services.verification.verifyEmail({ email: EMAIL, code: secondSecret });
 
       // Presenting it again must fail — it was consumed, not returned.
-      await expect(services.verification.verifyEmail({ token: secondSecret })).rejects.toBeInstanceOf(
+      await expect(services.verification.verifyEmail({ email: EMAIL, code: secondSecret })).rejects.toBeInstanceOf(
         InvalidVerificationTokenError,
       );
     });
@@ -402,10 +407,10 @@ describe("Email verification consumption", () => {
      */
     it("lets exactly one of many concurrent redemptions of one token succeed", async () => {
       const services = buildServices();
-      const { user, token } = await registerAndGetToken(services);
+      const { user, code } = await registerAndGetCode(services);
 
       const results = await Promise.allSettled(
-        Array.from({ length: 8 }, () => services.verification.verifyEmail({ token })),
+        Array.from({ length: 8 }, () => services.verification.verifyEmail({ email: EMAIL, code })),
       );
 
       expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
@@ -425,7 +430,7 @@ describe("Email verification consumption", () => {
      */
     it("sets emailVerifiedAt once when two distinct valid tokens race", async () => {
       const services = buildServices();
-      const { user, token } = await registerAndGetToken(services);
+      const { user, code } = await registerAndGetCode(services);
 
       const secondSecret = generateSecret();
       await accountTokenRepository.create({
@@ -436,8 +441,8 @@ describe("Email verification consumption", () => {
       });
 
       const results = await Promise.allSettled([
-        services.verification.verifyEmail({ token }),
-        services.verification.verifyEmail({ token: secondSecret }),
+        services.verification.verifyEmail({ email: EMAIL, code }),
+        services.verification.verifyEmail({ email: EMAIL, code: secondSecret }),
       ]);
 
       expect(results.every((r) => r.status === "fulfilled")).toBe(true);
@@ -454,7 +459,7 @@ describe("Email verification consumption", () => {
      */
     it("keeps the earlier timestamp when the set-once update loses", async () => {
       const services = buildServices();
-      const { user, token } = await registerAndGetToken(services);
+      const { user, code } = await registerAndGetCode(services);
 
       const original = new Date(Date.now() - 60_000);
       const markSpy = vi.spyOn(userRepository, "markEmailVerified").mockImplementation(async (id) => {
@@ -463,7 +468,7 @@ describe("Email verification consumption", () => {
         return null;
       });
 
-      await expect(services.verification.verifyEmail({ token })).resolves.toBeUndefined();
+      await expect(services.verification.verifyEmail({ email: EMAIL, code })).resolves.toBeUndefined();
 
       expect(markSpy).toHaveBeenCalled();
       expect((await storedUser())!.emailVerifiedAt!.getTime()).toBe(original.getTime());
@@ -472,7 +477,7 @@ describe("Email verification consumption", () => {
 
     it("never re-verifies through the repository predicate", async () => {
       const services = buildServices();
-      const { user } = await registerAndGetToken(services);
+      const { user } = await registerAndGetCode(services);
       const first = new Date(Date.now() - 60_000);
       await UserModel.updateOne({ _id: user.id }, { $set: { emailVerifiedAt: first } });
 
@@ -488,11 +493,11 @@ describe("Email verification consumption", () => {
   describe("cleanup failure", () => {
     it("still verifies the account when clearing tokens fails", async () => {
       const services = buildServices();
-      const { token } = await registerAndGetToken(services);
+      const { code } = await registerAndGetCode(services);
       vi.spyOn(accountTokenRepository, "invalidateOutstandingForUser").mockRejectedValue(new Error("boom"));
       const capture = createCapturingLogger();
 
-      await expect(services.verification.verifyEmail({ token }, capture.log)).resolves.toBeUndefined();
+      await expect(services.verification.verifyEmail({ email: EMAIL, code }, capture.log)).resolves.toBeUndefined();
 
       expect((await storedUser())!.emailVerifiedAt).not.toBeNull();
       expect(capture.serialized()).toContain("auth.verify_email.cleanup_failed");
@@ -502,16 +507,23 @@ describe("Email verification consumption", () => {
   // ---- secrecy ----
 
   describe("secrecy", () => {
-    it("never logs the submitted token or its hash", async () => {
+    it("never logs the submitted code or its hash", async () => {
       const services = buildServices();
-      const { token } = await registerAndGetToken(services);
+      const { code } = await registerAndGetCode(services);
       const capture = createCapturingLogger();
 
-      await services.verification.verifyEmail({ token }, capture.log);
+      await services.verification.verifyEmail({ email: EMAIL, code }, capture.log);
 
       const logged = capture.serialized();
-      expect(logged).not.toContain(token);
-      expect(logged).not.toContain(sha256(token));
+      /*
+        Quoted, because a bare six-digit string is short enough to collide by
+        chance with digits inside an ObjectId or a timestamp — a false pass
+        would be bad, but a flaky false FAILURE on a secrecy test is what
+        gets a suite muted. The JSON-quoted form is what a logged value would
+        actually look like.
+      */
+      expect(logged).not.toContain(`"${code}"`);
+      expect(logged).not.toContain(sha256(code));
       expect(logged).not.toContain(EMAIL);
       expect(logged).not.toContain(PASSWORD);
     });
@@ -521,7 +533,7 @@ describe("Email verification consumption", () => {
       const capture = createCapturingLogger();
       const attempted = generateSecret();
 
-      await services.verification.verifyEmail({ token: attempted }, capture.log).catch(() => undefined);
+      await services.verification.verifyEmail({ email: EMAIL, code: attempted }, capture.log).catch(() => undefined);
 
       expect(capture.serialized()).not.toContain(attempted);
       expect(capture.serialized()).not.toContain(sha256(attempted));
@@ -529,9 +541,9 @@ describe("Email verification consumption", () => {
 
     it("returns nothing at all", async () => {
       const services = buildServices();
-      const { token } = await registerAndGetToken(services);
+      const { code } = await registerAndGetCode(services);
 
-      expect(await services.verification.verifyEmail({ token })).toBeUndefined();
+      expect(await services.verification.verifyEmail({ email: EMAIL, code })).toBeUndefined();
     });
   });
 });

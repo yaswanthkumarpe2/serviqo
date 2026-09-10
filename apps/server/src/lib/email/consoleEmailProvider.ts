@@ -40,6 +40,19 @@ export function createConsoleEmailProvider(log: EmailLogger = logger): EmailProv
           delivery: "console",
           recipient: maskEmailAddress(input.to),
           url: describeActionUrl(input.verificationUrl),
+          /*
+            The CODE is deliberately absent, and the omission matters more
+            here than the redacted URL beside it did. A six-digit code is
+            short enough to be read at a glance from a scrollback, a shared
+            terminal, or a log shipped somewhere central — and unlike a link
+            secret, it is short enough to be remembered. This provider's job
+            is to prove the send happened, not to hand out the credential.
+
+            Local development completes verification through a real provider
+            (Resend's shared sender needs no domain), and the test suite
+            injects a fake that captures the code directly.
+          */
+          codeIssued: true,
         },
         "Verification email (development: not delivered)",
       );

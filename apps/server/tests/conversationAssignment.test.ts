@@ -14,7 +14,7 @@ import { OrganizationModel } from "../src/modules/organizations/organization.mod
 import { SessionModel } from "../src/modules/sessions/session.model";
 import { UserModel } from "../src/modules/users/user.model";
 import { ROLE_PERMISSIONS, can } from "../src/modules/memberships/permissions";
-import { createFakeEmailProvider, extractToken } from "../src/modules/auth/testing/fakeEmailProvider";
+import { createFakeEmailProvider } from "../src/modules/auth/testing/fakeEmailProvider";
 
 import type { MembershipRole, MembershipStatus } from "../src/modules/memberships/membership.model";
 
@@ -63,8 +63,8 @@ async function signedInStaff(ctx: Ctx, name = "Ada Lovelace") {
   const email = `assign${emailCounter}@example.com`;
 
   await request(ctx.app).post(REGISTER_PATH).send({ name, email, password: PASSWORD });
-  const token = extractToken(ctx.fake.verifications.at(-1)!.verificationUrl)!;
-  await request(ctx.app).post(VERIFY_PATH).send({ token });
+  const code = ctx.fake.verifications.at(-1)!.code;
+  await request(ctx.app).post(VERIFY_PATH).send({ email, code });
 
   const login = await request(ctx.app).post(LOGIN_PATH).send({ email, password: PASSWORD });
   return {

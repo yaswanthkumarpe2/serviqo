@@ -12,9 +12,9 @@ import type {
  * the provider as a parameter — nothing needs to intercept imports.
  *
  * Captured inputs stay in test memory and are never logged. Assertions read
- * the verification URL to extract the raw token and compare its SHA-256
- * against the persisted hash; the token itself is never printed, snapshotted,
- * or placed in an assertion message.
+ * the captured CODE and compare its SHA-256 against the persisted hash; the
+ * code itself is never printed, snapshotted, or placed in an assertion
+ * message.
  */
 export interface FakeEmailProvider {
   provider: EmailProvider;
@@ -61,7 +61,20 @@ export function createFailingEmailProvider(message = "delivery failed"): EmailPr
   };
 }
 
-/** Pulls the raw token out of a captured link without ever logging it. */
-export function extractToken(verificationUrl: string): string | null {
-  return new URL(verificationUrl).searchParams.get("token");
+/**
+ * Pulls the raw secret out of a captured link without ever logging it.
+ *
+ * Password reset still emails a link with its secret in the query string.
+ * Email VERIFICATION no longer does — since ADR-030 the credential is the
+ * six-digit `code` on the captured input, and the URL carries only the
+ * address — so a verification test that reaches for this is asking the wrong
+ * question and will get `null`.
+ */
+export function extractToken(actionUrl: string): string | null {
+  return new URL(actionUrl).searchParams.get("token");
+}
+
+/** The address a verification link prefills. Carries no secret. */
+export function extractEmail(verificationUrl: string): string | null {
+  return new URL(verificationUrl).searchParams.get("email");
 }

@@ -43,7 +43,8 @@ describe("ConsoleEmailProvider", () => {
     it("sendVerification resolves", async () => {
       const provider = createConsoleEmailProvider(capture.log);
       await expect(
-        provider.sendVerification({ to: RECIPIENT, verificationUrl: "http://localhost:5173/verify-email?token=a" }),
+        provider.sendVerification({ to: RECIPIENT, code: "481920",
+        verificationUrl: "http://localhost:5173/verify-email?token=a" }),
       ).resolves.toBeUndefined();
     });
 
@@ -71,6 +72,7 @@ describe("ConsoleEmailProvider", () => {
       const provider = createConsoleEmailProvider(capture.log);
       await provider.sendVerification({
         to: RECIPIENT,
+        code: "481920",
         verificationUrl: "http://localhost:5173/verify-email?token=a",
       });
 
@@ -103,6 +105,7 @@ describe("ConsoleEmailProvider", () => {
       const provider = createConsoleEmailProvider(capture.log);
       await provider.sendVerification({
         to: RECIPIENT,
+        code: "481920",
         verificationUrl: "http://localhost:5173/verify-email?token=a",
       });
 
@@ -116,6 +119,7 @@ describe("ConsoleEmailProvider", () => {
       const provider = createConsoleEmailProvider(capture.log);
       await provider.sendVerification({
         to: RECIPIENT,
+        code: "481920",
         verificationUrl: `http://localhost:5173/verify-email?token=${SECRET}`,
       });
 
@@ -146,7 +150,8 @@ describe("ConsoleEmailProvider", () => {
     it("never logs the full action URL", async () => {
       const provider = createConsoleEmailProvider(capture.log);
       const fullUrl = `http://localhost:5173/verify-email?token=${SECRET}&ref=welcome`;
-      await provider.sendVerification({ to: RECIPIENT, verificationUrl: fullUrl });
+      await provider.sendVerification({ to: RECIPIENT, code: "481920",
+        verificationUrl: fullUrl });
 
       const serialized = serializeAll(capture.entries);
       expect(serialized).not.toContain(fullUrl);
@@ -158,6 +163,7 @@ describe("ConsoleEmailProvider", () => {
       const provider = createConsoleEmailProvider(capture.log);
       await provider.sendVerification({
         to: RECIPIENT,
+        code: "481920",
         verificationUrl: `http://localhost:5173/verify-email#${SECRET}`,
       });
 
@@ -168,6 +174,7 @@ describe("ConsoleEmailProvider", () => {
       const provider = createConsoleEmailProvider(capture.log);
       await provider.sendVerification({
         to: RECIPIENT,
+        code: "481920",
         verificationUrl: `http://localhost:5173/verify-email?token=${SECRET}`,
       });
 
@@ -181,6 +188,7 @@ describe("ConsoleEmailProvider", () => {
       const provider = createConsoleEmailProvider(capture.log);
       await provider.sendVerification({
         to: RECIPIENT,
+        code: "481920",
         verificationUrl: `https://app.example.com/verify-email/${SECRET}`,
       });
 
@@ -192,6 +200,7 @@ describe("ConsoleEmailProvider", () => {
       const provider = createConsoleEmailProvider(capture.log);
       await provider.sendVerification({
         to: RECIPIENT,
+        code: "481920",
         verificationUrl: `https://app.example.com/verify-email/${SECRET}`,
       });
       await provider.sendPasswordReset({
@@ -212,6 +221,7 @@ describe("ConsoleEmailProvider", () => {
       const provider = createConsoleEmailProvider(capture.log);
       await provider.sendVerification({
         to: RECIPIENT,
+        code: "481920",
         verificationUrl: "https://app.example.com/totally/unexpected/path",
       });
 
@@ -226,6 +236,7 @@ describe("ConsoleEmailProvider", () => {
       const provider = createConsoleEmailProvider(capture.log);
       await provider.sendVerification({
         to: RECIPIENT,
+        code: "481920",
         verificationUrl: "http://localhost:5173/verify-email?token=a",
       });
 
@@ -236,6 +247,7 @@ describe("ConsoleEmailProvider", () => {
       const provider = createConsoleEmailProvider(capture.log);
       await provider.sendVerification({
         to: RECIPIENT,
+        code: "481920",
         verificationUrl: "http://localhost:5173/verify-email?token=a",
       });
 
@@ -246,7 +258,8 @@ describe("ConsoleEmailProvider", () => {
 
     it("masks the recipient across all three email types", async () => {
       const provider = createConsoleEmailProvider(capture.log);
-      await provider.sendVerification({ to: RECIPIENT, verificationUrl: "http://x.test/v?token=a" });
+      await provider.sendVerification({ to: RECIPIENT, code: "481920",
+        verificationUrl: "http://x.test/v?token=a" });
       await provider.sendPasswordReset({ to: RECIPIENT, resetUrl: "http://x.test/r?token=a" });
       await provider.sendInvitation({
         to: RECIPIENT,
@@ -267,7 +280,8 @@ describe("ConsoleEmailProvider", () => {
       const provider = createConsoleEmailProvider(capture.log);
 
       await expect(
-        provider.sendVerification({ to: RECIPIENT, verificationUrl: "not-a-valid-url" }),
+        provider.sendVerification({ to: RECIPIENT, code: "481920",
+        verificationUrl: "not-a-valid-url" }),
       ).resolves.toBeUndefined();
     });
 
@@ -275,6 +289,7 @@ describe("ConsoleEmailProvider", () => {
       const provider = createConsoleEmailProvider(capture.log);
       await provider.sendVerification({
         to: RECIPIENT,
+        code: "481920",
         verificationUrl: `garbage::${SECRET}`,
       });
 
@@ -302,7 +317,8 @@ describe("ConsoleEmailProvider", () => {
       const provider = createConsoleEmailProvider(capture.log);
       const input = Object.freeze({
         to: RECIPIENT,
-        verificationUrl: "http://localhost:5173/verify-email?token=a",
+        code: "481920",
+        verificationUrl: "http://localhost:5173/verify-email?email=a%40b.com",
       });
 
       await expect(provider.sendVerification(input)).resolves.toBeUndefined();

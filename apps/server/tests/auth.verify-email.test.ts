@@ -3,10 +3,10 @@ import mongoose from "mongoose";
 import request from "supertest";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
-import { generateSecret, sha256 } from "../src/lib/crypto/tokens";
+import { sha256 } from "../src/lib/crypto/tokens";
 import { createApp } from "../src/app";
 import { AccountTokenModel } from "../src/modules/accountTokens/accountToken.model";
-import { createFakeEmailProvider, extractToken } from "../src/modules/auth/testing/fakeEmailProvider";
+import { createFakeEmailProvider } from "../src/modules/auth/testing/fakeEmailProvider";
 import { UserModel } from "../src/modules/users/user.model";
 
 const REGISTER_PATH = "/api/v1/auth/register";
@@ -15,14 +15,23 @@ const VERIFY_PATH = "/api/v1/auth/verify-email";
 const PASSWORD = "DO_NOT_LEAK_THIS_PASSWORD";
 const EMAIL = "ada@example.com";
 
+/**
+ * A well-formed code that no test issues.
+ *
+ * Six digits cannot be *guaranteed* distinct from a randomly issued one, but
+ * the tests using it register no account at all, so the refusal comes from
+ * the address having no pending code rather than from the digits.
+ */
+const UNISSUED_CODE = "000000";
+
 function buildApp() {
   const fake = createFakeEmailProvider();
   return { fake, app: createApp({ emailProvider: fake.provider }) };
 }
 
-async function registerAndGetToken(ctx: ReturnType<typeof buildApp>) {
+async function registerAndGetCode(ctx: ReturnType<typeof buildApp>) {
   await request(ctx.app).post(REGISTER_PATH).send({ name: "Ada Lovelace", email: EMAIL, password: PASSWORD });
-  return extractToken(ctx.fake.verifications.at(-1)!.verificationUrl)!;
+  return ctx.fake.verifications.at(-1)!.code;
 }
 
 describe("POST /api/v1/auth/verify-email", () => {
@@ -46,12 +55,12 @@ describe("POST /api/v1/auth/verify-email", () => {
 
   // ---- success ----
 
-  describe("valid token", () => {
+  describe("valid code", () => {
     it("answers 204 with no body", async () => {
       const ctx = buildApp();
-      const token = await registerAndGetToken(ctx);
+      const code = await registerAndGetCode(ctx);
 
-      const response = await request(ctx.app).post(VERIFY_PATH).send({ token });
+      const response = await request(ctx.app).post(VERIFY_PATH).send({ email: EMAIL, code });
 
       expect(response.status).toBe(204);
       expect(response.text).toBe("");
@@ -60,27 +69,27 @@ describe("POST /api/v1/auth/verify-email", () => {
 
     it("populates emailVerifiedAt", async () => {
       const ctx = buildApp();
-      const token = await registerAndGetToken(ctx);
+      const code = await registerAndGetCode(ctx);
 
-      await request(ctx.app).post(VERIFY_PATH).send({ token });
+      await request(ctx.app).post(VERIFY_PATH).send({ email: EMAIL, code });
 
       expect((await UserModel.findOne({ email: EMAIL }))!.emailVerifiedAt).not.toBeNull();
     });
 
     it("leaves no outstanding verification token", async () => {
       const ctx = buildApp();
-      const token = await registerAndGetToken(ctx);
+      const code = await registerAndGetCode(ctx);
 
-      await request(ctx.app).post(VERIFY_PATH).send({ token });
+      await request(ctx.app).post(VERIFY_PATH).send({ email: EMAIL, code });
 
       expect(await AccountTokenModel.countDocuments({ consumedAt: null })).toBe(0);
     });
 
     it("issues no session, token, or cookie", async () => {
       const ctx = buildApp();
-      const token = await registerAndGetToken(ctx);
+      const code = await registerAndGetCode(ctx);
 
-      const response = await request(ctx.app).post(VERIFY_PATH).send({ token });
+      const response = await request(ctx.app).post(VERIFY_PATH).send({ email: EMAIL, code });
 
       expect(response.headers["set-cookie"]).toBeUndefined();
       expect(response.headers["authorization"]).toBeUndefined();
@@ -95,9 +104,9 @@ describe("POST /api/v1/auth/verify-email", () => {
 
     it("sends no content-type or content-length", async () => {
       const ctx = buildApp();
-      const token = await registerAndGetToken(ctx);
+      const code = await registerAndGetCode(ctx);
 
-      const response = await request(ctx.app).post(VERIFY_PATH).send({ token });
+      const response = await request(ctx.app).post(VERIFY_PATH).send({ email: EMAIL, code });
 
       expect(response.headers["content-type"]).toBeUndefined();
       expect(response.headers["content-length"]).toBeUndefined();
@@ -106,10 +115,10 @@ describe("POST /api/v1/auth/verify-email", () => {
 
   // ---- rejection ----
 
-  describe("rejected tokens", () => {
+  describe("rejected codes", () => {
     it("answers 400 INVALID_VERIFICATION_TOKEN for an unknown token", async () => {
       const ctx = buildApp();
-      const response = await request(ctx.app).post(VERIFY_PATH).send({ token: generateSecret() });
+      const response = await request(ctx.app).post(VERIFY_PATH).send({ email: EMAIL, code: UNISSUED_CODE });
 
       expect(response.status).toBe(400);
       expect(response.body).toMatchObject({
@@ -121,10 +130,10 @@ describe("POST /api/v1/auth/verify-email", () => {
 
     it("answers identically on a second use of the same token", async () => {
       const ctx = buildApp();
-      const token = await registerAndGetToken(ctx);
+      const code = await registerAndGetCode(ctx);
 
-      const first = await request(ctx.app).post(VERIFY_PATH).send({ token });
-      const second = await request(ctx.app).post(VERIFY_PATH).send({ token });
+      const first = await request(ctx.app).post(VERIFY_PATH).send({ email: EMAIL, code });
+      const second = await request(ctx.app).post(VERIFY_PATH).send({ email: EMAIL, code });
 
       expect(first.status).toBe(204);
       expect(second.status).toBe(400);
@@ -133,10 +142,10 @@ describe("POST /api/v1/auth/verify-email", () => {
 
     it("answers 400 for an expired token", async () => {
       const ctx = buildApp();
-      await registerAndGetToken(ctx);
+      await registerAndGetCode(ctx);
       const user = await UserModel.findOne({ email: EMAIL });
 
-      const expired = generateSecret();
+      const expired = "314159";
       await AccountTokenModel.create({
         userId: user!._id,
         purpose: "email_verification",
@@ -144,7 +153,7 @@ describe("POST /api/v1/auth/verify-email", () => {
         expiresAt: new Date(Date.now() - 1000),
       });
 
-      const response = await request(ctx.app).post(VERIFY_PATH).send({ token: expired });
+      const response = await request(ctx.app).post(VERIFY_PATH).send({ email: EMAIL, code: expired });
 
       expect(response.status).toBe(400);
       expect(response.body.error.code).toBe("INVALID_VERIFICATION_TOKEN");
@@ -157,21 +166,21 @@ describe("POST /api/v1/auth/verify-email", () => {
      */
     it("answers identically for unknown, expired, and consumed tokens", async () => {
       const ctx = buildApp();
-      const token = await registerAndGetToken(ctx);
+      const code = await registerAndGetCode(ctx);
       const user = await UserModel.findOne({ email: EMAIL });
 
-      const expired = generateSecret();
+      const expired = "314159";
       await AccountTokenModel.create({
         userId: user!._id,
         purpose: "email_verification",
         tokenHash: sha256(expired),
         expiresAt: new Date(Date.now() - 1000),
       });
-      await request(ctx.app).post(VERIFY_PATH).send({ token });
+      await request(ctx.app).post(VERIFY_PATH).send({ email: EMAIL, code });
 
       const responses = await Promise.all(
-        [generateSecret(), expired, token].map((candidate) =>
-          request(ctx.app).post(VERIFY_PATH).send({ token: candidate }),
+        [UNISSUED_CODE, expired, code].map((candidate) =>
+          request(ctx.app).post(VERIFY_PATH).send({ email: EMAIL, code: candidate }),
         ),
       );
 
@@ -188,7 +197,7 @@ describe("POST /api/v1/auth/verify-email", () => {
 
     it("carries no details, expiry, or account information", async () => {
       const ctx = buildApp();
-      const response = await request(ctx.app).post(VERIFY_PATH).send({ token: generateSecret() });
+      const response = await request(ctx.app).post(VERIFY_PATH).send({ email: EMAIL, code: UNISSUED_CODE });
 
       expect(response.body.error).not.toHaveProperty("details");
       expect(Object.keys(response.body.error).sort()).toEqual([
@@ -205,10 +214,10 @@ describe("POST /api/v1/auth/verify-email", () => {
       expect(serialized).not.toContain("account");
     });
 
-    it("never echoes the submitted token", async () => {
+    it("never echoes the submitted code", async () => {
       const ctx = buildApp();
-      const attempted = generateSecret();
-      const response = await request(ctx.app).post(VERIFY_PATH).send({ token: attempted });
+      const attempted = "271828";
+      const response = await request(ctx.app).post(VERIFY_PATH).send({ email: EMAIL, code: attempted });
 
       const serialized = JSON.stringify(response.body);
       expect(serialized).not.toContain(attempted);
@@ -221,11 +230,11 @@ describe("POST /api/v1/auth/verify-email", () => {
   describe("already-verified account", () => {
     it("answers 204 when a live token is redeemed against a verified account", async () => {
       const ctx = buildApp();
-      const token = await registerAndGetToken(ctx);
-      await request(ctx.app).post(VERIFY_PATH).send({ token });
+      const code = await registerAndGetCode(ctx);
+      await request(ctx.app).post(VERIFY_PATH).send({ email: EMAIL, code });
 
       const user = await UserModel.findOne({ email: EMAIL });
-      const leftover = generateSecret();
+      const leftover = "606060";
       await AccountTokenModel.create({
         userId: user!._id,
         purpose: "email_verification",
@@ -233,7 +242,7 @@ describe("POST /api/v1/auth/verify-email", () => {
         expiresAt: new Date(Date.now() + 60_000),
       });
 
-      const response = await request(ctx.app).post(VERIFY_PATH).send({ token: leftover });
+      const response = await request(ctx.app).post(VERIFY_PATH).send({ email: EMAIL, code: leftover });
 
       expect(response.status).toBe(204);
       expect(response.text).toBe("");
@@ -243,18 +252,21 @@ describe("POST /api/v1/auth/verify-email", () => {
   // ---- validation and boundary ----
 
   describe("validation", () => {
-    it("answers 400 VALIDATION_ERROR when token is missing", async () => {
+    it("answers 400 VALIDATION_ERROR when code is missing", async () => {
       const ctx = buildApp();
       const response = await request(ctx.app).post(VERIFY_PATH).send({});
 
       expect(response.status).toBe(400);
       expect(response.body.error.code).toBe("VALIDATION_ERROR");
-      expect(response.body.error.details.map((d: { field: string }) => d.field)).toContain("token");
+      const fields = response.body.error.details.map((d: { field: string }) => d.field);
+      // Both halves are required: the address routes, the code proves.
+      expect(fields).toContain("email");
+      expect(fields).toContain("code");
     });
 
     it("answers 400 VALIDATION_ERROR for an empty token", async () => {
       const ctx = buildApp();
-      const response = await request(ctx.app).post(VERIFY_PATH).send({ token: "   " });
+      const response = await request(ctx.app).post(VERIFY_PATH).send({ email: EMAIL, code: "   " });
 
       expect(response.status).toBe(400);
       expect(response.body.error.code).toBe("VALIDATION_ERROR");
@@ -262,7 +274,7 @@ describe("POST /api/v1/auth/verify-email", () => {
 
     it("answers 400 VALIDATION_ERROR for an oversized token", async () => {
       const ctx = buildApp();
-      const response = await request(ctx.app).post(VERIFY_PATH).send({ token: "a".repeat(513) });
+      const response = await request(ctx.app).post(VERIFY_PATH).send({ email: EMAIL, code: "1".repeat(513) });
 
       expect(response.status).toBe(400);
       expect(response.body.error.code).toBe("VALIDATION_ERROR");
@@ -270,20 +282,20 @@ describe("POST /api/v1/auth/verify-email", () => {
 
     it("tolerates surrounding whitespace on a real token", async () => {
       const ctx = buildApp();
-      const token = await registerAndGetToken(ctx);
+      const code = await registerAndGetCode(ctx);
 
-      const response = await request(ctx.app).post(VERIFY_PATH).send({ token: `  ${token}  ` });
+      const response = await request(ctx.app).post(VERIFY_PATH).send({ email: EMAIL, code: `  ${code}  ` });
 
       expect(response.status).toBe(204);
     });
 
     it("strips unrecognized keys", async () => {
       const ctx = buildApp();
-      const token = await registerAndGetToken(ctx);
+      const code = await registerAndGetCode(ctx);
 
       const response = await request(ctx.app)
         .post(VERIFY_PATH)
-        .send({ token, userId: "deadbeefdeadbeefdeadbeef", emailVerifiedAt: new Date().toISOString() });
+        .send({ email: EMAIL, code, userId: "deadbeefdeadbeefdeadbeef", emailVerifiedAt: new Date().toISOString() });
 
       expect(response.status).toBe(204);
       expect((await UserModel.findOne({ email: EMAIL }))!.emailVerifiedAt).not.toBeNull();
@@ -291,15 +303,15 @@ describe("POST /api/v1/auth/verify-email", () => {
 
     it("answers 400 MALFORMED_JSON without echoing the fragment", async () => {
       const ctx = buildApp();
-      const token = await registerAndGetToken(ctx);
+      const code = await registerAndGetCode(ctx);
       const response = await request(ctx.app)
         .post(VERIFY_PATH)
         .set("Content-Type", "application/json")
-        .send(`{"token": "${token}",}`);
+        .send(`{"email": "${EMAIL}", "code": "${code}",}`);
 
       expect(response.status).toBe(400);
       expect(response.body.error.code).toBe("MALFORMED_JSON");
-      expect(JSON.stringify(response.body)).not.toContain(token);
+      expect(JSON.stringify(response.body)).not.toContain(`"${code}"`);
     });
 
     it("answers 400 for a non-JSON content type", async () => {
@@ -324,9 +336,9 @@ describe("POST /api/v1/auth/verify-email", () => {
   describe("correlation", () => {
     it("propagates X-Request-Id on the 204", async () => {
       const ctx = buildApp();
-      const token = await registerAndGetToken(ctx);
+      const code = await registerAndGetCode(ctx);
 
-      const response = await request(ctx.app).post(VERIFY_PATH).set("X-Request-Id", "verify-req-id").send({ token });
+      const response = await request(ctx.app).post(VERIFY_PATH).set("X-Request-Id", "verify-req-id").send({ email: EMAIL, code });
 
       expect(response.status).toBe(204);
       expect(response.headers["x-request-id"]).toBe("verify-req-id");
@@ -338,7 +350,7 @@ describe("POST /api/v1/auth/verify-email", () => {
       const response = await request(ctx.app)
         .post(VERIFY_PATH)
         .set("X-Request-Id", "verify-fail-id")
-        .send({ token: generateSecret() });
+        .send({ email: EMAIL, code: UNISSUED_CODE });
 
       expect(response.headers["x-request-id"]).toBe("verify-fail-id");
       expect(response.body.error.requestId).toBe("verify-fail-id");
@@ -350,10 +362,10 @@ describe("POST /api/v1/auth/verify-email", () => {
   describe("concurrency", () => {
     it("lets exactly one of several concurrent requests succeed", async () => {
       const ctx = buildApp();
-      const token = await registerAndGetToken(ctx);
+      const code = await registerAndGetCode(ctx);
 
       const responses = await Promise.all(
-        Array.from({ length: 5 }, () => request(ctx.app).post(VERIFY_PATH).send({ token })),
+        Array.from({ length: 5 }, () => request(ctx.app).post(VERIFY_PATH).send({ email: EMAIL, code })),
       );
 
       expect(responses.filter((r) => r.status === 204)).toHaveLength(1);

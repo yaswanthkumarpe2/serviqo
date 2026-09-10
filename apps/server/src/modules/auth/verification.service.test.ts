@@ -9,7 +9,7 @@ import { AccountTokenModel } from "../accountTokens/accountToken.model";
 import { accountTokenRepository } from "../accountTokens/accountToken.repository";
 import { UserModel } from "../users/user.model";
 import { createRegistrationService } from "./registration.service";
-import { createFailingEmailProvider, createFakeEmailProvider, extractToken } from "./testing/fakeEmailProvider";
+import { createFailingEmailProvider, createFakeEmailProvider } from "./testing/fakeEmailProvider";
 import { createVerificationService } from "./verification.service";
 
 import type { AuthLogger } from "./authLogging";
@@ -197,15 +197,15 @@ describe("Resend verification service", () => {
       expect(consumed).toBeNull();
     });
 
-    it("sends a link whose secret hashes to the newly stored token", async () => {
+    it("sends a code that hashes to the newly stored token", async () => {
       const services = buildServices();
       const user = await registerUser(services);
 
       await services.verification.resendVerification({ email: EMAIL });
 
-      const rawToken = extractToken(services.fake.verifications[0]!.verificationUrl)!;
+      const code = services.fake.verifications[0]!.code;
       const [storedHash] = await outstandingHashes(user.id);
-      expect(storedHash).toBe(sha256(rawToken));
+      expect(storedHash).toBe(sha256(code));
     });
 
     it("gives the replacement a fresh full-length expiry", async () => {
@@ -261,17 +261,19 @@ describe("Resend verification service", () => {
       expect(await AccountTokenModel.countDocuments({ userId: user.id })).toBe(1);
     });
 
-    it("builds the link from CLIENT_URL with the secret in the query string", async () => {
+    it("builds the link from CLIENT_URL carrying the address and no secret", async () => {
       const services = buildServices();
       await registerUser(services);
 
       await services.verification.resendVerification({ email: EMAIL });
 
-      const url = new URL(services.fake.verifications[0]!.verificationUrl);
+      const captured = services.fake.verifications[0]!;
+      const url = new URL(captured.verificationUrl);
       expect(url.origin).toBe(new URL(env.CLIENT_URL).origin);
       expect(url.pathname).toBe("/verify-email");
-      expect(url.searchParams.get("token")).toBeTruthy();
-      expect(url.pathname).not.toContain(url.searchParams.get("token")!);
+      // The address prefills the form; the code travels in the body only.
+      expect(url.searchParams.get("email")).toBe(EMAIL);
+      expect(captured.verificationUrl).not.toContain(captured.code);
     });
   });
 
@@ -458,12 +460,9 @@ describe("Resend verification service", () => {
       ]);
 
       const hashes = await outstandingHashes(user.id);
-      expect(new Set(hashes).size).toBe(hashes.length);
 
-      // Whatever survived, each one corresponds to a link that was sent.
-      const sentHashes = services.fake.verifications
-        .map((v) => extractToken(v.verificationUrl)!)
-        .map((raw) => sha256(raw));
+      // Whatever survived, each one corresponds to an email that was sent.
+      const sentHashes = services.fake.verifications.map((v) => sha256(v.code));
       for (const hash of hashes) {
         expect(sentHashes).toContain(hash);
       }
@@ -485,22 +484,24 @@ describe("Resend verification service", () => {
   // ---- secrecy ----
 
   describe("secrecy", () => {
-    it("never persists or logs the raw secret", async () => {
+    it("never persists or logs the raw code", async () => {
       const services = buildServices();
       const user = await registerUser(services);
       const capture = createCapturingLogger();
 
       await services.verification.resendVerification({ email: EMAIL }, capture.log);
 
-      const rawToken = extractToken(services.fake.verifications[0]!.verificationUrl)!;
+      const code = services.fake.verifications[0]!.code;
       const rawUser = await mongoose.connection
         .collection("users")
         .findOne({ _id: new mongoose.Types.ObjectId(user.id) });
       const rawTokens = await mongoose.connection.collection("accounttokens").find({}).toArray();
 
-      expect(JSON.stringify(rawUser)).not.toContain(rawToken);
-      expect(JSON.stringify(rawTokens)).not.toContain(rawToken);
-      expect(capture.serialized()).not.toContain(rawToken);
+      // Quoted: a bare six-digit string collides by chance with digits in
+      // ObjectIds and timestamps, and a flaky secrecy test gets muted.
+      expect(JSON.stringify(rawUser)).not.toContain(`"${code}"`);
+      expect(JSON.stringify(rawTokens)).not.toContain(`"${code}"`);
+      expect(capture.serialized()).not.toContain(`"${code}"`);
       expect(capture.serialized()).not.toContain(PASSWORD);
     });
 

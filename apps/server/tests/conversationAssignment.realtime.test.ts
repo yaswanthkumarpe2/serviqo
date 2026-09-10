@@ -16,7 +16,7 @@ import { OrganizationModel } from "../src/modules/organizations/organization.mod
 import { SessionModel } from "../src/modules/sessions/session.model";
 import { UserModel } from "../src/modules/users/user.model";
 import { conversationEvents } from "../src/modules/conversations/conversationEvents";
-import { createFakeEmailProvider, extractToken } from "../src/modules/auth/testing/fakeEmailProvider";
+import { createFakeEmailProvider } from "../src/modules/auth/testing/fakeEmailProvider";
 import { createSocketServer } from "../src/realtime/createSocketServer";
 
 import type { Server as HttpServer } from "node:http";
@@ -102,8 +102,8 @@ describe("conversation assignment real-time delivery", () => {
     const email = `live${emailCounter}@example.com`;
 
     await request(app).post(REGISTER_PATH).send({ name, email, password: PASSWORD });
-    const token = extractToken(fake.verifications.at(-1)!.verificationUrl)!;
-    await request(app).post(VERIFY_PATH).send({ token });
+    const code = fake.verifications.at(-1)!.code;
+    await request(app).post(VERIFY_PATH).send({ email, code });
 
     const login = await request(app).post(LOGIN_PATH).send({ email, password: PASSWORD });
     return {

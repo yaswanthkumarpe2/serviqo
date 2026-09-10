@@ -6,7 +6,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { createApp } from "../src/app";
 import { AccountTokenModel } from "../src/modules/accountTokens/accountToken.model";
 import { verifyAccessToken } from "../src/modules/auth/accessToken";
-import { createFakeEmailProvider, extractToken } from "../src/modules/auth/testing/fakeEmailProvider";
+import { createFakeEmailProvider } from "../src/modules/auth/testing/fakeEmailProvider";
 import { CustomerModel } from "../src/modules/customers/customer.model";
 import { MembershipModel } from "../src/modules/memberships/membership.model";
 import { OrganizationModel } from "../src/modules/organizations/organization.model";
@@ -77,8 +77,8 @@ describe("widget tenant and credential isolation", () => {
 
   async function staffAccessToken(email: string): Promise<string> {
     await request(app).post(REGISTER_PATH).send({ name: "Ada Lovelace", email, password: PASSWORD });
-    const token = extractToken(fake.verifications.at(-1)!.verificationUrl)!;
-    await request(app).post(VERIFY_PATH).send({ token });
+    const code = fake.verifications.at(-1)!.code;
+    await request(app).post(VERIFY_PATH).send({ email, code });
     const login = await request(app).post(LOGIN_PATH).send({ email, password: PASSWORD });
     return login.body.data.accessToken as string;
   }
@@ -331,9 +331,9 @@ describe("widget tenant and credential isolation", () => {
     it("still completes register, verify, login, me, organization, refresh, logout", async () => {
       const email = "regression@example.com";
       await request(app).post(REGISTER_PATH).send({ name: "Ada Lovelace", email, password: PASSWORD });
-      const verificationToken = extractToken(fake.verifications.at(-1)!.verificationUrl)!;
+      const verificationCode = fake.verifications.at(-1)!.code;
       // 204 with no body — the deliberate exception to the envelope (ADR-008 §1).
-      expect((await request(app).post(VERIFY_PATH).send({ token: verificationToken })).status).toBe(204);
+      expect((await request(app).post(VERIFY_PATH).send({ email, code: verificationCode })).status).toBe(204);
 
       const login = await request(app).post(LOGIN_PATH).send({ email, password: PASSWORD });
       expect(login.status).toBe(200);

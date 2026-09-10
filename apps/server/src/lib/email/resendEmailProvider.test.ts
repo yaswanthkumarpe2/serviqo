@@ -67,6 +67,7 @@ describe("ResendEmailProvider", () => {
 
       await provider.sendVerification({
         to: RECIPIENT,
+        code: "481920",
         verificationUrl: "http://localhost:5173/verify-email?token=a",
       });
 
@@ -136,6 +137,7 @@ describe("ResendEmailProvider", () => {
 
       await provider.sendVerification({
         to: RECIPIENT,
+        code: "481920",
         verificationUrl: `http://localhost:5173/verify-email?token=${SECRET}`,
       });
 
@@ -154,6 +156,7 @@ describe("ResendEmailProvider", () => {
 
       await provider.sendVerification({
         to: RECIPIENT,
+        code: "481920",
         verificationUrl: "http://localhost:5173/verify-email?token=a",
       });
 
@@ -172,7 +175,8 @@ describe("ResendEmailProvider", () => {
       await expect(
         provider.sendVerification({
           to: RECIPIENT,
-          verificationUrl: `http://localhost:5173/verify-email?token=${SECRET}`,
+          code: "481920",
+        verificationUrl: `http://localhost:5173/verify-email?token=${SECRET}`,
         }),
       ).rejects.toThrow(/resend/i);
 
