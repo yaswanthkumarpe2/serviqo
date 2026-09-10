@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 
 import { Button } from "@/components/ui/Button";
 import { BrandMark } from "@/components/ui/icons";
-import { PASSWORD_MIN_LENGTH } from "@/features/auth/signUpValidation";
+import { PASSWORD_MIN_LENGTH, VERIFICATION_CODE_LENGTH } from "@/features/auth/signUpValidation";
 import { useSignUpForm } from "@/features/auth/useSignUpForm";
 import { cn } from "@/utils/cn";
 
@@ -54,9 +54,28 @@ export function SignUpPage() {
           <div className="auth__head">
             <h1 className="auth__title">Create your Serviqo account</h1>
             <p className="auth__lede">
-              We&rsquo;ll email you a {6}-digit code to confirm your address before you can sign in.
+              We&rsquo;ll email you a {VERIFICATION_CODE_LENGTH}-digit code to confirm your address before you can sign in.
             </p>
           </div>
+
+          {/*
+            A taken address is a fork, not a failure to retry. Both routes
+            out of it are offered, because which one is right depends on
+            something this page cannot know: whether that account was ever
+            verified. Someone who never redeemed their code needs the second
+            link, and telling them only to sign in would send them to a form
+            that refuses them.
+          */}
+          {form.existingAccountEmail !== null && (
+            <div className="auth__alert" role="alert">
+              An account already exists for {form.existingAccountEmail}.{" "}
+              <Link to="/login">Sign in</Link>, or{" "}
+              <Link to={`/verify-email?email=${encodeURIComponent(form.existingAccountEmail)}`}>
+                finish verifying it
+              </Link>
+              .
+            </div>
+          )}
 
           {form.formError !== null && (
             <div className="auth__alert" role="alert">

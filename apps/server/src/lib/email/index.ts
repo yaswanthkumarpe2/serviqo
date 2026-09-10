@@ -1,4 +1,5 @@
 import { env } from "../env";
+import { logger } from "../logger";
 import { createConsoleEmailProvider } from "./consoleEmailProvider";
 import { createResendEmailProvider } from "./resendEmailProvider";
 
@@ -25,6 +26,40 @@ export type { EmailProvider } from "./emailProvider";
  * real implementation exists (Resend), and a selector with a single arm is
  * a switch waiting for a second vendor. Both arrive together or not at all.
  */
+/**
+ * Resend's shared testing sender, which needs no verified domain.
+ *
+ * It has one restriction that is invisible until it bites: it delivers ONLY
+ * to the address that owns the Resend account. Mail to anyone else is
+ * refused with a 403 at send time, long after the request that triggered it
+ * has returned 201.
+ */
+const SHARED_TESTING_SENDER = "@resend.dev";
+
+/**
+ * Says out loud that mail can only reach one inbox.
+ *
+ * Worth a startup warning rather than leaving it to be discovered, because
+ * every layer below this one is designed to stay quiet about delivery. The
+ * registration service treats a failed send as non-fatal and logs it (ADR-008
+ * §6) — correctly, since failing the request would tell a stranger whether an
+ * address exists. So a developer signing up with a second address of their
+ * own gets a 201, a "check your email" screen, and silence, with the only
+ * evidence a single line in the server log they had no reason to read.
+ *
+ * A warning at startup is the one place this can be said that is neither
+ * per-request nor visible to a user, which is what keeps it from becoming
+ * the enumeration leak the quiet exists to prevent.
+ */
+function warnIfSharedSender(from: string): void {
+  if (!from.toLowerCase().includes(SHARED_TESTING_SENDER)) return;
+
+  logger.warn(
+    { event: "email.sender.shared_testing_domain", from },
+    "EMAIL_FROM uses Resend's shared testing sender: mail will ONLY be delivered to the address that owns the Resend account, and every other recipient is refused. Verify a domain and send from it to reach anyone else.",
+  );
+}
+
 export function resolveEmailProvider(): EmailProvider {
   /*
     Production must have a real provider, and says so loudly. Unchanged: a
@@ -64,6 +99,7 @@ export function resolveEmailProvider(): EmailProvider {
     production, because the guard above returns first.
   */
   if (env.RESEND_API_KEY && env.EMAIL_FROM) {
+    warnIfSharedSender(env.EMAIL_FROM);
     return createResendEmailProvider({ apiKey: env.RESEND_API_KEY, from: env.EMAIL_FROM });
   }
 

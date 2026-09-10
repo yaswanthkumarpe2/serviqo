@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -43,6 +43,14 @@ const REGISTERED: Outcome = {
 
 /** 204 with no body — what verify and resend actually answer. */
 const NO_CONTENT: Outcome = { status: 204, body: null };
+
+const EMAIL_TAKEN: Outcome = {
+  status: 409,
+  body: {
+    success: false,
+    error: { code: "EMAIL_ALREADY_EXISTS", message: "An account with this email address already exists" },
+  },
+};
 
 const INVALID_CODE: Outcome = {
   status: 400,
@@ -191,6 +199,41 @@ describe("sign-up", () => {
 
     await screen.findByRole("heading", { name: "Check your email" });
     expect(screen.queryByText(/dashboard/i)).toBeNull();
+  });
+
+  /*
+    Registration DOES disclose that an address is taken, deliberately
+    (ADR-007 §1) — a generic answer would only close enumeration if the
+    existing address were also emailed a notice, turning the endpoint into
+    an email-sending oracle. That decision has to be surfaced, not hidden,
+    and ADR-007 anticipates precisely this pairing: someone holding an
+    account they never verified, whose retry returns 409.
+  */
+  it("offers both ways out when the address is already taken", async () => {
+    stubAuth({ register: EMAIL_TAKEN });
+    const user = userEvent.setup();
+    renderFlow();
+
+    await user.type(screen.getByLabelText("Name"), "Ada Lovelace");
+    await user.type(screen.getByLabelText("Email"), EMAIL);
+    await user.type(screen.getByLabelText("Password"), PASSWORD);
+    await user.click(screen.getByRole("button", { name: "Create account" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(EMAIL);
+    // "Try again" is useless here: retrying can never succeed.
+    expect(alert.textContent).not.toContain("try again");
+
+    /*
+      Scoped to the alert: the page footer carries its own "Sign in" link, and
+      an unscoped query would pass on that one even if the alert offered
+      nothing at all.
+    */
+    const routes = within(alert);
+    expect(routes.getByRole("link", { name: "Sign in" }).getAttribute("href")).toBe("/login");
+    expect(routes.getByRole("link", { name: "finish verifying it" }).getAttribute("href")).toBe(
+      `/verify-email?email=${encodeURIComponent(EMAIL)}`,
+    );
   });
 
   it("keeps the password out of the DOM", async () => {
