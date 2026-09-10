@@ -98,9 +98,9 @@ export function useSignUpForm({ verifyPath }: UseSignUpFormOptions): SignUpFormS
             fields, which is how a rejected password length reaches the right
             input rather than the top of the form.
           */
-          if (caught instanceof AuthApiError && caught.details.length > 0) {
+          if (caught instanceof AuthApiError && caught.issues.length > 0) {
             const mapped: SignUpFieldErrors = {};
-            for (const issue of caught.details) {
+            for (const issue of caught.issues) {
               if (issue.field === "name" || issue.field === "email" || issue.field === "password") {
                 mapped[issue.field] ??= issue.message;
               }
