@@ -92,8 +92,41 @@ export interface MessagePage {
   nextCursor: string | null;
 }
 
+/**
+ * One page request, for either list (ADR-025 §5).
+ *
+ * `cursor` is the opaque `nextCursor` a previous page returned, passed back
+ * verbatim — this client never parses or constructs one. The server validates
+ * its shape strictly and answers a malformed value with a 400 rather than an
+ * empty page, so a cursor that has been tampered with fails loudly instead of
+ * looking like the end of the history.
+ */
+export interface PageRequest {
+  /** `null` or absent means the first page. */
+  cursor?: string | null;
+  limit?: number;
+}
+
 function conversationsPath(organizationId: string, suffix = ""): string {
   return `${ORGANIZATIONS_BASE}/${encodeURIComponent(organizationId)}/conversations${suffix}`;
+}
+
+/**
+ * Appends `cursor` and `limit` to a path, omitting either when it has nothing
+ * to say.
+ *
+ * An absent parameter and an empty one are NOT the same to the server: its
+ * schema rejects `?cursor=` as malformed, so a first page must send no cursor
+ * key at all rather than an empty one.
+ */
+function withPage(path: string, page: PageRequest | undefined): string {
+  const params = new URLSearchParams();
+
+  if (page?.cursor !== undefined && page.cursor !== null) params.set("cursor", page.cursor);
+  if (page?.limit !== undefined) params.set("limit", String(page.limit));
+
+  const query = params.toString();
+  return query.length === 0 ? path : `${path}?${query}`;
 }
 
 /**
@@ -151,21 +184,37 @@ function toPage<T>(page: { nextCursor?: unknown } | null | undefined, items: unk
 export async function fetchConversations(
   authorizedFetch: AuthorizedFetch,
   organizationId: string,
+  request?: PageRequest,
 ): Promise<ConversationPage> {
-  const page = await callInbox<ConversationPage>(authorizedFetch, conversationsPath(organizationId));
+  const page = await callInbox<ConversationPage>(
+    authorizedFetch,
+    withPage(conversationsPath(organizationId), request),
+  );
   const { items, nextCursor } = toPage<InboxConversation>(page, page?.conversations);
   return { conversations: items, nextCursor };
 }
 
-/** Reads one conversation's message history, oldest first (ADR-025 §5). */
+/**
+ * Reads one page of a conversation's message history, oldest first
+ * (ADR-025 §5).
+ *
+ * Pages FORWARD, and the direction is the opposite of `fetchConversations`'s
+ * — worth stating here because the asymmetry is easy to get backwards and was
+ * the cause of the bug this paging closes. The server sorts messages by
+ * ascending `_id` and its cursor selects `_id > cursor`, so the first page is
+ * the OLDEST messages and each subsequent page is NEWER. A caller that reads
+ * one page and stops is showing the beginning of the conversation, not the
+ * end.
+ */
 export async function fetchMessages(
   authorizedFetch: AuthorizedFetch,
   organizationId: string,
   conversationId: string,
+  request?: PageRequest,
 ): Promise<MessagePage> {
   const page = await callInbox<MessagePage>(
     authorizedFetch,
-    conversationsPath(organizationId, `/${encodeURIComponent(conversationId)}/messages`),
+    withPage(conversationsPath(organizationId, `/${encodeURIComponent(conversationId)}/messages`), request),
   );
   const { items, nextCursor } = toPage<InboxMessage>(page, page?.messages);
   return { messages: items, nextCursor };

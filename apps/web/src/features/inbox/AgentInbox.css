@@ -349,3 +349,35 @@
   white-space: nowrap;
   border: 0;
 }
+
+/*
+  The paging controls under the conversation list and under a truncated
+  thread. Deliberately quiet: reaching further back in the history is a
+  navigation affordance, not an action competing with the composer or the
+  assignment controls beside it.
+*/
+.inbox__more {
+  display: flex;
+  justify-content: center;
+  padding: 12px 8px;
+}
+
+.inbox__moreButton {
+  border: 1px solid var(--border, #dcdcd6);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.inbox__moreButton:hover:not(:disabled) {
+  background: var(--surface-2, rgba(0, 0, 0, 0.04));
+}
+
+.inbox__moreButton:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
