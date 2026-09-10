@@ -1,9 +1,10 @@
 import { useId, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link } from "react-router-dom";
 
 import { Button } from "@/components/ui/Button";
 import { BrandMark } from "@/components/ui/icons";
-import { useLoginForm } from "@/features/auth/useLoginForm";
+import { PASSWORD_MIN_LENGTH } from "@/features/auth/signUpValidation";
+import { useSignUpForm } from "@/features/auth/useSignUpForm";
 import { cn } from "@/utils/cn";
 
 import { EyeIcon, EyeOffIcon } from "./passwordIcons";
@@ -11,27 +12,28 @@ import { EyeIcon, EyeOffIcon } from "./passwordIcons";
 import "./LoginPage.css";
 
 /**
- * Organization-user sign-in (ADR-010: customers never sign in anywhere).
+ * Account creation (ADR-007, ADR-030).
  *
  * Presentational only — submission, validation and navigation live in
- * `useLoginForm`.
+ * `useSignUpForm`, the same split `LoginPage` uses, and the styles are
+ * shared with it rather than duplicated.
+ *
+ * This form does not create a usable account. It creates an unverified one
+ * and sends a six-digit code; the account cannot sign in until that code is
+ * redeemed on the next page. The copy says so up front, because a person who
+ * believes they have finished will close the tab and never verify.
  */
-export function LoginPage() {
-  const form = useLoginForm({ redirectTo: "/dashboard" });
+export function SignUpPage() {
+  const form = useSignUpForm({ verifyPath: "/verify-email" });
   const [showPassword, setShowPassword] = useState(false);
-  const [searchParams] = useSearchParams();
 
-  /*
-    Set by the verification page on success. Without it, redeeming a code
-    drops the person on a bare sign-in form with no sign anything worked —
-    indistinguishable from having been bounced here for failing.
-  */
-  const justVerified = searchParams.get("verified") === "1";
-
+  const nameId = useId();
   const emailId = useId();
   const passwordId = useId();
+  const nameErrorId = `${nameId}-error`;
   const emailErrorId = `${emailId}-error`;
   const passwordErrorId = `${passwordId}-error`;
+  const passwordHintId = `${passwordId}-hint`;
 
   return (
     <div className="auth">
@@ -50,20 +52,12 @@ export function LoginPage() {
       <main className="auth__main">
         <div className="auth__card card">
           <div className="auth__head">
-            <h1 className="auth__title">Sign in to Serviqo</h1>
-            <p className="auth__lede">Use your organization account to reach your workspace.</p>
+            <h1 className="auth__title">Create your Serviqo account</h1>
+            <p className="auth__lede">
+              We&rsquo;ll email you a {6}-digit code to confirm your address before you can sign in.
+            </p>
           </div>
 
-          {justVerified && form.formError === null && (
-            <div className="auth__notice" role="status">
-              Your email is verified. Sign in to continue.
-            </div>
-          )}
-
-          {/*
-            role="alert" so a failure is announced the moment it appears —
-            a sighted user sees it, and a screen-reader user is told.
-          */}
           {form.formError !== null && (
             <div className="auth__alert" role="alert">
               {form.formError}
@@ -71,6 +65,30 @@ export function LoginPage() {
           )}
 
           <form className="auth__form" onSubmit={form.handleSubmit} noValidate>
+            <div className="field">
+              <label className="field__label" htmlFor={nameId}>
+                Name
+              </label>
+              <input
+                id={nameId}
+                className={cn("field__input", form.fieldErrors.name && "field__input--invalid")}
+                type="text"
+                name="name"
+                autoComplete="name"
+                placeholder="Ada Lovelace"
+                value={form.name}
+                onChange={(event) => form.setName(event.target.value)}
+                aria-invalid={form.fieldErrors.name !== undefined}
+                aria-describedby={form.fieldErrors.name ? nameErrorId : undefined}
+                disabled={form.isSubmitting}
+              />
+              {form.fieldErrors.name && (
+                <p className="field__error" id={nameErrorId}>
+                  {form.fieldErrors.name}
+                </p>
+              )}
+            </div>
+
             <div className="field">
               <label className="field__label" htmlFor={emailId}>
                 Email
@@ -96,24 +114,9 @@ export function LoginPage() {
             </div>
 
             <div className="field">
-              <div className="field__labelRow">
-                <label className="field__label" htmlFor={passwordId}>
-                  Password
-                </label>
-                {/*
-                  Placeholder until the password-reset slice exists. It is a
-                  button, not a link to nowhere, so it cannot advertise a
-                  route that would 404.
-                */}
-                <button
-                  className="auth__forgot"
-                  type="button"
-                  onClick={() => undefined}
-                  title="Password reset is not available yet"
-                >
-                  Forgot password?
-                </button>
-              </div>
+              <label className="field__label" htmlFor={passwordId}>
+                Password
+              </label>
               <div className="field__control">
                 <input
                   id={passwordId}
@@ -124,12 +127,12 @@ export function LoginPage() {
                   )}
                   type={showPassword ? "text" : "password"}
                   name="password"
-                  autoComplete="current-password"
-                  placeholder="Your password"
+                  autoComplete="new-password"
+                  placeholder="Choose a password"
                   value={form.password}
                   onChange={(event) => form.setPassword(event.target.value)}
                   aria-invalid={form.fieldErrors.password !== undefined}
-                  aria-describedby={form.fieldErrors.password ? passwordErrorId : undefined}
+                  aria-describedby={form.fieldErrors.password ? passwordErrorId : passwordHintId}
                   disabled={form.isSubmitting}
                 />
                 <button
@@ -143,48 +146,37 @@ export function LoginPage() {
                   {showPassword ? <EyeOffIcon aria-hidden="true" /> : <EyeIcon aria-hidden="true" />}
                 </button>
               </div>
-              {form.fieldErrors.password && (
+              {form.fieldErrors.password ? (
                 <p className="field__error" id={passwordErrorId}>
                   {form.fieldErrors.password}
                 </p>
+              ) : (
+                /*
+                  Stated before submission, unlike the sign-in form which
+                  deliberately never names the policy. Here the person is
+                  CHOOSING the password, so a hidden rule is one they cannot
+                  comply with — they would only learn it by being rejected.
+                */
+                <p className="field__hint" id={passwordHintId}>
+                  At least {PASSWORD_MIN_LENGTH} characters.
+                </p>
               )}
             </div>
-
-            {/*
-              Remember me is presentation only in this slice. Session
-              lifetime is fixed server-side by SESSION_TTL_MS, and honouring
-              this box would mean changing how a credential is issued — a
-              backend decision, not a checkbox.
-            */}
-            <label className="auth__remember">
-              <input
-                type="checkbox"
-                checked={form.rememberMe}
-                onChange={(event) => form.setRememberMe(event.target.checked)}
-                disabled={form.isSubmitting}
-              />
-              <span>Remember me</span>
-            </label>
 
             <Button type="submit" variant="primary" className="auth__submit" disabled={form.isSubmitting}>
               {form.isSubmitting ? (
                 <>
                   <span className="auth__spinner" aria-hidden="true" />
-                  Signing in…
+                  Creating account…
                 </>
               ) : (
-                "Sign in"
+                "Create account"
               )}
             </Button>
           </form>
 
-          {/*
-            Was a dead sentence pointing at an invitation flow that does not
-            exist. Self-service registration does exist now, so this offers
-            the route that works.
-          */}
           <p className="auth__foot">
-            No account yet? <Link to="/signup">Create one</Link>
+            Already have an account? <Link to="/login">Sign in</Link>
           </p>
         </div>
       </main>

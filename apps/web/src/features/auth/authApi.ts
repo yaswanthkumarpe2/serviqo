@@ -212,6 +212,102 @@ async function postAuth<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 /**
+ * POSTs to an auth endpoint that answers 204 with no body.
+ *
+ * Separate from `postAuth` because `unwrapEnvelope` requires a success
+ * envelope and a 204 has nothing to unwrap — passing one through it would
+ * turn every success into `UNEXPECTED_RESPONSE`. A FAILURE still carries the
+ * usual envelope, so errors are read the same way as everywhere else.
+ */
+async function postAuthNoContent(path: string, init: RequestInit = {}): Promise<void> {
+  let response: Response;
+
+  try {
+    response = await fetch(`${AUTH_BASE}${path}`, {
+      method: "POST",
+      credentials: "same-origin",
+      ...init,
+    });
+  } catch {
+    throw new AuthApiError(NETWORK_ERROR, GENERIC_NETWORK_MESSAGE, 0);
+  }
+
+  if (response.ok) return;
+
+  const body: unknown = await response.json().catch(() => null);
+  if (isFailureEnvelope(body)) {
+    throw new AuthApiError(body.error.code, body.error.message, response.status, body.error.details ?? []);
+  }
+  throw new AuthApiError(UNEXPECTED_RESPONSE, GENERIC_FAILURE_MESSAGE, response.status);
+}
+
+export interface RegisterInput {
+  name: string;
+  email: string;
+  password: string;
+}
+
+/**
+ * Creates an account and triggers the verification email (ADR-007).
+ *
+ * Resolves with nothing a caller should act on. The endpoint deliberately
+ * answers the same way whether the address was new or already registered —
+ * naming the difference would turn signup into an account-existence oracle
+ * (ADR-007 §4) — so "success" here means "if that address can hold an
+ * account, a code is on its way", and the UI must say exactly that rather
+ * than "account created".
+ *
+ * The account exists but CANNOT be used until the code is redeemed: login is
+ * refused for an unverified address. Registration is therefore two steps,
+ * and this is only the first.
+ */
+export async function register(input: RegisterInput): Promise<void> {
+  await postAuth<{ user: unknown }>("/register", {
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+export interface VerifyEmailInput {
+  email: string;
+  code: string;
+}
+
+/**
+ * Redeems the six-digit code and completes registration (ADR-030).
+ *
+ * Both halves are required: a code identifies nothing on its own, so the
+ * address routes and the digits prove. Answers 204 on success and on an
+ * already-verified account — both mean "this address is verified", which is
+ * all the caller needs.
+ *
+ * Every other outcome is one `INVALID_VERIFICATION_TOKEN`, without saying
+ * which: wrong code, expired, already used, too many attempts, and no such
+ * account are deliberately indistinguishable.
+ */
+export async function verifyEmail(input: VerifyEmailInput): Promise<void> {
+  await postAuthNoContent("/verify-email", {
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+/**
+ * Sends a replacement code, superseding any outstanding one (ADR-008).
+ *
+ * Resolves for every outcome the server recognises — unknown address,
+ * already-verified account, code sent — because each answers 204. That is
+ * the same anti-enumeration posture `register` takes, and it means the UI
+ * can only ever say "if that address needs a code, one is on its way".
+ */
+export async function resendVerification(email: string): Promise<void> {
+  await postAuthNoContent("/resend-verification", {
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+}
+
+/**
  * Signs in an organization user.
  *
  * Resolves with the access token and the user's identity. The refresh token
