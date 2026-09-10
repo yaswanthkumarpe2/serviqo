@@ -69,8 +69,45 @@ export const REFRESH_RACE_GRACE_MS = 10 * 1000;
 // Kept in code for the same reason as the values above: a misconfigured
 // deployment must not be able to stretch a reset window.
 
-/** Email-verification links stay usable for 24 hours. */
-export const EMAIL_VERIFICATION_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
+/**
+ * How long an emailed verification CODE stays usable (ADR-030 §3).
+ *
+ * Ten minutes, not the twenty-four hours a link had. The two numbers protect
+ * against different things and the difference is not a matter of taste: a
+ * 256-bit link secret cannot be guessed no matter how long it lives, while a
+ * six-digit code has about a million possibilities, so its lifetime is
+ * literally one of the two terms bounding a guessing attack. The other is
+ * EMAIL_VERIFICATION_MAX_ATTEMPTS below.
+ *
+ * Ten minutes is long enough for mail to arrive and a person to switch
+ * windows and retype six digits, and short enough that a code left in an
+ * abandoned inbox is not a standing credential.
+ */
+export const EMAIL_VERIFICATION_TOKEN_TTL_MS = 10 * 60 * 1000;
+
+/**
+ * Digits in an emailed verification code.
+ *
+ * Six is what people expect and will retype without resentment. It is also
+ * only ~20 bits, which is why this constant never appears without the two
+ * beside it — the code is not the security boundary, the code plus its TTL
+ * plus its attempt limit is.
+ */
+export const EMAIL_VERIFICATION_CODE_LENGTH = 6;
+
+/**
+ * How many wrong codes one issued code survives before it is destroyed
+ * (ADR-030 §4).
+ *
+ * The load-bearing half of the design. Without it, a million guesses walks
+ * through a six-digit code and the whole scheme is theatre; with it, an
+ * attacker gets five tries out of a million per issued code and must trigger
+ * a new email — which the resend rate limiter meters — to get five more.
+ *
+ * On exhaustion the code is CONSUMED rather than merely counted, so a
+ * sixth guess has nothing to test even if it is correct.
+ */
+export const EMAIL_VERIFICATION_MAX_ATTEMPTS = 5;
 
 /** Password-reset links are deliberately much shorter-lived than verification. */
 export const PASSWORD_RESET_TOKEN_TTL_MS = 60 * 60 * 1000;

@@ -8,7 +8,7 @@ import { createApp } from "../src/app";
 import { ACCESS_TOKEN_AUDIENCE, ACCESS_TOKEN_ISSUER, REFRESH_COOKIE_NAME } from "../src/config/constants";
 import { env } from "../src/lib/env";
 import { AccountTokenModel } from "../src/modules/accountTokens/accountToken.model";
-import { createFakeEmailProvider, extractToken } from "../src/modules/auth/testing/fakeEmailProvider";
+import { createFakeEmailProvider } from "../src/modules/auth/testing/fakeEmailProvider";
 import { SessionModel } from "../src/modules/sessions/session.model";
 import { UserModel } from "../src/modules/users/user.model";
 
@@ -37,8 +37,8 @@ type Ctx = ReturnType<typeof buildApp>;
 
 async function registerAndVerify(ctx: Ctx, email: string, name = NAME) {
   await request(ctx.app).post(REGISTER_PATH).send({ name, email, password: PASSWORD });
-  const token = extractToken(ctx.fake.verifications.at(-1)!.verificationUrl)!;
-  await request(ctx.app).post(VERIFY_PATH).send({ token });
+  const code = ctx.fake.verifications.at(-1)!.code;
+  await request(ctx.app).post(VERIFY_PATH).send({ email, code });
 }
 
 function cookiePair(response: request.Response): string {

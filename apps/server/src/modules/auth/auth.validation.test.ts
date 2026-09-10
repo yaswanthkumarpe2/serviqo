@@ -258,62 +258,62 @@ describe("resendVerificationSchema", () => {
 });
 
 describe("verifyEmailSchema", () => {
-  it("accepts a token on its own", () => {
-    expect(verifyEmailSchema.safeParse({ token: "AbC-123_xyz" }).success).toBe(true);
+  const VALID = { email: "yaswanth@example.com", code: "481920" };
+
+  it("accepts an address and a six-digit code", () => {
+    expect(verifyEmailSchema.safeParse(VALID).success).toBe(true);
   });
 
-  it("requires the token", () => {
-    const result = verifyEmailSchema.safeParse({});
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      expect(result.error.issues.map((i) => i.path.join("."))).toContain("token");
-    }
+  /*
+    Both halves are required, and the reason is structural rather than
+    defensive. A six-digit code identifies nothing on its own — a million
+    codes are shared among every pending account — so the address is what
+    selects the token and the code is what proves possession (ADR-030 §5).
+  */
+  it("requires the email", () => {
+    expect(verifyEmailSchema.safeParse({ code: "481920" }).success).toBe(false);
   });
 
-  it.each(["", "   "])("rejects an empty token %#", (token) => {
-    expect(verifyEmailSchema.safeParse({ token }).success).toBe(false);
+  it("requires the code", () => {
+    expect(verifyEmailSchema.safeParse({ email: VALID.email }).success).toBe(false);
   });
 
-  it("rejects a non-string token", () => {
-    expect(verifyEmailSchema.safeParse({ token: 12345 }).success).toBe(false);
+  /*
+    Shape is refused here, before any lookup, so a typo cannot spend one of
+    the five guesses a real code is allowed. Without this a fumbling user
+    would lock themselves out faster than an attacker would.
+  */
+  it.each([
+    ["five digits", "48192"],
+    ["seven digits", "4819201"],
+    ["empty", ""],
+    ["letters", "4819ab"],
+    ["punctuation", "481-92"],
+    ["a space inside", "481 920"],
+  ])("rejects %s", (_label, code) => {
+    expect(verifyEmailSchema.safeParse({ ...VALID, code }).success).toBe(false);
   });
 
-  it("accepts a token of exactly 512 characters", () => {
-    expect(verifyEmailSchema.safeParse({ token: "a".repeat(512) }).success).toBe(true);
+  // Leading zeros are significant: 042931 is a legitimate code, and losing
+  // them would halve the space for every code that starts with one.
+  it("accepts a code with leading zeros", () => {
+    expect(verifyEmailSchema.parse({ ...VALID, code: "042931" }).code).toBe("042931");
   });
 
-  it("rejects a token of 513 characters", () => {
-    expect(verifyEmailSchema.safeParse({ token: "a".repeat(513) }).success).toBe(false);
-  });
-
-  // base64url contains no whitespace, so trimming can only repair a pasted
-  // value and can never alter a real secret.
+  // Digits carry no whitespace, so trimming can only repair a pasted value
+  // and can never alter a real code.
   it("trims surrounding whitespace", () => {
-    expect(verifyEmailSchema.parse({ token: "  abc123  " }).token).toBe("abc123");
+    expect(verifyEmailSchema.parse({ ...VALID, code: "  481920  " }).code).toBe("481920");
   });
 
-  // A wrongly-shaped token must fail the same way a wrong-valued one does,
-  // so no charset rule carves out a second distinguishable failure.
-  it("accepts an oddly-shaped token so it can fail as INVALID_VERIFICATION_TOKEN instead", () => {
-    expect(verifyEmailSchema.safeParse({ token: "not base64url at all!!" }).success).toBe(true);
-  });
-
-  it("strips every key other than token", () => {
-    const result = verifyEmailSchema.parse({
-      token: "abc123",
-      userId: "deadbeefdeadbeefdeadbeef",
-      emailVerifiedAt: null,
-    });
-
-    expect(Object.keys(result)).toEqual(["token"]);
-  });
-
-  it("never echoes the submitted token in a message", () => {
-    const result = verifyEmailSchema.safeParse({ token: "x".repeat(600) });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      expect(result.error.issues.map((i) => i.message).join(" ")).not.toContain("xxxx");
-    }
+  /*
+    Trimmed but NOT lowercased, matching `emailField` and therefore every
+    other schema in this module. Canonicalization to lowercase happens at the
+    model boundary (`normalizeEmail`), which is the one place that decision
+    lives — a schema that lowercased too would be a second, drifting copy.
+  */
+  it("trims the email the same way every other schema does", () => {
+    expect(verifyEmailSchema.parse({ ...VALID, email: "  ada@example.com " }).email).toBe("ada@example.com");
   });
 });
 

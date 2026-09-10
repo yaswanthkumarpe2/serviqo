@@ -14,7 +14,7 @@ import {
   SESSION_WINDOW_MS,
 } from "../src/config/constants";
 import { AccountTokenModel } from "../src/modules/accountTokens/accountToken.model";
-import { createFakeEmailProvider, extractToken } from "../src/modules/auth/testing/fakeEmailProvider";
+import { createFakeEmailProvider } from "../src/modules/auth/testing/fakeEmailProvider";
 import { MembershipModel } from "../src/modules/memberships/membership.model";
 import { OrganizationModel } from "../src/modules/organizations/organization.model";
 import { SessionModel } from "../src/modules/sessions/session.model";
@@ -58,8 +58,8 @@ function buildUnlimitedApp() {
 
 async function registerAndVerify(ctx: Ctx, email: string) {
   await request(ctx.app).post(REGISTER_PATH).send({ name: "Ada Lovelace", email, password: PASSWORD });
-  const token = extractToken(ctx.fake.verifications.at(-1)!.verificationUrl)!;
-  await request(ctx.app).post(VERIFY_PATH).send({ token });
+  const code = ctx.fake.verifications.at(-1)!.code;
+  await request(ctx.app).post(VERIFY_PATH).send({ email, code });
 }
 
 const attemptLogin = (ctx: Ctx, email = EMAIL, password = PASSWORD) =>

@@ -26,8 +26,18 @@ export interface AccountTokenAttrs {
   purpose: AccountTokenPurpose;
   tokenHash: string;
   expiresAt: Date;
-  /** Set exactly once, when the recipient successfully uses the link. */
+  /** Set exactly once, when the recipient successfully uses the link or code. */
   consumedAt: Date | null;
+  /**
+   * Wrong codes submitted against this token (ADR-030 §4).
+   *
+   * Exists because a six-digit code has about a million possibilities and is
+   * therefore guessable; a 256-bit link secret is not, and for those this
+   * simply stays at zero. Counted on the DOCUMENT rather than per IP or per
+   * session, so an attacker gains nothing by rotating either — the budget
+   * belongs to the credential being guessed.
+   */
+  attempts: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -66,6 +76,11 @@ const accountTokenSchema = new Schema<AccountTokenAttrs>(
       type: Date,
       default: null,
     },
+    attempts: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
   },
   {
     timestamps: true,
@@ -73,15 +88,33 @@ const accountTokenSchema = new Schema<AccountTokenAttrs>(
 );
 
 /**
- * A. Consumption lookup key. Unique because the email link carries only the
- *    secret — there is no separate routing component — so the hash must
- *    resolve to exactly one document, and a duplicate insert must fail loudly.
+ * A. Consumption lookup key for the credentials that are still LINKS — today
+ *    that is password reset, whose secret is a 256-bit value carried alone in
+ *    a URL with no routing component beside it.
+ *
+ *    Deliberately NOT unique, and this changed with ADR-030. It was unique
+ *    while every account credential was a link secret, on the reasoning that
+ *    a hash must resolve to exactly one document and a duplicate insert
+ *    should fail loudly. A six-digit verification code breaks that premise
+ *    outright: there are only a million of them, so two users legitimately
+ *    holding the same code at the same time is ordinary — at a thousand
+ *    outstanding codes it is likelier than not — and a unique index would
+ *    turn that coincidence into a failed registration for whoever asked
+ *    second.
+ *
+ *    Nothing is lost by dropping it. A collision between two 256-bit secrets
+ *    remains impossible in practice, and codes are never looked up by hash
+ *    alone: `consumeValidByUserAndPurpose` finds the token by its OWNER and
+ *    compares the hash in constant time, so which document a code belongs to
+ *    is decided by the account, never by the digits.
  */
-accountTokenSchema.index({ tokenHash: 1 }, { unique: true });
+accountTokenSchema.index({ tokenHash: 1 });
 
 /**
- * B. Backs invalidateOutstandingForUser and user-scoped queries. Its userId
- *    prefix is why no standalone { userId: 1 } index exists.
+ * B. Backs invalidateOutstandingForUser, and — since ADR-030 — the CODE
+ *    consumption path itself, which resolves a token by owner and purpose
+ *    rather than by hash. Its userId prefix is why no standalone
+ *    { userId: 1 } index exists.
  */
 accountTokenSchema.index({ userId: 1, purpose: 1 });
 

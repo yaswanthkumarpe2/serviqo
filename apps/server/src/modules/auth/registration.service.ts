@@ -3,7 +3,7 @@ import { EmailAlreadyExistsError } from "../../lib/errors";
 import { logger } from "../../lib/logger";
 import { userRepository } from "../users/user.repository";
 import { failureType } from "./authLogging";
-import { buildVerificationUrl, issueVerificationToken } from "./emailVerification";
+import { buildVerificationUrl, issueVerificationCode } from "./emailVerification";
 
 import type { EmailProvider } from "../../lib/email/emailProvider";
 import type { UserDocument } from "../users/user.model";
@@ -82,12 +82,12 @@ export function createRegistrationService({ emailProvider }: RegistrationService
         throw err;
       }
 
-      let rawSecret: string;
+      let rawCode: string;
       try {
         // No invalidateOutstandingForUser: this user was created microseconds
         // ago by this same request, so prior tokens are impossible. That call
         // belongs to the resend and forgot-password flows (ADR-005 §7).
-        rawSecret = await issueVerificationToken(user._id);
+        rawCode = await issueVerificationCode(user._id);
       } catch (err) {
         // The User is deliberately left in place, unverified (ADR-007 §3).
         // Compensating deletion would put a destructive primitive on an
@@ -116,7 +116,8 @@ export function createRegistrationService({ emailProvider }: RegistrationService
       try {
         await emailProvider.sendVerification({
           to: user.email,
-          verificationUrl: buildVerificationUrl(rawSecret),
+          code: rawCode,
+          verificationUrl: buildVerificationUrl(user.email),
         });
       } catch (err) {
         // Delivery is not persistence. Both records are correct and the token
@@ -132,7 +133,7 @@ export function createRegistrationService({ emailProvider }: RegistrationService
         );
       }
 
-      // rawSecret goes out of scope here and exists nowhere else.
+      // rawCode goes out of scope here and exists nowhere else.
       return toRegisteredUser(user);
     },
   };

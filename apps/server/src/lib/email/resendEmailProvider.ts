@@ -1,5 +1,10 @@
 import { Resend } from "resend";
 
+import {
+  EMAIL_VERIFICATION_CODE_LENGTH,
+  EMAIL_VERIFICATION_TOKEN_TTL_MS,
+} from "../../config/constants";
+
 import { logger } from "../logger";
 import { describeActionUrl, maskEmailAddress } from "./redaction";
 
@@ -59,15 +64,46 @@ interface EmailContent {
   text: string;
 }
 
-function verificationEmail(url: string): EmailContent {
+/** The code's lifetime, in the units a person reads (ADR-030 §3). */
+const VERIFICATION_EXPIRY_MINUTES = Math.round(EMAIL_VERIFICATION_TOKEN_TTL_MS / 60_000);
+
+/**
+ * The verification email (ADR-030 §6).
+ *
+ * The code is in the BODY and deliberately not in the subject. A subject
+ * line is shown in notification banners and on locked screens, and a
+ * credential that is readable without unlocking the device is a credential
+ * anyone holding the phone can use.
+ *
+ * The message states the expiry, because a code that stops working with no
+ * explanation reads as a broken product rather than an expired credential,
+ * and sends the recipient to resend rather than to support.
+ *
+ * The link carries no secret — it only opens the page and prefills the
+ * address (see `buildVerificationUrl`). Both are offered because a
+ * recipient reading mail on a phone and signing up on a laptop can retype
+ * six digits, which is the entire ergonomic argument for codes over links.
+ */
+function verificationEmail(code: string, url: string): EmailContent {
   return {
     subject: "Verify your email address",
-    text: `Welcome to Serviqo.\n\nConfirm your email address by opening this link:\n${url}\n\nIf you didn't create a Serviqo account, you can ignore this email.`,
+    text:
+      `Welcome to Serviqo.\n\n` +
+      `Your ${EMAIL_VERIFICATION_CODE_LENGTH}-digit verification code is:\n\n` +
+      `${code}\n\n` +
+      `Enter it at ${url}\n\n` +
+      `The code expires in ${VERIFICATION_EXPIRY_MINUTES} minutes.\n\n` +
+      `If you didn't create a Serviqo account, you can ignore this email — ` +
+      `nobody can use this code without it.`,
     html:
       `<p>Welcome to Serviqo.</p>` +
-      `<p>Confirm your email address by clicking the link below.</p>` +
-      `<p><a href="${escapeHtml(url)}">Verify email address</a></p>` +
-      `<p>If you didn't create a Serviqo account, you can ignore this email.</p>`,
+      `<p>Your ${EMAIL_VERIFICATION_CODE_LENGTH}-digit verification code is:</p>` +
+      `<p style="font-size:28px;font-weight:700;letter-spacing:6px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace">` +
+      `${escapeHtml(code)}</p>` +
+      `<p>Enter it at <a href="${escapeHtml(url)}">${escapeHtml(url)}</a></p>` +
+      `<p>The code expires in ${VERIFICATION_EXPIRY_MINUTES} minutes.</p>` +
+      `<p>If you didn't create a Serviqo account, you can ignore this email — ` +
+      `nobody can use this code without it.</p>`,
   };
 }
 
@@ -166,8 +202,10 @@ export function createResendEmailProvider({
       await deliver(
         "email.resend.verification",
         input.to,
+        // The URL is what gets logged, and it holds no secret by design —
+        // the code is passed to the template and never to the logger.
         input.verificationUrl,
-        verificationEmail(input.verificationUrl),
+        verificationEmail(input.code, input.verificationUrl),
       );
     },
 

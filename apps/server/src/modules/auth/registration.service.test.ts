@@ -12,7 +12,7 @@ import { accountTokenRepository } from "../accountTokens/accountToken.repository
 import { UserModel } from "../users/user.model";
 import { userRepository } from "../users/user.repository";
 import { createRegistrationService } from "./registration.service";
-import { createFailingEmailProvider, createFakeEmailProvider, extractToken } from "./testing/fakeEmailProvider";
+import { createFailingEmailProvider, createFakeEmailProvider } from "./testing/fakeEmailProvider";
 
 import type { AuthLogger } from "./authLogging";
 
@@ -171,37 +171,43 @@ describe("Registration service", () => {
       expect(expiresAt).toBeLessThanOrEqual(after + EMAIL_VERIFICATION_TOKEN_TTL_MS);
     });
 
-    it("persists the SHA-256 hash of the secret carried by the email link", async () => {
+    it("persists the SHA-256 hash of the code carried by the email", async () => {
       const { service, fake } = buildService();
       await service.register(validInput);
 
-      const rawToken = extractToken(fake.verifications[0]!.verificationUrl);
-      expect(rawToken).toBeTruthy();
+      const code = fake.verifications[0]!.code;
+      expect(code).toMatch(/^[0-9]{6}$/);
 
       const stored = await AccountTokenModel.findOne({}).select("+tokenHash");
-      expect(stored!.tokenHash).toBe(sha256(rawToken!));
+      expect(stored!.tokenHash).toBe(sha256(code));
     });
 
     it("never persists the raw secret anywhere", async () => {
       const { service, fake } = buildService();
       await service.register(validInput);
 
-      const rawToken = extractToken(fake.verifications[0]!.verificationUrl)!;
+      const code = fake.verifications[0]!.code;
       const [rawUser, rawTokens] = await Promise.all([rawUserDocument(), rawAccountTokenDocuments()]);
 
-      expect(JSON.stringify(rawUser)).not.toContain(rawToken);
-      expect(JSON.stringify(rawTokens)).not.toContain(rawToken);
+      /*
+        Quoted, because a bare six-digit string is short enough to collide by
+        chance with digits inside an ObjectId or a timestamp. The quoted form
+        is what a stored value would actually serialize to, and it keeps this
+        assertion from failing at random.
+      */
+      expect(JSON.stringify(rawUser)).not.toContain(`"${code}"`);
+      expect(JSON.stringify(rawTokens)).not.toContain(`"${code}"`);
     });
 
     it("never returns the raw secret or the token hash to the caller", async () => {
       const { service, fake } = buildService();
       const user = await service.register(validInput);
 
-      const rawToken = extractToken(fake.verifications[0]!.verificationUrl)!;
+      const code = fake.verifications[0]!.code;
       const stored = await AccountTokenModel.findOne({}).select("+tokenHash");
 
       const serialized = JSON.stringify(user);
-      expect(serialized).not.toContain(rawToken);
+      expect(serialized).not.toContain(`"${code}"`);
       expect(serialized).not.toContain(stored!.tokenHash);
       expect(serialized).not.toContain(PASSWORD);
     });
@@ -231,24 +237,32 @@ describe("Registration service", () => {
       expect(fake.invitations).toHaveLength(0);
     });
 
-    it("builds the link from CLIENT_URL with the token in the query string", async () => {
+    it("builds the link from CLIENT_URL with the address in the query string", async () => {
       const { service, fake } = buildService();
       await service.register(validInput);
 
       const url = new URL(fake.verifications[0]!.verificationUrl);
       expect(url.origin).toBe(new URL(env.CLIENT_URL).origin);
       // Exactly "/verify-email" — the redaction allowlist matches this path
-      // exactly, and a path-segment token would classify as "unknown".
+      // exactly, and a path-segment form would classify as "unknown".
       expect(url.pathname).toBe("/verify-email");
-      expect(url.searchParams.get("token")).toBeTruthy();
+      // The address, for prefill. Not a credential.
+      expect(url.searchParams.get("email")).toBe(validInput.email);
     });
 
-    it("keeps the secret out of the pathname", async () => {
+    /*
+      Stronger than the "keep the secret out of the pathname" rule it
+      replaces: since ADR-030 the URL carries NO secret in any position, so
+      it is safe in a referrer header, a browser history, a proxy log, or a
+      screenshot. Possessing this link grants nothing.
+    */
+    it("puts no code anywhere in the link", async () => {
       const { service, fake } = buildService();
       await service.register(validInput);
 
-      const url = new URL(fake.verifications[0]!.verificationUrl);
-      expect(url.pathname).not.toContain(url.searchParams.get("token")!);
+      const captured = fake.verifications[0]!;
+      expect(captured.verificationUrl).not.toContain(captured.code);
+      expect(new URL(captured.verificationUrl).searchParams.get("token")).toBeNull();
     });
   });
 
@@ -468,8 +482,17 @@ describe("Registration service", () => {
       const tokens = await AccountTokenModel.find({ userId: first.id });
       expect(tokens).toHaveLength(1);
 
+      /*
+        Deliberately NOT "the two codes differ". With only a million codes,
+        two registrations colliding is a one-in-a-million coincidence rather
+        than a bug — asserting distinctness would buy nothing and fail at
+        random. What must hold is that each user owns their own token, which
+        is what makes a shared code harmless (ADR-030 §5).
+      */
       const [firstUrl, secondUrl] = fake.verifications.map((v) => v.verificationUrl);
-      expect(extractToken(firstUrl!)).not.toBe(extractToken(secondUrl!));
+      expect(new URL(firstUrl!).searchParams.get("email")).toBe(validInput.email);
+      expect(new URL(secondUrl!).searchParams.get("email")).toBe("grace@example.com");
+      expect(await AccountTokenModel.countDocuments({ userId: second.id })).toBe(1);
     });
 
     it("a failure for one user leaves the other intact", async () => {

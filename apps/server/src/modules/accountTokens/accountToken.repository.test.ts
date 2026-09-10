@@ -233,26 +233,74 @@ describe("AccountToken persistence", () => {
     expect(stored?.tokenHash).toBe(sha256(rawSecret));
   });
 
-  it("rejects a duplicate tokenHash at the database level", async () => {
+  /*
+    The inverse of what this asserted before ADR-030, and the reversal is the
+    point rather than a relaxation.
+
+    While every account credential was a 256-bit link secret, a shared hash
+    could only mean a bug, so the database refused it. Six-digit verification
+    codes make a shared hash ORDINARY — there are a million of them, and at a
+    thousand outstanding codes two users holding the same one is likelier than
+    not. Under the old unique index that coincidence became a failed
+    registration for whoever asked second: a stranger's pending code would
+    decide whether you could sign up.
+
+    Nothing is weakened, because a code is never resolved by its digits alone.
+    The test below this one proves the owner is what selects the document.
+  */
+  it("allows two users to hold the same code at once", async () => {
     const userA = await createUser("dup-a@example.com");
     const userB = await createUser("dup-b@example.com");
-    const duplicateHash = sha256("shared-secret");
+    const sharedHash = sha256("123456");
 
     await accountTokenRepository.create({
       userId: userA._id,
       purpose: "email_verification",
-      tokenHash: duplicateHash,
+      tokenHash: sharedHash,
       expiresAt: futureDate(),
     });
 
     await expect(
       accountTokenRepository.create({
         userId: userB._id,
-        purpose: "password_reset",
-        tokenHash: duplicateHash,
+        purpose: "email_verification",
+        tokenHash: sharedHash,
         expiresAt: futureDate(),
       }),
-    ).rejects.toMatchObject({ code: 11000 });
+    ).resolves.toBeDefined();
+  });
+
+  it("consumes only the owner's token when two users share a code", async () => {
+    const userA = await createUser("shared-a@example.com");
+    const userB = await createUser("shared-b@example.com");
+    const sharedHash = sha256("123456");
+    const now = new Date();
+
+    const tokenA = await accountTokenRepository.create({
+      userId: userA._id,
+      purpose: "email_verification",
+      tokenHash: sharedHash,
+      expiresAt: futureDate(),
+    });
+    const tokenB = await accountTokenRepository.create({
+      userId: userB._id,
+      purpose: "email_verification",
+      tokenHash: sharedHash,
+      expiresAt: futureDate(),
+    });
+
+    const consumed = await accountTokenRepository.consumeValidByUserAndPurpose({
+      userId: userA._id,
+      purpose: "email_verification",
+      tokenHash: sharedHash,
+      now,
+    });
+
+    // A's code is spent; B's identical code is untouched, because the account
+    // decides which document the digits refer to.
+    expect(consumed?._id.toString()).toBe(tokenA._id.toString());
+    const stillPending = await AccountTokenModel.findById(tokenB._id);
+    expect(stillPending?.consumedAt).toBeNull();
   });
 
   it("matches token hashes exactly and case-sensitively", async () => {
@@ -744,14 +792,20 @@ describe("AccountToken persistence", () => {
 
   // ---- indexes ----
 
-  it("declares a unique index on tokenHash", async () => {
+  it("declares a NON-unique index on tokenHash", async () => {
     const indexes = await AccountTokenModel.collection.indexes();
     const tokenHashIndex = indexes.find(
       (index) => index.key?.tokenHash === 1 && Object.keys(index.key).length === 1,
     );
 
     expect(tokenHashIndex).toBeDefined();
-    expect(tokenHashIndex?.unique).toBe(true);
+    /*
+      Not unique since ADR-030: six-digit codes collide legitimately, and a
+      unique constraint would turn one user's pending code into another
+      user's failed registration. The index remains — password reset still
+      resolves a 256-bit secret by hash — it simply no longer constrains.
+    */
+    expect(tokenHashIndex?.unique).toBeUndefined();
   });
 
   it("declares a compound userId+purpose index", async () => {

@@ -4,7 +4,7 @@ import request from "supertest";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { createApp } from "../src/app";
-import { createFakeEmailProvider, extractToken } from "../src/modules/auth/testing/fakeEmailProvider";
+import { createFakeEmailProvider } from "../src/modules/auth/testing/fakeEmailProvider";
 import { AccountTokenModel } from "../src/modules/accountTokens/accountToken.model";
 import { MembershipModel } from "../src/modules/memberships/membership.model";
 import { OrganizationModel } from "../src/modules/organizations/organization.model";
@@ -36,8 +36,8 @@ type Ctx = ReturnType<typeof buildApp>;
 
 async function signedInStaff(ctx: Ctx, email = EMAIL) {
   await request(ctx.app).post(REGISTER_PATH).send({ name: "Ada Lovelace", email, password: PASSWORD });
-  const token = extractToken(ctx.fake.verifications.at(-1)!.verificationUrl)!;
-  await request(ctx.app).post(VERIFY_PATH).send({ token });
+  const code = ctx.fake.verifications.at(-1)!.code;
+  await request(ctx.app).post(VERIFY_PATH).send({ email, code });
 
   const login = await request(ctx.app).post(LOGIN_PATH).send({ email, password: PASSWORD });
   return {

@@ -1,6 +1,10 @@
 import { z } from "zod";
 
-import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH } from "../../config/constants";
+import {
+  EMAIL_VERIFICATION_CODE_LENGTH,
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+} from "../../config/constants";
 import { isPasswordLengthValid, normalizePassword } from "../../lib/crypto/password";
 
 /**
@@ -114,31 +118,31 @@ export const resendVerificationSchema = z.object({
 export type ResendVerificationInput = z.infer<typeof resendVerificationSchema>;
 
 /**
- * Generous upper bound on a submitted token. The real secret is 43
- * base64url characters; this only stops an absurd body from reaching the
- * hash function, and `express.json()`'s own limit already caps the request.
- */
-const TOKEN_MAX_LENGTH = 512;
-
-/**
- * Verification takes the token and nothing else.
+ * Verification takes the ADDRESS and the CODE (ADR-030 §5).
  *
- * Deliberately no charset or length-exactness rule beyond the bound above.
- * A token of the wrong shape should fail the same way a token of the wrong
- * value does — it hashes to something no document matches, producing the
- * single `INVALID_VERIFICATION_TOKEN` response (ADR-009 §1). A dedicated
- * validation error for malformed tokens would carve out a second,
- * distinguishable failure for no benefit.
+ * The email is not decoration and not a convenience — it is what makes a
+ * six-digit code usable at all. A 43-character link secret identified a
+ * single token on its own; `481920` does not, because a million codes are
+ * shared among every pending account. The address is the routing half, the
+ * code is the secret half, and consumption matches on both together.
  *
- * Trimming is safe: base64url contains no whitespace, so trimming can only
- * repair a sloppily-pasted value and can never alter a real secret.
+ * `code` is shape-checked here so a typo — five digits, a stray space, a
+ * letter — is refused at the HTTP boundary as a 400 before any lookup runs.
+ * That matters beyond tidiness: a malformed submission must not spend one of
+ * the small number of guesses a real code is allowed, or a fumbling user
+ * would lock themselves out faster than an attacker.
+ *
+ * Refusing on shape leaks nothing. It depends only on the submitted string,
+ * never on whether the account exists or has a code outstanding
+ * (ADR-007 §4).
  */
 export const verifyEmailSchema = z.object({
-  token: z
+  email: emailField,
+  code: z
     .string()
     .trim()
-    .min(1, "Token is required")
-    .max(TOKEN_MAX_LENGTH, `Token must be at most ${TOKEN_MAX_LENGTH} characters`),
+    .length(EMAIL_VERIFICATION_CODE_LENGTH, `Code must be ${EMAIL_VERIFICATION_CODE_LENGTH} digits`)
+    .regex(/^[0-9]+$/, "Code must be digits only"),
 });
 
 export type VerifyEmailInput = z.infer<typeof verifyEmailSchema>;

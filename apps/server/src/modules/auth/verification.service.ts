@@ -1,3 +1,4 @@
+import { EMAIL_VERIFICATION_MAX_ATTEMPTS } from "../../config/constants";
 import { sha256 } from "../../lib/crypto/tokens";
 import { maskEmailAddress } from "../../lib/email/redaction";
 import { InvalidVerificationTokenError } from "../../lib/errors";
@@ -5,7 +6,7 @@ import { logger } from "../../lib/logger";
 import { accountTokenRepository } from "../accountTokens/accountToken.repository";
 import { userRepository } from "../users/user.repository";
 import { failureType } from "./authLogging";
-import { buildVerificationUrl, issueVerificationToken } from "./emailVerification";
+import { buildVerificationUrl, issueVerificationCode } from "./emailVerification";
 
 import type { EmailProvider } from "../../lib/email/emailProvider";
 import type { AuthLogger } from "./authLogging";
@@ -28,9 +29,9 @@ import type { Types } from "mongoose";
 export interface VerificationService {
   resendVerification(input: ResendVerificationInput, log?: AuthLogger): Promise<void>;
   /**
-   * Redeems a verification token. Resolves on success and on an
-   * already-verified account; throws InvalidVerificationTokenError for every
-   * other outcome, without distinguishing them (ADR-009 §1).
+   * Redeems a verification CODE against an address. Resolves on success and
+   * on an already-verified account; throws InvalidVerificationTokenError for
+   * every other outcome, without distinguishing them (ADR-009 §1).
    */
   verifyEmail(input: VerifyEmailInput, log?: AuthLogger): Promise<void>;
 }
@@ -117,9 +118,9 @@ export function createVerificationService({ emailProvider }: VerificationService
         return;
       }
 
-      let rawSecret: string;
+      let rawCode: string;
       try {
-        rawSecret = await issueVerificationToken(user._id);
+        rawCode = await issueVerificationCode(user._id);
       } catch (err) {
         // Invalidation already ran, so the user may now hold zero valid
         // tokens — worse than before they asked. Tolerable only because this
@@ -139,7 +140,8 @@ export function createVerificationService({ emailProvider }: VerificationService
       try {
         await emailProvider.sendVerification({
           to: user.email,
-          verificationUrl: buildVerificationUrl(rawSecret),
+          code: rawCode,
+          verificationUrl: buildVerificationUrl(user.email),
         });
       } catch (err) {
         // Persistence is complete and the token is valid for its full
@@ -154,49 +156,97 @@ export function createVerificationService({ emailProvider }: VerificationService
         );
       }
 
-      // rawSecret goes out of scope here and exists nowhere else.
+      // rawCode goes out of scope here and exists nowhere else.
     },
 
     async verifyEmail(input: VerifyEmailInput, log: AuthLogger = logger): Promise<void> {
-      // The single atomic authority. Hash, purpose, not-consumed and
-      // not-expired are all in one predicate, so of N concurrent callers
-      // presenting the same token exactly one succeeds (ADR-005 §4).
-      //
-      // Nothing below re-checks expiry or consumption: a `find → inspect`
-      // step here would reintroduce the race this predicate exists to
-      // eliminate.
-      const consumed = await accountTokenRepository.consumeValidByHashAndPurpose({
-        tokenHash: sha256(input.token),
+      const now = new Date();
+
+      /*
+        The address first, because a six-digit code cannot identify a token
+        on its own (ADR-030 §5). This is a lookup, not a decision: whatever
+        it finds or fails to find, the caller receives the same refusal, so
+        no branch below is observable from outside.
+      */
+      const user = await userRepository.findByEmail(input.email);
+
+      if (!user) {
+        /*
+          No account. Answered exactly as a wrong code is, because a
+          distinguishable response here would turn this endpoint into an
+          account-existence oracle — the precise thing ADR-007 §4 spends the
+          registration flow's design budget preventing.
+        */
+        log.info(
+          { event: "auth.verify_email.rejected", reason: "no_account", recipient: maskEmailAddress(input.email) },
+          "Verification code could not be redeemed",
+        );
+        throw new InvalidVerificationTokenError("Verification code could not be redeemed");
+      }
+
+      /*
+        The single atomic authority. Owner, purpose, hash, not-consumed and
+        not-expired are all in one predicate, so of N concurrent callers
+        presenting the same code exactly one succeeds (ADR-005 §4).
+
+        Nothing below re-checks expiry or consumption: a `find → inspect`
+        step here would reintroduce the race this predicate exists to
+        eliminate, and would additionally require reading `tokenHash` back
+        out of the database, which `select: false` exists to prevent.
+      */
+      const consumed = await accountTokenRepository.consumeValidByUserAndPurpose({
+        userId: user._id,
         purpose: "email_verification",
-        now: new Date(),
+        tokenHash: sha256(input.code),
+        now,
       });
 
       if (!consumed) {
-        // Invalid, expired, already consumed, or fabricated — one response
-        // for all of them, because naming the reason would confirm whether
-        // the token was ever real (ADR-009 §1).
+        /*
+          Wrong, expired, already used, or never issued — one response for
+          all of them (ADR-009 §1).
+
+          The attempt is counted BEFORE throwing, and counting it is what
+          makes a six-digit code a credential rather than a formality: at one
+          chance in a million per guess, an uncounted code falls to a script
+          in minutes. On the fifth wrong guess the outstanding code is
+          destroyed, so the attacker must trigger a fresh email — metered by
+          the resend rate limiter — to buy five more.
+
+          A failure to count must not become a free guess, so the throw
+          happens regardless of what the counter does.
+        */
+        const attempted = await accountTokenRepository
+          .registerFailedAttempt({
+            userId: user._id,
+            purpose: "email_verification",
+            now,
+            maxAttempts: EMAIL_VERIFICATION_MAX_ATTEMPTS,
+          })
+          .catch((error: unknown) => {
+            log.error(
+              { event: "auth.verify_email.attempt_count_failed", userId: user._id.toString(), err: failureType(error) },
+              "Failed verification attempt could not be counted",
+            );
+            return null;
+          });
+
         log.info(
-          { event: "auth.verify_email.rejected" },
-          "Verification token could not be redeemed",
+          {
+            event: "auth.verify_email.rejected",
+            reason: "bad_code",
+            userId: user._id.toString(),
+            // How many of the budget are gone, never the code itself.
+            attempts: attempted?.attempts ?? null,
+            exhausted: attempted?.consumedAt !== null && attempted?.consumedAt !== undefined,
+          },
+          "Verification code could not be redeemed",
         );
-        throw new InvalidVerificationTokenError("Verification token could not be redeemed");
-      }
-
-      const user = await userRepository.findById(consumed.userId.toString());
-
-      if (!user) {
-        // The account went away between issuance and redemption. The token
-        // is spent either way; the caller gets the same answer as everyone
-        // whose token was never valid.
-        log.error(
-          { event: "auth.verify_email.orphaned_token", userId: consumed.userId.toString() },
-          "Verification token referenced a user that no longer exists",
-        );
-        throw new InvalidVerificationTokenError("Verification token could not be redeemed");
+        throw new InvalidVerificationTokenError("Verification code could not be redeemed");
       }
 
       if (user.emailVerifiedAt !== null) {
-        // A real link for an account that is already verified. The token is
+        // A real code for an account that is already verified. The token is
         // not refunded — un-consuming it would need exactly the
         // read-modify-write this design forbids — and 204 is correct: the
         // address is verified (ADR-009 §5).

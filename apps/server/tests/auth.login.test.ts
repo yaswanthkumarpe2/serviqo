@@ -13,7 +13,7 @@ import {
 } from "../src/config/constants";
 import { env } from "../src/lib/env";
 import { AccountTokenModel } from "../src/modules/accountTokens/accountToken.model";
-import { createFakeEmailProvider, extractToken } from "../src/modules/auth/testing/fakeEmailProvider";
+import { createFakeEmailProvider } from "../src/modules/auth/testing/fakeEmailProvider";
 import { SessionModel } from "../src/modules/sessions/session.model";
 import { UserModel } from "../src/modules/users/user.model";
 
@@ -33,8 +33,8 @@ function buildApp() {
 /** Registers and verifies through the real endpoints — the full slice-9-to-12 path. */
 async function registeredAndVerifiedUser(ctx: ReturnType<typeof buildApp>) {
   await request(ctx.app).post(REGISTER_PATH).send({ name: "Ada Lovelace", email: EMAIL, password: PASSWORD });
-  const token = extractToken(ctx.fake.verifications.at(-1)!.verificationUrl)!;
-  await request(ctx.app).post(VERIFY_PATH).send({ token });
+  const code = ctx.fake.verifications.at(-1)!.code;
+  await request(ctx.app).post(VERIFY_PATH).send({ email: EMAIL, code });
 }
 
 function refreshCookie(response: request.Response): string | undefined {

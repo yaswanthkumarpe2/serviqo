@@ -19,6 +19,22 @@ export interface ConsumeAccountTokenInput {
   now: Date;
 }
 
+export interface ConsumeAccountTokenForUserInput {
+  userId: ObjectIdLike;
+  purpose: AccountTokenPurpose;
+  /** SHA-256 hash of the submitted code — never the digits themselves. */
+  tokenHash: string;
+  now: Date;
+}
+
+export interface RegisterFailedAttemptInput {
+  userId: ObjectIdLike;
+  purpose: AccountTokenPurpose;
+  now: Date;
+  /** Attempts allowed before the token is destroyed rather than merely counted. */
+  maxAttempts: number;
+}
+
 export interface InvalidateAccountTokensInput {
   userId: ObjectIdLike;
   purpose: AccountTokenPurpose;
@@ -27,11 +43,19 @@ export interface InvalidateAccountTokensInput {
 /**
  * Persistence for single-use account action credentials (ADR-005).
  *
- * Three operations, no generic CRUD. In particular there is no
+ * Five operations, no generic CRUD. In particular there is no
  * `findByHash` / `findValidByHashAndPurpose`: a read that merely *checks*
  * validity invites check-then-act, which is exactly the race atomic
  * consumption exists to eliminate. Consumption is the only authoritative
  * path.
+ *
+ * ADR-030's six-digit codes did not weaken that rule, and the pair of
+ * methods they added is shaped by it. The obvious implementation — read the
+ * token, compare its hash in application code, then write — is precisely the
+ * check-then-act this module refuses, and it would additionally require
+ * reading `tokenHash` back out of the database, which `select: false` exists
+ * to prevent. So the success path stays a single atomic match that INCLUDES
+ * the hash, and counting a wrong guess is its own atomic operation.
  *
  * Every input is an object rather than positional strings, so a caller
  * cannot silently transpose `tokenHash` and `purpose`, and no shape exists
@@ -69,6 +93,90 @@ export const accountTokenRepository = {
       },
       { $set: { consumedAt: input.now } },
       { returnDocument: "after" },
+    );
+  },
+
+  /**
+   * Atomically consumes a token belonging to one user, returning the consumed
+   * document or null (ADR-030 §5).
+   *
+   * The same shape as `consumeValidByHashAndPurpose` with the OWNER added to
+   * the predicate, and the owner is what makes six-digit codes workable: the
+   * digits alone no longer have to identify a document, so two users holding
+   * the same code at once is a coincidence rather than a collision. It is
+   * also why the tokenHash index is no longer unique.
+   *
+   * Null means "no valid token of this purpose for this user matches these
+   * digits" and deliberately does not distinguish WHY — wrong code, expired,
+   * already used, or never issued all return the same nothing. The caller
+   * turns that into one refusal, so a prober cannot learn from the answer
+   * whether the account exists or whether a code is outstanding
+   * (ADR-007 §4).
+   */
+  async consumeValidByUserAndPurpose(input: ConsumeAccountTokenForUserInput): Promise<AccountTokenDocument | null> {
+    return AccountTokenModel.findOneAndUpdate(
+      {
+        userId: input.userId,
+        purpose: input.purpose,
+        tokenHash: input.tokenHash,
+        consumedAt: null,
+        expiresAt: { $gt: input.now },
+      },
+      { $set: { consumedAt: input.now } },
+      { returnDocument: "after" },
+    );
+  },
+
+  /**
+   * Counts one wrong guess against a user's outstanding token, destroying it
+   * once the budget is spent (ADR-030 §4).
+   *
+   * A six-digit code is guessable — one in a million — so counting attempts
+   * is not hardening, it is the thing that makes the code a credential at
+   * all. Returns the updated document, or null when there was no outstanding
+   * token to count against (a guess at an account with no pending code costs
+   * the guesser nothing and tells them nothing).
+   *
+   * Written as an aggregation-pipeline update so the increment and the
+   * decision to destroy happen in ONE operation. Pipeline stages run in
+   * order, so the second `$set` sees the incremented value. The two-statement
+   * alternative — increment, read it back, consume if too high — is the same
+   * check-then-act race this module rejects everywhere else, and here it
+   * would be exploitable rather than merely untidy: an attacker firing
+   * concurrent guesses would each read a pre-increment count and collectively
+   * spend far more than `maxAttempts`.
+   *
+   * Exhaustion CONSUMES the token rather than flagging it, so a further
+   * guess has nothing to test even if it happens to be correct.
+   */
+  async registerFailedAttempt(input: RegisterFailedAttemptInput): Promise<AccountTokenDocument | null> {
+    return AccountTokenModel.findOneAndUpdate(
+      {
+        userId: input.userId,
+        purpose: input.purpose,
+        consumedAt: null,
+        expiresAt: { $gt: input.now },
+      },
+      [
+        { $set: { attempts: { $add: ["$attempts", 1] } } },
+        {
+          $set: {
+            consumedAt: {
+              $cond: [{ $gte: ["$attempts", input.maxAttempts] }, input.now, null],
+            },
+          },
+        },
+      ],
+      /*
+        `updatePipeline` is Mongoose's required opt-in for an aggregation
+        pipeline update — without it Mongoose rejects the array outright
+        rather than passing it to the driver. It is easy to omit, and the
+        failure is quiet in exactly the wrong way: the throw lands in the
+        caller's error handling, the attempt goes uncounted, and a six-digit
+        code silently becomes unlimited-guess. The suite pins the counter
+        for that reason.
+      */
+      { returnDocument: "after", updatePipeline: true },
     );
   },
 
