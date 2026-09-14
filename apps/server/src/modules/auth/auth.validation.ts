@@ -167,3 +167,42 @@ export const changePasswordSchema = z
   .strict();
 
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
+
+/**
+ * Asking for a reset code takes the address and nothing else (ADR-036 §3),
+ * for the reason resend-verification's schema gives: an unauthenticated
+ * endpoint that sends mail should accept the smallest possible input.
+ */
+export const forgotPasswordSchema = z.object({
+  email: emailField,
+});
+
+export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
+
+/**
+ * Redeeming a reset code: the address, the code, and the new password
+ * (ADR-036 §3).
+ *
+ * The code field is verification's own, borrowed rather than restated, so a
+ * malformed code is refused before it can spend a guess in exactly the way it
+ * is there.
+ *
+ * The new password's LENGTH is enforced here, which is the opposite of what
+ * `changePasswordSchema` does, and both are right. Change-password withholds
+ * its policy until the current password is proved, because a caller holding a
+ * stolen access token should learn nothing first. Here the policy is already
+ * public — registration states it to anyone — and the alternative is worse:
+ * checked in the service it would have to run AFTER the code is consumed, so a
+ * person who typed a nine-character password would burn their code and have to
+ * wait for another mail. A check that depends only on the submitted string
+ * tells nobody anything about any account.
+ */
+export const resetPasswordSchema = z
+  .object({
+    email: emailField,
+    code: verifyEmailSchema.shape.code,
+    newPassword: registerSchema.shape.password,
+  })
+  .strict();
+
+export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;

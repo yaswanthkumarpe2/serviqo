@@ -171,4 +171,34 @@ export const userRepository = {
   async clearLoginFailures(id: ObjectIdLike): Promise<void> {
     await UserModel.updateOne({ _id: id }, { $set: { failedLoginAttempts: 0, lockedUntil: null } });
   },
+
+  /**
+   * Replaces a password after a redeemed reset code, and lifts any lockout in
+   * the same write (ADR-036 §4). Returns whether an account was updated.
+   *
+   * Narrow in the way the two methods above are, and for the same reason: its
+   * only caller is an unauthenticated endpoint, so it reaches the password and
+   * the lockout pair and cannot touch `email`, `status`, `kind` or
+   * `platformRole`. It takes a HASH — Argon2id belongs to the crypto boundary,
+   * and a repository that accepted plaintext would be one more place a
+   * password could be logged from.
+   *
+   * The lockout is cleared in the same update rather than by a second call,
+   * because a reset exists for the person who is locked out: a password that
+   * changed while the account stayed locked would look to them like a reset
+   * that did not work.
+   *
+   * A plain `$set`, never an aggregation pipeline. An Argon2id hash begins
+   * with `$argon2id$`, and inside a pipeline a string starting with `$` is
+   * read as a FIELD PATH — the stored "hash" would silently become whatever
+   * that path resolves to, which is nothing, and the account would be
+   * unrecoverable.
+   */
+  async replacePasswordAfterReset(id: ObjectIdLike, passwordHash: string): Promise<boolean> {
+    const result = await UserModel.updateOne(
+      { _id: id },
+      { $set: { passwordHash, failedLoginAttempts: 0, lockedUntil: null } },
+    );
+    return result.matchedCount === 1;
+  },
 };

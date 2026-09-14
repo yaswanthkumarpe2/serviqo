@@ -5,9 +5,11 @@ import { validateBody } from "../../middleware/validate";
 import { createAuthController } from "./auth.controller";
 import {
   changePasswordSchema,
+  forgotPasswordSchema,
   loginSchema,
   registerSchema,
   resendVerificationSchema,
+  resetPasswordSchema,
   verifyEmailSchema,
 } from "./auth.validation";
 import { createChangePasswordService } from "./changePassword.service";
@@ -15,6 +17,7 @@ import { createCurrentUserService } from "./currentUser.service";
 import { createLoginService } from "./login.service";
 import { createLogoutService } from "./logout.service";
 import { createLogoutAllService } from "./logoutAll.service";
+import { createPasswordResetService } from "./passwordReset.service";
 import { createRefreshService } from "./refresh.service";
 import { createRegistrationService } from "./registration.service";
 import { createVerificationService } from "./verification.service";
@@ -49,10 +52,12 @@ export function createAuthRouter({ emailProvider, rateLimiters }: AuthRouterDepe
     logoutAllService: createLogoutAllService(),
     currentUserService: createCurrentUserService(),
     changePasswordService: createChangePasswordService(),
+    passwordResetService: createPasswordResetService({ emailProvider }),
   });
 
   /*
-    Four unauthenticated endpoints, four separate budgets (ADR-031).
+    Four unauthenticated endpoints, four separate budgets (ADR-031) — six
+    since password reset (ADR-036), below.
 
     They shared one — the credential class — until ADR-031, and the sharing
     was the bug: completing one honest sign-up costs a register call, a
@@ -85,12 +90,32 @@ export function createAuthRouter({ emailProvider, rateLimiters }: AuthRouterDepe
   );
   router.post("/verify-email", rateLimiters.emailVerification, validateBody(verifyEmailSchema), controller.verifyEmail);
   router.post("/login", rateLimiters.credential, validateBody(loginSchema), controller.login);
+  /*
+    Password reset (ADR-036), the fifth and sixth unauthenticated endpoints,
+    each with its own class for ADR-031's reason. `passwordResetRequest` meters
+    mail sent to an address the caller names; `passwordReset` is the outer
+    guessing bound on a six-digit code whose real bound is its attempt counter.
+    Limiters before validation, as above.
+  */
+  router.post(
+    "/forgot-password",
+    rateLimiters.passwordResetRequest,
+    validateBody(forgotPasswordSchema),
+    controller.forgotPassword,
+  );
+  router.post(
+    "/reset-password",
+    rateLimiters.passwordReset,
+    validateBody(resetPasswordSchema),
+    controller.resetPassword,
+  );
   // No validateBody on any of these: the credential is the cookie, and none
   // of them accepts a body at all (ADR-012 §1, ADR-013 §3, ADR-014 §3). The
   // absence of a schema here is the point.
   /*
-    The session class (ADR-018 §3), keyed by IP because none of these has a
-    verified principal — the credential is the cookie. Higher than the
+    The session class (ADR-018 §3). None of these has a verified principal —
+    the credential is the cookie — so it keys on the session id the cookie
+    names, falling back to the IP without one (ADR-035 §2). Higher than the
     credential class because a legitimate tab refreshes once per access-token
     lifetime plus once per reload, and lower than the read class because each
     of these performs a database write.

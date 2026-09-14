@@ -7,9 +7,11 @@ import { clearRefreshCookieOptions, refreshCookieOptions } from "./refreshToken"
 
 import type {
   ChangePasswordInput,
+  ForgotPasswordInput,
   LoginInput,
   RegisterInput,
   ResendVerificationInput,
+  ResetPasswordInput,
   VerifyEmailInput,
 } from "./auth.validation";
 import type { ChangePasswordService } from "./changePassword.service";
@@ -17,6 +19,7 @@ import type { CurrentUserService } from "./currentUser.service";
 import type { LoginService } from "./login.service";
 import type { LogoutService } from "./logout.service";
 import type { LogoutAllService } from "./logoutAll.service";
+import type { PasswordResetService } from "./passwordReset.service";
 import type { RefreshService } from "./refresh.service";
 import type { RegistrationService } from "./registration.service";
 import type { VerificationService } from "./verification.service";
@@ -31,6 +34,7 @@ export interface AuthControllerDependencies {
   logoutAllService: LogoutAllService;
   currentUserService: CurrentUserService;
   changePasswordService: ChangePasswordService;
+  passwordResetService: PasswordResetService;
 }
 
 /**
@@ -50,6 +54,7 @@ export function createAuthController({
   logoutAllService,
   currentUserService,
   changePasswordService,
+  passwordResetService,
 }: AuthControllerDependencies) {
   // Safe to assert in both handlers: validateBody replaced req.body with the
   // route's schema output before either could run.
@@ -79,6 +84,29 @@ export function createAuthController({
    */
   const verifyEmail: RequestHandler = async (req, res) => {
     await verificationService.verifyEmail(req.body as VerifyEmailInput, req.log);
+    noContent(res);
+  };
+
+  /**
+   * Always 204, for resend-verification's reason (ADR-036 §3): the service
+   * returns nothing on any branch, so there is no state here to disclose about
+   * whether the address has an account or may be reset.
+   */
+  const forgotPassword: RequestHandler = async (req, res) => {
+    await passwordResetService.requestReset(req.body as ForgotPasswordInput, req.log);
+    noContent(res);
+  };
+
+  /**
+   * 204 on success; every refusal is the one 400 INVALID_PASSWORD_RESET_CODE.
+   *
+   * No session and no cookie, though issuing one would save the person a step.
+   * A reset proves control of an inbox; signing in proves the password, and
+   * keeping those as two acts means the one place sessions are born stays
+   * `/login` (ADR-036 §4).
+   */
+  const resetPassword: RequestHandler = async (req, res) => {
+    await passwordResetService.resetPassword(req.body as ResetPasswordInput, req.log);
     noContent(res);
   };
 
@@ -190,6 +218,17 @@ export function createAuthController({
   };
 
   /**
+   * Changes the caller's own password (ADR-034 §8).
+   *
+   * 204: nothing to report that the caller does not already know, and a body
+   * here could only echo something about a credential.
+   */
+  const changePassword: RequestHandler = async (req, res) => {
+    await changePasswordService.changePassword(req.principal!, req.body as ChangePasswordInput, req.log);
+    noContent(res);
+  };
+
+  /**
    * Reports the caller's own identity (ADR-015).
    *
    * The only handler here whose credential is an access token rather than the
@@ -206,17 +245,6 @@ export function createAuthController({
    * a `userId` the client supplied is not rejected, it is never consulted,
    * which is the stronger guarantee (ADR-015 §11).
    */
-  /**
-   * Changes the caller's own password (ADR-034 §8).
-   *
-   * 204: nothing to report that the caller does not already know, and a body
-   * here could only echo something about a credential.
-   */
-  const changePassword: RequestHandler = async (req, res) => {
-    await changePasswordService.changePassword(req.principal!, req.body as ChangePasswordInput, req.log);
-    noContent(res);
-  };
-
   const me: RequestHandler = async (req, res) => {
     const { user, memberships } = await currentUserService.getCurrentUser(req.principal!, req.log);
 
@@ -234,5 +262,17 @@ export function createAuthController({
     success(res, { user, memberships });
   };
 
-  return { register, resendVerification, verifyEmail, login, refresh, logout, logoutAll, me, changePassword };
+  return {
+    register,
+    resendVerification,
+    verifyEmail,
+    forgotPassword,
+    resetPassword,
+    login,
+    refresh,
+    logout,
+    logoutAll,
+    me,
+    changePassword,
+  };
 }

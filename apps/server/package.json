@@ -10,6 +10,7 @@
     "create:admin": "tsx scripts/createAdmin.ts",
     "grant:admin": "tsx scripts/grantPlatformAdmin.ts",
     "reset:platform": "tsx scripts/resetPlatform.ts",
+    "reset:password": "tsx scripts/resetPassword.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run"

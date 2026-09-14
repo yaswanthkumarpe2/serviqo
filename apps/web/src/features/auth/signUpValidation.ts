@@ -110,6 +110,46 @@ export function validateVerification(values: { email: string; code: string }): V
   return errors;
 }
 
+export interface ResetPasswordFieldErrors extends VerifyFieldErrors {
+  newPassword?: string;
+}
+
+/**
+ * Checks the reset form (ADR-036): the verification checks for the address and
+ * the code, plus the sign-up length rule for the new password.
+ *
+ * The length rule is stated here, not withheld as login withholds it, for
+ * sign-up's reason — the person is choosing a password and cannot comply with a
+ * policy they are not shown. It matters more than usual on this form: the
+ * server checks length before it touches the code, so a short password is
+ * refused without spending the code, but only this check saves the round trip.
+ */
+export function validateResetPassword(values: {
+  email: string;
+  code: string;
+  newPassword: string;
+}): ResetPasswordFieldErrors {
+  const errors: ResetPasswordFieldErrors = validateVerification(values);
+
+  if (values.newPassword.length === 0) {
+    errors.newPassword = "Choose a new password";
+  } else if (values.newPassword.length < PASSWORD_MIN_LENGTH) {
+    errors.newPassword = `Password must be at least ${PASSWORD_MIN_LENGTH} characters`;
+  } else if (values.newPassword.length > PASSWORD_MAX_LENGTH) {
+    errors.newPassword = `Password must be at most ${PASSWORD_MAX_LENGTH} characters`;
+  }
+
+  return errors;
+}
+
+/** Checks the forgot-password form, which is only an address. */
+export function validateForgotPassword(values: { email: string }): Pick<VerifyFieldErrors, "email"> {
+  const email = values.email.trim();
+  if (email.length === 0) return { email: "Email is required" };
+  if (!EMAIL_PATTERN.test(email)) return { email: "Enter a valid email address" };
+  return {};
+}
+
 export function hasSignUpErrors(errors: SignUpFieldErrors | VerifyFieldErrors): boolean {
   return Object.keys(errors).length > 0;
 }

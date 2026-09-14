@@ -88,9 +88,11 @@ const accountTokenSchema = new Schema<AccountTokenAttrs>(
 );
 
 /**
- * A. Consumption lookup key for the credentials that are still LINKS — today
- *    that is password reset, whose secret is a 256-bit value carried alone in
- *    a URL with no routing component beside it.
+ * A. Consumption lookup key for a credential carried as a LINK — a 256-bit
+ *    secret alone in a URL with no routing component beside it. Since ADR-036
+ *    moved password reset to a code, no production flow issues one; the index
+ *    backs `consumeValidByHashAndPurpose`, which stays for the next flow that
+ *    genuinely needs a link (an invitation a person accepts by clicking).
  *
  *    Deliberately NOT unique, and this changed with ADR-030. It was unique
  *    while every account credential was a link secret, on the reasoning that

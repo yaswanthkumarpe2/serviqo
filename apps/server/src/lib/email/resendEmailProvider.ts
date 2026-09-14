@@ -3,6 +3,7 @@ import { Resend } from "resend";
 import {
   EMAIL_VERIFICATION_CODE_LENGTH,
   EMAIL_VERIFICATION_TOKEN_TTL_MS,
+  PASSWORD_RESET_CODE_TTL_MS,
 } from "../../config/constants";
 
 import { logger } from "../logger";
@@ -175,15 +176,40 @@ function agentCredentialsEmail(
   };
 }
 
-function passwordResetEmail(url: string): EmailContent {
+/** The reset code's lifetime, in the units a person reads (ADR-036 §2). */
+const RESET_EXPIRY_MINUTES = Math.round(PASSWORD_RESET_CODE_TTL_MS / 60_000);
+
+/**
+ * The password-reset email (ADR-036 §1).
+ *
+ * The verification email's shape, for the verification email's reasons: code
+ * in the body and never the subject, expiry stated, a link that opens the page
+ * and holds no secret.
+ *
+ * The last line is written for the person who did NOT ask. A reset mail they
+ * did not expect is alarming, and the two facts that settle it are that their
+ * password has not changed and that nobody can change it without this code.
+ */
+function passwordResetEmail(code: string, url: string): EmailContent {
   return {
-    subject: "Reset your password",
-    text: `We received a request to reset your Serviqo password.\n\nChoose a new password by opening this link:\n${url}\n\nIf you didn't request this, you can ignore this email.`,
+    subject: "Reset your Serviqo password",
+    text:
+      `We received a request to reset your Serviqo password.\n\n` +
+      `Your ${EMAIL_VERIFICATION_CODE_LENGTH}-digit reset code is:\n\n` +
+      `${code}\n\n` +
+      `Enter it at ${url}\n\n` +
+      `The code expires in ${RESET_EXPIRY_MINUTES} minutes.\n\n` +
+      `If you didn't ask for this, ignore this email — your password has not ` +
+      `changed, and nobody can change it without this code.`,
     html:
       `<p>We received a request to reset your Serviqo password.</p>` +
-      `<p>Choose a new password by clicking the link below.</p>` +
-      `<p><a href="${escapeHtml(url)}">Reset password</a></p>` +
-      `<p>If you didn't request this, you can ignore this email.</p>`,
+      `<p>Your ${EMAIL_VERIFICATION_CODE_LENGTH}-digit reset code is:</p>` +
+      `<p style="font-size:28px;font-weight:700;letter-spacing:6px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace">` +
+      `${escapeHtml(code)}</p>` +
+      `<p>Enter it at <a href="${escapeHtml(url)}">${escapeHtml(url)}</a></p>` +
+      `<p>The code expires in ${RESET_EXPIRY_MINUTES} minutes.</p>` +
+      `<p>If you didn't ask for this, ignore this email — your password has not changed, ` +
+      `and nobody can change it without this code.</p>`,
   };
 }
 
@@ -278,7 +304,14 @@ export function createResendEmailProvider({
     },
 
     async sendPasswordReset(input: PasswordResetEmailInput): Promise<void> {
-      await deliver("email.resend.password_reset", input.to, input.resetUrl, passwordResetEmail(input.resetUrl));
+      // As with verification: the URL is logged and holds no secret; the code
+      // goes to the template and never to the logger.
+      await deliver(
+        "email.resend.password_reset",
+        input.to,
+        input.resetUrl,
+        passwordResetEmail(input.code, input.resetUrl),
+      );
     },
 
     async sendInvitation(input: InvitationEmailInput): Promise<void> {

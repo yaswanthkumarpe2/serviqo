@@ -66,6 +66,10 @@ export function createConsoleEmailProvider(log: EmailLogger = logger): EmailProv
           delivery: "console",
           recipient: maskEmailAddress(input.to),
           url: describeActionUrl(input.resetUrl),
+          // The code is absent for the reason the verification line above
+          // gives, and it matters more here: this one replaces a password
+          // (ADR-036 §1).
+          codeIssued: true,
         },
         "Password reset email (development: not delivered)",
       );

@@ -51,7 +51,11 @@ describe("ConsoleEmailProvider", () => {
     it("sendPasswordReset resolves", async () => {
       const provider = createConsoleEmailProvider(capture.log);
       await expect(
-        provider.sendPasswordReset({ to: RECIPIENT, resetUrl: "http://localhost:5173/reset-password?token=a" }),
+        provider.sendPasswordReset({
+          to: RECIPIENT,
+          code: "123456",
+          resetUrl: "http://localhost:5173/reset-password?token=a",
+        }),
       ).resolves.toBeUndefined();
     });
 
@@ -84,6 +88,7 @@ describe("ConsoleEmailProvider", () => {
       const provider = createConsoleEmailProvider(capture.log);
       await provider.sendPasswordReset({
         to: RECIPIENT,
+        code: "123456",
         resetUrl: "http://localhost:5173/reset-password?token=a",
       });
 
@@ -130,6 +135,7 @@ describe("ConsoleEmailProvider", () => {
       const provider = createConsoleEmailProvider(capture.log);
       await provider.sendPasswordReset({
         to: RECIPIENT,
+        code: "123456",
         resetUrl: `http://localhost:5173/reset-password?token=${SECRET}`,
       });
 
@@ -205,6 +211,7 @@ describe("ConsoleEmailProvider", () => {
       });
       await provider.sendPasswordReset({
         to: RECIPIENT,
+        code: "123456",
         resetUrl: `https://app.example.com/reset-password/${SECRET}`,
       });
       await provider.sendInvitation({
@@ -260,7 +267,11 @@ describe("ConsoleEmailProvider", () => {
       const provider = createConsoleEmailProvider(capture.log);
       await provider.sendVerification({ to: RECIPIENT, code: "481920",
         verificationUrl: "http://x.test/v?token=a" });
-      await provider.sendPasswordReset({ to: RECIPIENT, resetUrl: "http://x.test/r?token=a" });
+      await provider.sendPasswordReset({
+        to: RECIPIENT,
+        code: "123456",
+        resetUrl: "http://x.test/r?token=a",
+      });
       await provider.sendInvitation({
         to: RECIPIENT,
         organizationName: "Acme Support",

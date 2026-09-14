@@ -109,8 +109,32 @@ export const EMAIL_VERIFICATION_CODE_LENGTH = 6;
  */
 export const EMAIL_VERIFICATION_MAX_ATTEMPTS = 5;
 
-/** Password-reset links are deliberately much shorter-lived than verification. */
-export const PASSWORD_RESET_TOKEN_TTL_MS = 60 * 60 * 1000;
+/**
+ * How long an emailed password-reset CODE stays usable (ADR-036 §2).
+ *
+ * Replaces the hour a reset LINK was going to live. Once reset became a
+ * six-digit code the reasoning ADR-030 §3 gave for verification applies
+ * without change — a code's lifetime is one of the two terms bounding a
+ * guessing attack — and a reset code guards something strictly more valuable
+ * than a verification code does, so it is certainly no longer-lived.
+ *
+ * Deliberately its own constant rather than an alias of the verification TTL.
+ * The two are equal today because the same person reading the same inbox
+ * needs the same few minutes; they are not equal by definition, and an alias
+ * would let a change aimed at one silently move the other.
+ */
+export const PASSWORD_RESET_CODE_TTL_MS = 10 * 60 * 1000;
+
+/**
+ * Wrong codes one issued reset code survives before it is destroyed
+ * (ADR-036 §2).
+ *
+ * The same five as verification and for the same reason — this, not the
+ * code's length, is what makes six digits a credential. Exhaustion consumes
+ * the code, so the attacker must trigger a fresh email, which the
+ * `passwordResetRequest` limiter meters.
+ */
+export const PASSWORD_RESET_MAX_ATTEMPTS = 5;
 
 // ---- access token (ADR-011) ----
 
@@ -328,6 +352,33 @@ export const EMAIL_VERIFICATION_WINDOW_MS = 15 * 60 * 1000;
  */
 export const VERIFICATION_RESEND_LIMIT = 3;
 export const VERIFICATION_RESEND_WINDOW_MS = 15 * 60 * 1000;
+
+/**
+ * `POST /forgot-password` (ADR-036 §5).
+ *
+ * The same shape and the same numbers as `verificationResend`, as a separate
+ * class. It is the same kind of endpoint — every accepted call puts mail in an
+ * inbox the caller names — so the same three per fifteen minutes is right.
+ *
+ * Separate because sharing would recreate ADR-031's bug in miniature: a person
+ * who had just waited on a slow verification mail would find they could not
+ * ask for a reset code, and a run of refusals in the log could not say which
+ * of the two mail senders was being hammered.
+ */
+export const PASSWORD_RESET_REQUEST_LIMIT = 3;
+export const PASSWORD_RESET_REQUEST_WINDOW_MS = 15 * 60 * 1000;
+
+/**
+ * `POST /reset-password` (ADR-036 §5).
+ *
+ * The outer of two guessing bounds, exactly as `emailVerification` is:
+ * `PASSWORD_RESET_MAX_ATTEMPTS` destroys an issued code after five wrong
+ * guesses whatever this number allows. Twenty per fifteen minutes leaves room
+ * for mistyped digits and a rejected new password without letting one address
+ * grind codes across many accounts.
+ */
+export const PASSWORD_RESET_LIMIT = 20;
+export const PASSWORD_RESET_WINDOW_MS = 15 * 60 * 1000;
 
 /**
  * Session endpoints: refresh, logout, logout-all.

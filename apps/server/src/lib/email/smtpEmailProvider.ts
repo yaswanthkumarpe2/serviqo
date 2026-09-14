@@ -1,6 +1,6 @@
 import nodemailer from "nodemailer";
 
-import { EMAIL_VERIFICATION_CODE_LENGTH } from "../../config/constants";
+import { EMAIL_VERIFICATION_CODE_LENGTH, PASSWORD_RESET_CODE_TTL_MS } from "../../config/constants";
 import { logger } from "../logger";
 import { describeActionUrl, maskEmailAddress } from "./redaction";
 
@@ -97,14 +97,28 @@ function verificationEmail(code: string, url: string): EmailContent {
   };
 }
 
-function passwordResetEmail(url: string): EmailContent {
+/** The reset code's lifetime, derived rather than restated (ADR-036 §2). */
+const RESET_EXPIRY_MINUTES = Math.round(PASSWORD_RESET_CODE_TTL_MS / 60_000);
+
+/** The same content as the Resend provider's reset mail (ADR-036 §1). */
+function passwordResetEmail(code: string, url: string): EmailContent {
   return {
-    subject: "Reset your password",
-    text: `We received a request to reset your Serviqo password.\n\nOpen this link to choose a new one:\n${url}\n\nIf you didn't request this, ignore this email.`,
+    subject: "Reset your Serviqo password",
+    text:
+      `We received a request to reset your Serviqo password.\n\n` +
+      `Your ${EMAIL_VERIFICATION_CODE_LENGTH}-digit reset code is:\n\n` +
+      `${code}\n\n` +
+      `Enter it at ${url}\n\n` +
+      `The code expires in ${RESET_EXPIRY_MINUTES} minutes.\n\n` +
+      `If you didn't ask for this, ignore this email — your password has not changed.`,
     html:
       `<p>We received a request to reset your Serviqo password.</p>` +
-      `<p><a href="${escapeHtml(url)}">Reset password</a></p>` +
-      `<p>If you didn't request this, ignore this email.</p>`,
+      `<p>Your ${EMAIL_VERIFICATION_CODE_LENGTH}-digit reset code is:</p>` +
+      `<p style="font-size:28px;font-weight:700;letter-spacing:6px;font-family:ui-monospace,monospace">` +
+      `${escapeHtml(code)}</p>` +
+      `<p>Enter it at <a href="${escapeHtml(url)}">${escapeHtml(url)}</a></p>` +
+      `<p>The code expires in ${RESET_EXPIRY_MINUTES} minutes.</p>` +
+      `<p>If you didn't ask for this, ignore this email — your password has not changed.</p>`,
   };
 }
 
@@ -225,7 +239,12 @@ export function createSmtpEmailProvider(config: SmtpEmailProviderConfig): EmailP
     },
 
     async sendPasswordReset(input: PasswordResetEmailInput): Promise<void> {
-      await deliver("email.smtp.password_reset", input.to, input.resetUrl, passwordResetEmail(input.resetUrl));
+      await deliver(
+        "email.smtp.password_reset",
+        input.to,
+        input.resetUrl,
+        passwordResetEmail(input.code, input.resetUrl),
+      );
     },
 
     async sendInvitation(input: InvitationEmailInput): Promise<void> {

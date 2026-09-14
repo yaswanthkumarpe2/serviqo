@@ -344,6 +344,40 @@ export async function resendVerification(email: string): Promise<void> {
 }
 
 /**
+ * Asks for a password-reset code (ADR-036).
+ *
+ * Resolves for every address, because the server answers 204 whether or not
+ * it has an account, and whether or not that account may be reset by email.
+ * The UI can therefore only ever say "if that address has an account".
+ */
+export async function requestPasswordReset(email: string): Promise<void> {
+  await postAuthNoContent("/forgot-password", {
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+}
+
+export interface ResetPasswordInput {
+  email: string;
+  code: string;
+  newPassword: string;
+}
+
+/**
+ * Redeems a reset code and sets a new password (ADR-036).
+ *
+ * Resolves with nothing and signs nobody in — the server issues no session for
+ * a reset, so the person signs in with the password they just chose. Every
+ * refusal about the code is one `INVALID_PASSWORD_RESET_CODE`.
+ */
+export async function resetPassword(input: ResetPasswordInput): Promise<void> {
+  await postAuthNoContent("/reset-password", {
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
+/**
  * Signs in an organization user.
  *
  * Resolves with the access token and the user's identity. The refresh token

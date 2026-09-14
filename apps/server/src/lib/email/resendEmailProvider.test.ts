@@ -84,12 +84,31 @@ describe("ResendEmailProvider", () => {
 
       await provider.sendPasswordReset({
         to: RECIPIENT,
+        code: "123456",
         resetUrl: "http://localhost:5173/reset-password?token=a",
       });
 
       expect(calls).toHaveLength(1);
       expect(calls[0]!.html).toContain("http://localhost:5173/reset-password?token=a");
       expect(calls[0]!.text).toContain("http://localhost:5173/reset-password?token=a");
+    });
+
+    // ADR-036 §1: the code is the credential, so it belongs in the body and
+    // never in a subject a locked phone shows.
+    it("puts the reset code in the body and keeps it out of the subject", async () => {
+      const { client, calls } = createFakeClient({ data: { id: "msg_2b" }, error: null });
+      const provider = createResendEmailProvider({ apiKey: API_KEY, from: FROM, client, log: capture.log });
+
+      await provider.sendPasswordReset({
+        to: RECIPIENT,
+        code: "730418",
+        resetUrl: "http://localhost:5173/reset-password?email=a%40example.com",
+      });
+
+      expect(calls[0]!.text).toContain("730418");
+      expect(calls[0]!.html).toContain("730418");
+      expect(calls[0]!.subject).not.toContain("730418");
+      expect(JSON.stringify(capture.entries)).not.toContain("730418");
     });
 
     it("sends the invitation email with the organization name and invitation URL", async () => {
@@ -196,7 +215,11 @@ describe("ResendEmailProvider", () => {
       const provider = createResendEmailProvider({ apiKey: API_KEY, from: FROM, client, log: capture.log });
 
       await expect(
-        provider.sendPasswordReset({ to: RECIPIENT, resetUrl: "http://localhost:5173/reset-password?token=a" }),
+        provider.sendPasswordReset({
+          to: RECIPIENT,
+          code: "123456",
+          resetUrl: "http://localhost:5173/reset-password?token=a",
+        }),
       ).rejects.toThrow();
     });
 

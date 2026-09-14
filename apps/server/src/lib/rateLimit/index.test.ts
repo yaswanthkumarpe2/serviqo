@@ -77,6 +77,14 @@ describe("createRateLimiters", () => {
         one pattern an operator most wants to see.
       */
       "ownershipTransfer",
+      /*
+        The fourteenth and fifteenth classes, for password reset (ADR-036 §5).
+        Shaped like `verificationResend` and `emailVerification` respectively —
+        one mails a code, one redeems it — and kept apart from them so waiting
+        on one kind of mail never spends the budget for the other.
+      */
+      "passwordReset",
+      "passwordResetRequest",
       "registration",
       "session",
       "verificationResend",

@@ -87,7 +87,7 @@ describe("LoginPage", () => {
       expect(emailField()).toBeDefined();
       expect(passwordField()).toBeDefined();
       expect(screen.getByRole("checkbox", { name: /remember me/i })).toBeDefined();
-      expect(screen.getByRole("button", { name: /forgot password/i })).toBeDefined();
+      expect(screen.getByRole("link", { name: /forgot password/i })).toBeDefined();
       expect(submitButton()).toBeDefined();
     });
 
