@@ -1,9 +1,12 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { Button } from "@/components/ui/Button";
 import { BrandMark } from "@/components/ui/icons";
 import { AddAgentForm } from "@/features/admin/AddAgentForm";
+import { AgentInbox } from "@/features/inbox/AgentInbox";
+import { TeamManagement } from "@/features/team/TeamManagement";
+import { useCurrentUser } from "@/features/auth/useCurrentUser";
 import { usePlatformConsole } from "@/features/admin/usePlatformConsole";
 import { useAuth } from "@/features/auth/useAuth";
 
@@ -23,10 +26,47 @@ import "./AdminPortalPage.css";
  * own audit trail and their own argument; shipping them beside a dashboard
  * would smuggle them in without either.
  *
- * It also shows no conversation CONTENT, because the API carries none. That
- * line is drawn in the payload rather than in this component, so a future
- * panel cannot render what a careless endpoint started sending.
+ * The PLATFORM API it reads (`/api/v1/admin`) still carries no conversation
+ * content — that line is drawn in the payload and is unchanged. What ADR-035
+ * §5 adds is a second source: the console also reads the TENANT endpoints for
+ * an organization this admin OWNS, which is how the Chats and Team views work.
+ *
+ * That distinction is the whole justification. An admin does not see a
+ * tenant's conversations because they are a platform admin; they see them
+ * because they hold an `owner` membership in that organization, and the server
+ * authorizes those reads through `requireOrganization` and `requirePermission`
+ * exactly as it would for any other owner. A platform admin with no membership
+ * in a tenant still sees nothing but counts.
  */
+
+/** The console's sections. `overview` is what ADR-032 shipped; the rest are ADR-035 §5. */
+const CONSOLE_VIEWS = [
+  { id: "overview", label: "Overview" },
+  { id: "chats", label: "Chats" },
+  { id: "team", label: "Team" },
+  { id: "accounts", label: "Accounts" },
+] as const;
+
+type ConsoleView = (typeof CONSOLE_VIEWS)[number]["id"];
+
+/**
+ * What each section actually shows.
+ *
+ * Per-view rather than one sentence for the page, because the page's original
+ * line — "counts only, no conversation content reaches this page" — stopped
+ * being true the moment ADR-035 §5 added the Chats view. A standing claim about
+ * what a page does not contain has to be withdrawn when it starts containing
+ * it; leaving it up would have been a false statement about privacy, which is
+ * the worst kind to leave lying around.
+ */
+const LEDE: Record<ConsoleView, string> = {
+  overview:
+    "Every tenant and every account on this deployment. Counts only — no conversation content reaches this view.",
+  chats:
+    "Conversations in the organization you own, read through the same tenant API an agent uses — not through the platform API, which carries no message content.",
+  team: "The roster of the organization you own.",
+  accounts: "Every account on this deployment, and the one control that creates an agent.",
+};
 
 interface AdminPortalPageProps {
   /** The account the route guard confirmed holds the grant. */
@@ -37,6 +77,19 @@ export function AdminPortalPage({ user }: AdminPortalPageProps) {
   const { signOut } = useAuth();
   const navigate = useNavigate();
   const platform = usePlatformConsole();
+
+  /*
+    The organizations this admin actually belongs to. The Chats and Team views
+    read TENANT endpoints, which are authorized by membership — so the tenant
+    they operate on is the one `/me` says they own, never one picked out of the
+    platform-wide list. An admin with no membership anywhere sees the counts and
+    is told why the rest is empty.
+  */
+  const { memberships } = useCurrentUser();
+  const ownedOrganization = memberships[0] ?? null;
+
+  const [view, setView] = useState<ConsoleView>("overview");
+  const navRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   /* Unlisted pages stay out of the index. Same reasoning as the sign-in page. */
   useEffect(() => {
@@ -49,6 +102,23 @@ export function AdminPortalPage({ user }: AdminPortalPageProps) {
       meta.remove();
     };
   }, []);
+
+  /** Left/Right move between sections, Home/End jump to the ends. WAI-ARIA's tab pattern. */
+  function handleNavKeyDown(event: React.KeyboardEvent<HTMLButtonElement>, index: number) {
+    const last = CONSOLE_VIEWS.length - 1;
+    let next: number | null = null;
+
+    if (event.key === "ArrowRight") next = index === last ? 0 : index + 1;
+    else if (event.key === "ArrowLeft") next = index === 0 ? last : index - 1;
+    else if (event.key === "Home") next = 0;
+    else if (event.key === "End") next = last;
+
+    if (next === null) return;
+
+    event.preventDefault();
+    setView(CONSOLE_VIEWS[next]!.id);
+    navRefs.current[next]?.focus();
+  }
 
   /**
    * Not awaited, and that is the point (ADR-013): `signOut` clears the session
@@ -78,6 +148,27 @@ export function AdminPortalPage({ user }: AdminPortalPageProps) {
           <span className="console__tag">Operations</span>
         </div>
 
+        <nav className="console__nav" role="tablist" aria-label="Console">
+          {CONSOLE_VIEWS.map((entry, index) => (
+            <button
+              key={entry.id}
+              ref={(element) => {
+                navRefs.current[index] = element;
+              }}
+              type="button"
+              role="tab"
+              aria-selected={view === entry.id}
+              /* Only the selected item takes Tab; the arrows move within the bar. */
+              tabIndex={view === entry.id ? 0 : -1}
+              className={view === entry.id ? "console__navLink console__navLink--active" : "console__navLink"}
+              onClick={() => setView(entry.id)}
+              onKeyDown={(event) => handleNavKeyDown(event, index)}
+            >
+              {entry.label}
+            </button>
+          ))}
+        </nav>
+
         <div className="console__barRight">
           <span className="console__who">{user.name}</span>
           <Button variant="secondary" size="sm" onClick={handleSignOut}>
@@ -91,10 +182,7 @@ export function AdminPortalPage({ user }: AdminPortalPageProps) {
           <div>
             <p className="console__eyebrow">Platform</p>
             <h1 className="console__title">Everything, everywhere</h1>
-            <p className="console__lede">
-              Every tenant and every account on this deployment. Counts only — no conversation content reaches this
-              page.
-            </p>
+            <p className="console__lede">{LEDE[view]}</p>
           </div>
 
           <div className="console__headActions">
@@ -128,6 +216,7 @@ export function AdminPortalPage({ user }: AdminPortalPageProps) {
           </p>
         ) : (
           <>
+            {view === "overview" && <>
             <section aria-labelledby="console-totals-heading">
               <h2 className="console__sectionTitle" id="console-totals-heading">
                 Totals
@@ -210,6 +299,9 @@ export function AdminPortalPage({ user }: AdminPortalPageProps) {
 
             {/*
               The console's one write (ADR-034 §7), placed directly above the
+            </>}
+
+            {view === "accounts" && <>
               account list it changes so the result of using it is visible
               without scrolling.
             */}
@@ -249,6 +341,48 @@ export function AdminPortalPage({ user }: AdminPortalPageProps) {
                 </div>
               )}
             </section>
+            </>}
+
+            {/*
+              The two views that read TENANT endpoints rather than the platform
+              API (ADR-035 §5).
+
+              Both are the SAME components the agent workspace uses, given the
+              organization this admin owns. Reusing them rather than building
+              console-flavoured copies is what keeps one implementation of the
+              inbox and one of the roster — a second inbox would be a second
+              place for message handling to drift.
+
+              Wrapped in a light surface because they were drawn for the
+              workspace's canvas and this console is dark. The alternative,
+              re-theming two large components, would be a lot of CSS to make
+              them look like something they are not.
+            */}
+            {(view === "chats" || view === "team") &&
+              (ownedOrganization === null ? (
+                <p className="console__notice" role="status">
+                  This admin account holds no membership in any organization, so there is no roster or conversation
+                  list to show. The counts above still cover the whole platform.
+                </p>
+              ) : (
+                <div className="console__embed">
+                  {view === "chats" && (
+                    <AgentInbox
+                      key={`console-inbox-${ownedOrganization.organization.id}`}
+                      organizationId={ownedOrganization.organization.id}
+                    />
+                  )}
+                  {view === "team" && (
+                    <TeamManagement
+                      key={`console-team-${ownedOrganization.organization.id}`}
+                      organizationId={ownedOrganization.organization.id}
+                      role={ownedOrganization.role}
+                      currentUserId={user.id}
+                      onOrganizationContextStale={platform.refresh}
+                    />
+                  )}
+                </div>
+              ))}
           </>
         )}
       </main>

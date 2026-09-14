@@ -1,0 +1,78 @@
+/*
+  The cookie notice (ADR-035 §6).
+
+  Anchored to the bottom rather than centred over the page, because it blocks
+  nothing: a visitor may read the whole site without answering it, and a modal
+  that dims the content would be claiming an urgency this notice does not have.
+*/
+
+.consent {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  /*
+    Above the page, below anything that genuinely traps attention. The widget
+    launcher sits at 2147483000; this deliberately does not compete with it.
+  */
+  z-index: 900;
+  padding: 12px;
+  /* Keeps the notice clear of a phone's home indicator. */
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+}
+
+.consent__inner {
+  max-width: 1100px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  padding: 14px 18px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-xl);
+  /*
+    The one place a shadow earns its place over a border: this floats above the
+    page, and without it the notice reads as part of the footer.
+  */
+  box-shadow: var(--sh-md);
+}
+
+.consent__text {
+  flex: 1 1 340px;
+  min-width: 0;
+}
+
+.consent__title {
+  margin: 0 0 3px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.consent__body {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-2);
+  max-width: 78ch;
+}
+
+.consent__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+@media (max-width: 560px) {
+  /* Full-width buttons once the row wraps, so neither is a small target. */
+  .consent__actions {
+    width: 100%;
+  }
+
+  .consent__actions > * {
+    flex: 1;
+  }
+}

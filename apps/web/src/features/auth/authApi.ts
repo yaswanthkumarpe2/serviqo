@@ -506,13 +506,34 @@ export function isAgent(user: { kind?: string } | null): boolean {
 }
 
 /**
+ * Whether this account operates the deployment rather than using it
+ * (ADR-035 §4).
+ *
+ * `kind === "admin"`, which is a different question from `platformRole ===
+ * "admin"` even though one account holds both today. `platformRole` is the
+ * GRANT — what the server will let them read — and this is the SURFACE, which
+ * of the three shells to render. Keeping them separate is what lets the login
+ * response route somebody correctly without carrying their grant in it.
+ */
+export function isAdminKind(user: { kind?: string } | null): boolean {
+  return user?.kind === "admin";
+}
+
+/**
  * Where an account belongs after signing in (ADR-034 §9).
  *
  * The one place that decides, so the two login pages and the post-verification
  * redirect cannot disagree about it.
  */
 export function homePathFor(user: { kind?: string } | null): string {
-  return isAgent(user) ? "/agent" : "/dashboard";
+  if (isAdminKind(user)) return "/control";
+  if (isAgent(user)) return "/agent";
+  /*
+    The default, and deliberately the least-privileged surface: an unrecognised
+    kind, or an older server that sends none, lands on the customer chat rather
+    than on a staff shell.
+  */
+  return "/dashboard";
 }
 
 function isCurrentUserMembership(value: unknown): value is CurrentUserMembership {

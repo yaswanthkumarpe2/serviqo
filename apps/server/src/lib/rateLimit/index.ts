@@ -1,5 +1,9 @@
 import { ipKeyGenerator, rateLimit } from "express-rate-limit";
 
+import { REFRESH_COOKIE_NAME } from "../../config/constants";
+import { readCookie } from "../http/cookies";
+import { parseRefreshToken } from "../../modules/auth/refreshToken";
+
 import {
   AUTHENTICATED_READ_LIMIT,
   AUTHENTICATED_READ_WINDOW_MS,
@@ -86,6 +90,18 @@ interface LimiterOptions {
    * the widget-side sibling of `keyByUser`.
    */
   keyByCustomer?: boolean;
+  /**
+   * Present for the session class, which keys on the SESSION the refresh
+   * cookie names rather than on the socket address (ADR-035 §2).
+   *
+   * These routes run before any principal exists — the credential is the
+   * cookie — so `keyByUser` cannot apply. But the cookie carries a session id
+   * as its non-secret routing component, and that is a far better key than an
+   * IP: one browser reloading heavily can then only exhaust its own budget,
+   * where an IP key made every tab, every device and every colleague behind
+   * one NAT share sixty refreshes.
+   */
+  keyBySessionCookie?: boolean;
 }
 
 function createLimiter({
@@ -94,6 +110,7 @@ function createLimiter({
   limit,
   keyByUser = false,
   keyByCustomer = false,
+  keyBySessionCookie = false,
 }: LimiterOptions): RequestHandler {
   return rateLimit({
     windowMs,
@@ -122,6 +139,30 @@ function createLimiter({
         // rather-than-throw fallback as keyByUser above.
         const customerId = req.widgetPrincipal?.customerId;
         if (customerId !== undefined) return `customer:${customerId}`;
+      }
+
+      if (keyBySessionCookie) {
+        /*
+          The session id out of the refresh cookie (ADR-035 §2).
+
+          `parseRefreshToken` splits the cookie into its non-secret routing
+          component and its secret, and only the FORMER is used here — the
+          secret never becomes a limiter key, where it would sit in the
+          limiter's memory as a credential in plaintext.
+
+          Nothing is verified: an attacker can invent a well-formed session id
+          and get a fresh budget with it. That is accepted, because this key's
+          job is isolating honest clients from each other rather than bounding
+          an attacker — the `global` per-IP class already does the second, and
+          a refresh secret is 256 bits of entropy, so guessing is not the
+          threat here.
+
+          Falls back to the IP when no cookie arrives, which is exactly the
+          unauthenticated caller who deserves the blunter key.
+        */
+        const cookie = readCookie(req.get("cookie"), REFRESH_COOKIE_NAME);
+        const parsed = cookie === undefined ? null : parseRefreshToken(cookie);
+        if (parsed !== null) return `session:${parsed.sessionId}`;
       }
 
       /*
@@ -192,7 +233,15 @@ export interface RateLimiters {
    * domain's reputation.
    */
   verificationResend: RequestHandler;
-  /** Session endpoints: refresh, logout, logout-all. */
+  /**
+   * Session endpoints: refresh, logout, logout-all.
+   *
+   * Keyed by the SESSION the refresh cookie names, not by IP (ADR-035 §2).
+   * Reloading a page costs one refresh, and a person with several tabs open
+   * used to spend a budget shared with everyone else on their network — which
+   * is how a valid session ended up refused, and then discarded by a client
+   * that read the refusal as a sign-out.
+   */
   session: RequestHandler;
   /** Authenticated writes. Keyed by user. */
   authenticatedWrite: RequestHandler;
@@ -264,6 +313,7 @@ export function createRateLimiters(): RateLimiters {
       limitClass: "session",
       windowMs: SESSION_WINDOW_MS,
       limit: SESSION_LIMIT,
+      keyBySessionCookie: true,
     }),
     authenticatedWrite: createLimiter({
       limitClass: "authenticatedWrite",

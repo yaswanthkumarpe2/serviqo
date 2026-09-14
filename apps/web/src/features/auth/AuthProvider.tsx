@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { AuthContext } from "./AuthContext";
-import { logout, logoutAllDevices, refresh } from "./authApi";
+import { AuthApiError, logout, logoutAllDevices, refresh } from "./authApi";
 import { authorizedRequest } from "./authorizedRequest";
 
 import type { Session } from "./AuthContext";
@@ -64,10 +64,31 @@ export function AuthProvider({ children, initialSession = null }: AuthProviderPr
         return result.accessToken;
       })
       .catch((error: unknown) => {
-        // The cookie is gone, expired, or was revoked. Whatever the reason,
-        // this tab is not signed in — and saying so is what makes
-        // ProtectedRoute redirect.
-        applySession(null);
+        /*
+          Only a refusal that means "this credential is not valid" ends the
+          session (ADR-035 §3).
+
+          This used to clear on EVERY failure, and that was a real way to lose
+          a working session: a refresh refused by the rate limiter, a 500, or a
+          dropped connection all read as "signed out", so the tab discarded a
+          cookie the server would have honoured a second later. The rate-limit
+          case was not hypothetical — the session class was keyed by IP, so a
+          few tabs reloading could exhaust it and sign the person out.
+
+          A 401 is different in kind. It is the server saying the cookie is
+          gone, expired, or revoked, and there is nothing to preserve.
+        */
+        if (error instanceof AuthApiError && error.status === 401) {
+          applySession(null);
+        }
+
+        /*
+          Rethrown either way. The caller still has to know the refresh did not
+          produce a token — `authorizedRequest` must not replay a request with
+          a stale one, and the startup restore still has to lift its splash.
+          What changes is only whether a session that might still be good was
+          thrown away on the way past.
+        */
         throw error;
       })
       .finally(() => {

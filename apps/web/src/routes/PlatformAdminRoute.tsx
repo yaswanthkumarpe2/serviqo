@@ -1,7 +1,7 @@
 import { Navigate } from "react-router-dom";
 
 import { AuthRestoring } from "@/features/auth/AuthRestoring";
-import { isPlatformAdmin } from "@/features/auth/authApi";
+import { homePathFor, isPlatformAdmin } from "@/features/auth/authApi";
 import { useAuth } from "@/features/auth/useAuth";
 import { useCurrentUser } from "@/features/auth/useCurrentUser";
 
@@ -76,7 +76,7 @@ export function PlatformAdminRoute({ children }: PlatformAdminRouteProps) {
     correct reading of "we could not confirm the grant" is "no grant".
   */
   if (!isPlatformAdmin(user)) {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to={homePathFor(user)} replace />;
   }
 
   // Non-null by the guard above, which returns for every falsy case.

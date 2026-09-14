@@ -1,7 +1,7 @@
 import { Navigate } from "react-router-dom";
 
 import { AuthRestoring } from "@/features/auth/AuthRestoring";
-import { isAgent } from "@/features/auth/authApi";
+import { homePathFor, isAdminKind, isAgent } from "@/features/auth/authApi";
 import { useAuth } from "@/features/auth/useAuth";
 import { useCurrentUser } from "@/features/auth/useCurrentUser";
 
@@ -43,8 +43,13 @@ export function CustomerRoute({ children }: CustomerRouteProps) {
     return <AuthRestoring />;
   }
 
-  if (isAgent(user)) {
-    return <Navigate to="/agent" replace />;
+  /*
+    Staff of either kind go to their own surface. Asked of `homePathFor` rather
+    than hardcoded, so an admin reaches the console instead of a workspace that
+    would refuse them (ADR-035 §4).
+  */
+  if (isAgent(user) || isAdminKind(user)) {
+    return <Navigate to={homePathFor(user)} replace />;
   }
 
   /*

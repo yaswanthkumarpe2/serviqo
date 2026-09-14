@@ -16,6 +16,7 @@ import {
   SESSION_WINDOW_MS,
   VERIFICATION_RESEND_LIMIT,
 } from "../src/config/constants";
+import { REFRESH_COOKIE_NAME } from "../src/config/constants";
 import { AccountTokenModel } from "../src/modules/accountTokens/accountToken.model";
 import { createFakeEmailProvider } from "../src/modules/auth/testing/fakeEmailProvider";
 import { MembershipModel } from "../src/modules/memberships/membership.model";
@@ -64,6 +65,12 @@ async function registerAndVerify(ctx: Ctx, email: string) {
   await request(ctx.app).post(REGISTER_PATH).send({ name: "Ada Lovelace", email, password: PASSWORD });
   const code = ctx.fake.verifications.at(-1)!.code;
   await request(ctx.app).post(VERIFY_PATH).send({ email, code });
+}
+
+/** The `name=value` pair of the refresh cookie a response set. */
+function cookiePair(response: request.Response): string {
+  const cookies = response.headers["set-cookie"] as unknown as string[] | undefined;
+  return cookies!.find((cookie) => cookie.startsWith(`${REFRESH_COOKIE_NAME}=`))!.split(";")[0]!;
 }
 
 const attemptLogin = (ctx: Ctx, email = EMAIL, password = PASSWORD) =>
@@ -328,6 +335,77 @@ describe("rate limiting", () => {
       }
 
       expect(EMAIL_VERIFICATION_LIMIT).toBeGreaterThan(CREDENTIAL_LIMIT);
+    });
+  });
+
+  // ---- the session class is keyed per session, not per IP (ADR-035 §2) ----
+
+  /*
+    The bug this keying fixes was not theoretical: the session class was keyed
+    by IP, so a person with several tabs open could exhaust sixty refreshes by
+    reloading — and the client then read the 429 as "signed out" and discarded a
+    cookie the server would have honoured a moment later.
+
+    Keying on the session id the refresh cookie carries means one browser can
+    only ever spend its own budget.
+  */
+  describe("the session class", () => {
+    it("does not let one exhausted session refuse another", async () => {
+      const ctx = buildApp();
+      await registerAndVerify(ctx, EMAIL);
+      await registerAndVerify(ctx, "grace@example.com", "Grace Hopper");
+
+      const first = cookiePair(await attemptLogin(ctx, EMAIL));
+      const second = cookiePair(await attemptLogin(ctx, "grace@example.com"));
+
+      // Spend the first session's whole budget.
+      for (let i = 0; i <= SESSION_LIMIT; i += 1) {
+        await request(ctx.app).post(REFRESH_PATH).set("Cookie", first);
+      }
+      expect((await request(ctx.app).post(REFRESH_PATH).set("Cookie", first)).status).toBe(429);
+
+      /*
+        The other browser is untouched. Under the old IP key this was a 429 —
+        one person reloading could sign everybody on their network out.
+      */
+      expect((await request(ctx.app).post(REFRESH_PATH).set("Cookie", second)).status).not.toBe(429);
+    });
+
+    it("still bounds a caller who presents no cookie at all", async () => {
+      const ctx = buildApp();
+
+      // No cookie means no session id, so the key falls back to the IP — which
+      // is exactly the unauthenticated caller who deserves the blunter bound.
+      for (let i = 0; i < SESSION_LIMIT; i += 1) {
+        expect((await request(ctx.app).post(REFRESH_PATH)).status).toBe(401);
+      }
+
+      expect((await request(ctx.app).post(REFRESH_PATH)).status).toBe(429);
+    });
+
+    /*
+      The limiter key must never be the secret. A refresh cookie is
+      `sessionId.secret`, and only the first half is used — the second sitting
+      in the limiter's memory would be a credential held in plaintext for the
+      length of the window.
+    */
+    it("keys on the session id and never on the secret", async () => {
+      const ctx = buildApp();
+      await registerAndVerify(ctx, EMAIL);
+      const cookie = cookiePair(await attemptLogin(ctx, EMAIL));
+
+      const value = cookie.slice(cookie.indexOf("=") + 1);
+      const sessionId = decodeURIComponent(value).split(".")[0]!;
+
+      // A DIFFERENT secret under the same session id shares the budget, which
+      // is only possible if the id alone is the key.
+      const forged = `${REFRESH_COOKIE_NAME}=${sessionId}.not-the-real-secret`;
+
+      for (let i = 0; i <= SESSION_LIMIT; i += 1) {
+        await request(ctx.app).post(REFRESH_PATH).set("Cookie", forged);
+      }
+
+      expect((await request(ctx.app).post(REFRESH_PATH).set("Cookie", cookie)).status).toBe(429);
     });
   });
 

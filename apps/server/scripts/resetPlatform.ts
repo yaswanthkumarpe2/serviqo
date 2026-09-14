@@ -140,11 +140,19 @@ async function main(): Promise<void> {
       status: "active",
       platformRole: "admin",
       /*
-        An AGENT, not a customer. The admin is staff — they need to be able to
-        open the workspace and answer a conversation, and `requireCustomerAccount`
-        refuses agents from the customer surface by design.
+        Neither a customer nor an agent (ADR-035 §4).
+
+        An admin operates the deployment; they are not one of the tenant's
+        customers and not one of its agents, and holding either kind would give
+        them a second surface they have no business on — an admin answering
+        conversations from the agent workspace makes "who is staff here" a
+        question with two answers.
+
+        They still OWN the organization below, which is a membership role and a
+        different axis entirely. What they lose by not being an agent — the
+        roster, the conversations — the console carries instead (ADR-035 §5).
       */
-      kind: "agent",
+      kind: "admin",
     });
 
     await MembershipModel.create({

@@ -4,7 +4,7 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AuthProvider } from "@/features/auth/AuthProvider";
-import { stubAuthFetch } from "@/features/auth/testing/stubAuthFetch";
+import { stubAuthFetch, stubMembership } from "@/features/auth/testing/stubAuthFetch";
 import { AppRoutes } from "@/routes/AppRoutes";
 
 import type { Session } from "@/features/auth/AuthContext";
@@ -207,6 +207,57 @@ describe("the customer dashboard", () => {
       expect(url).toContain("/api/v1/me/");
       expect(url).not.toContain("/organizations/");
     }
+  });
+});
+
+/**
+ * An admin is neither a customer nor an agent (ADR-035 §4).
+ *
+ * The separation the product asked for: one account must not hold two staff
+ * surfaces, and "who answers conversations here" must have one answer.
+ */
+describe("a platform admin's surfaces", () => {
+  const adminSession: Session = {
+    user: { id: "u1", name: "Yaswanth Kumar", email: "admin@example.com", kind: "admin" },
+    accessToken: "header.payload.signature",
+  };
+
+  it("is refused the agent workspace and sent to the console", async () => {
+    stubAuthFetch({ currentUser: { kind: "admin", platformRole: "admin" } });
+
+    renderAt("/agent", adminSession);
+
+    expect(await screen.findByRole("heading", { name: "Everything, everywhere" })).toBeDefined();
+    expect(screen.queryByRole("heading", { name: /welcome back/i })).toBeNull();
+  });
+
+  it("is refused the customer chat and sent to the console", async () => {
+    stubAuthFetch({ currentUser: { kind: "admin", platformRole: "admin" } });
+
+    renderAt("/dashboard", adminSession);
+
+    expect(await screen.findByRole("heading", { name: "Everything, everywhere" })).toBeDefined();
+    expect(screen.queryByRole("heading", { name: /^Hi / })).toBeNull();
+  });
+
+  /*
+    The console carries what the admin loses by not being an agent: the roster
+    and the conversations, read through the tenant they own (ADR-035 §5).
+  */
+  it("can reach chats and team from inside the console", async () => {
+    stubAuthFetch({
+      currentUser: { kind: "admin", platformRole: "admin" },
+      memberships: [stubMembership("org-acme", "Acme")],
+    });
+
+    renderAt("/control", adminSession);
+    await screen.findByRole("heading", { name: "Everything, everywhere" });
+
+    expect(screen.getByRole("tab", { name: "Chats" })).toBeDefined();
+    expect(screen.getByRole("tab", { name: "Team" })).toBeDefined();
+
+    await userEvent.click(screen.getByRole("tab", { name: "Chats" }));
+    expect(await screen.findByRole("heading", { name: "Inbox" })).toBeDefined();
   });
 });
 

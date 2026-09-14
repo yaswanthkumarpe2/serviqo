@@ -48,6 +48,12 @@ export type PlatformRole = "none" | "admin";
  *   this value is ever written.
  * - `"agent"` — a person who ANSWERS those conversations. Created only by an
  *   admin from the operations console; public registration cannot produce one.
+ * - `"admin"` — a person who OPERATES the deployment. Created only by
+ *   `reset:platform`, and deliberately neither of the above: an admin is not a
+ *   customer of the tenant and not one of its agents, so they reach neither
+ *   surface (ADR-035 §4). What they get instead is the operations console,
+ *   which ADR-035 widens to carry the team and the conversations they used to
+ *   need the agent workspace for.
  *
  * This is deliberately NOT `platformRole` and NOT `MembershipRole`. Platform
  * standing says whether you operate Serviqo; a membership role says what you
@@ -67,7 +73,7 @@ export type PlatformRole = "none" | "admin";
  * that already holds documents and safe by construction: the value that
  * appears when nobody stated one is the one with the least reach.
  */
-export type UserKind = "customer" | "agent";
+export type UserKind = "customer" | "agent" | "admin";
 
 export interface UserAttrs {
   email: string;
@@ -147,7 +153,7 @@ const userSchema = new Schema<UserAttrs>(
     */
     kind: {
       type: String,
-      enum: ["customer", "agent"] satisfies UserKind[],
+      enum: ["customer", "agent", "admin"] satisfies UserKind[],
       default: "customer",
     },
     failedLoginAttempts: {

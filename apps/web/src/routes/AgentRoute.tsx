@@ -1,7 +1,7 @@
 import { Navigate } from "react-router-dom";
 
 import { AuthRestoring } from "@/features/auth/AuthRestoring";
-import { isAgent } from "@/features/auth/authApi";
+import { homePathFor, isAgent } from "@/features/auth/authApi";
 import { useAuth } from "@/features/auth/useAuth";
 import { useCurrentUser } from "@/features/auth/useCurrentUser";
 
@@ -55,12 +55,17 @@ export function AgentRoute({ children }: AgentRouteProps) {
   }
 
   /*
+    Everyone who is not an agent goes to whichever surface IS theirs, rather
+    than to a hardcoded one. That matters now that a platform admin is a third
+    kind (ADR-035 §4): sending them to the customer chat would be sending them
+    to a surface that refuses them, and they would bounce.
+
     `user === null` lands here too. It means `/me` failed for a reason that was
     not a 401 — a 401 signs out and the branch above catches it — and the right
     reading of "we could not confirm this is an agent" is that it is not.
   */
   if (!isAgent(user)) {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to={homePathFor(user)} replace />;
   }
 
   return <>{children}</>;

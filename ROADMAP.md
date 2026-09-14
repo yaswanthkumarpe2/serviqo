@@ -27,8 +27,22 @@ Note that phases may be adjusted when technically justified. Each phase follows:
   - ✅ Sign-up traffic has its own rate-limit budgets — `/register`, `/verify-email` and `/resend-verification` no longer share the login class, which was refusing honest sign-ups while leaving a password guesser their full ten attempts ([ADR-031](./docs/decisions/031-credential-rate-limit-classes.md))
   - ✅ Widget installation: staff-facing widget key, allowed-origin management, and key rotation ([ADR-020](./docs/decisions/020-widget-installation-configuration-surface.md))
 
-- 🟡 **Phase 3: User / Team / Role management** (RBAC, team management, role management, ownership transfer and the membership lifecycle complete; invitations and profile management deferred)
+- 🟡 **Phase 3: User / Team / Role management** (RBAC, team management, role management, ownership transfer, the membership lifecycle and agent invitations complete; profile management deferred)
   - ✅ RBAC (Owner, Admin, Supervisor, Agent) — organization users only ([ADR-010](./docs/decisions/010-principal-types-organization-users-and-customers.md), [ADR-017](./docs/decisions/017-organization-context-and-rbac.md))
+  - ✅ AGENT invitations — an admin adds an agent from the console, the account is
+    created unverified with a generated password, and the emailed code must be
+    redeemed before that password works
+    ([ADR-034](./docs/decisions/034-customer-accounts-and-agent-invitations.md) §7)
+  - ✅ Changing your own password — `POST /api/v1/auth/change-password`, which
+    revokes every OTHER session and keeps the caller's
+    ([ADR-034](./docs/decisions/034-customer-accounts-and-agent-invitations.md) §8)
+  - ✅ Admins hold exactly one surface — an admin is a third `kind` and is neither
+    a customer nor an agent, and the console carries the roster and conversations
+    they would otherwise have needed the agent workspace for
+    ([ADR-035](./docs/decisions/035-session-durability-admin-separation-and-owned-mail.md) §4, §5)
+  - 🔲 Tenant-scoped invitations by a tenant's own admin (the console's are
+    platform-scoped)
+  - 🔲 Password reset, and customer/agent profile management
   - ✅ Team management — the organization member roster, adding a member, changing a
     member's role, and removing one, behind `member.read`/`member.manage`
     ([ADR-027](./docs/decisions/027-team-management-and-membership-lifecycle.md))
@@ -243,7 +257,19 @@ Note that phases may be adjusted when technically justified. Each phase follows:
   - Pre-built integrations (Slack, CRM, email)
   - OAuth2 provider capabilities
 
-- 🔲 **Phase 22: Security hardening**
+- 🟡 **Phase 22: Security hardening** (session durability and the cookie notice done; the rest untouched)
+  - ✅ Session endpoints keyed per SESSION rather than per IP, and a client that
+    no longer discards a session over a transient refusal — together these were
+    why reloading could sign somebody out
+    ([ADR-035](./docs/decisions/035-session-durability-admin-separation-and-owned-mail.md) §1–3)
+  - ✅ A cookie notice that states what is stored and claims nothing it cannot do
+    ([ADR-035](./docs/decisions/035-session-durability-admin-separation-and-owned-mail.md) §6)
+  - ✅ `SmtpEmailProvider` — send through your own SMTP server instead of a
+    vendor's API. Read §7 first: this removes the VENDOR, not the
+    deliverability problem, which is decided by IP reputation and
+    SPF/DKIM/DMARC rather than by the sending software
+    ([ADR-035](./docs/decisions/035-session-durability-admin-separation-and-owned-mail.md) §7)
+  - 🔲 The rest of Phase 22:
   - Comprehensive penetration testing simulation
   - Advanced rate limiting and WAF configuration
   - Dependency vulnerability remediation

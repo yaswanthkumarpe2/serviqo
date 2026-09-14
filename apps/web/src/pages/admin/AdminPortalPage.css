@@ -428,3 +428,73 @@
 .console__input:disabled {
   color: var(--text-3);
 }
+
+/* ---- section nav (ADR-035 §5) ---- */
+
+.console__nav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+  overflow-x: auto;
+  margin-left: 8px;
+}
+
+.console__navLink {
+  appearance: none;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--text-3);
+  padding: 6px 12px;
+  border-radius: var(--r-md);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.console__navLink:hover {
+  color: var(--text-inverse);
+  background: var(--dark-3);
+}
+
+/*
+  The selected section. A filled pill in the dark surface's own step-up colour
+  rather than emerald: emerald is the primary ACTION, and a navigation position
+  is not an action.
+*/
+.console__navLink--active {
+  color: var(--text-inverse);
+  background: var(--dark-3);
+}
+
+.console__navLink:focus-visible {
+  outline: 2px solid var(--em-400);
+  outline-offset: 1px;
+}
+
+/*
+  Holds the agent inbox and the team roster, which were drawn for the
+  workspace's light canvas (ADR-035 §5).
+
+  A light island inside the dark console. Re-theming two large components to
+  match would be a great deal of CSS spent making them look like something they
+  are not — and the seam is honest: these panels ARE the workspace's, shown here
+  because the admin owns this tenant.
+*/
+.console__embed {
+  background: var(--canvas);
+  color: var(--text);
+  border: 1px solid var(--dark-border);
+  border-radius: var(--r-lg);
+  padding: 18px;
+}
+
+/* The embedded components' own headings need the light surface's ink back. */
+.console__embed h1,
+.console__embed h2,
+.console__embed h3,
+.console__embed h4 {
+  color: var(--text);
+}
