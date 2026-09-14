@@ -146,3 +146,24 @@ export const verifyEmailSchema = z.object({
 });
 
 export type VerifyEmailInput = z.infer<typeof verifyEmailSchema>;
+
+/**
+ * Changing your own password (ADR-034 §8).
+ *
+ * Both fields are required and neither is trimmed — a password's leading and
+ * trailing whitespace is part of it, the rule every credential field in this
+ * file already follows.
+ *
+ * The NEW password's length policy is deliberately NOT enforced here. It is
+ * checked in the service, after the current password has been verified, so an
+ * unauthenticated-shaped rejection cannot tell a caller anything about the
+ * account before they have proved they own it.
+ */
+export const changePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(1, "Your current password is required"),
+    newPassword: z.string().min(1, "A new password is required"),
+  })
+  .strict();
+
+export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;

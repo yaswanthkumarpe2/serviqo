@@ -1,5 +1,9 @@
 import { ipKeyGenerator, rateLimit } from "express-rate-limit";
 
+import { REFRESH_COOKIE_NAME } from "../../config/constants";
+import { readCookie } from "../http/cookies";
+import { parseRefreshToken } from "../../modules/auth/refreshToken";
+
 import {
   AUTHENTICATED_READ_LIMIT,
   AUTHENTICATED_READ_WINDOW_MS,
@@ -7,14 +11,20 @@ import {
   AUTHENTICATED_WRITE_WINDOW_MS,
   CREDENTIAL_LIMIT,
   CREDENTIAL_WINDOW_MS,
+  EMAIL_VERIFICATION_LIMIT,
+  EMAIL_VERIFICATION_WINDOW_MS,
   GLOBAL_API_LIMIT,
   GLOBAL_API_WINDOW_MS,
   MEMBER_INVITE_LIMIT,
   MEMBER_INVITE_WINDOW_MS,
   OWNERSHIP_TRANSFER_LIMIT,
   OWNERSHIP_TRANSFER_WINDOW_MS,
+  REGISTRATION_LIMIT,
+  REGISTRATION_WINDOW_MS,
   SESSION_LIMIT,
   SESSION_WINDOW_MS,
+  VERIFICATION_RESEND_LIMIT,
+  VERIFICATION_RESEND_WINDOW_MS,
   WIDGET_CONVERSATION_READ_LIMIT,
   WIDGET_CONVERSATION_READ_WINDOW_MS,
   WIDGET_CONVERSATION_WRITE_LIMIT,
@@ -51,6 +61,9 @@ const GENERIC_FAILURE_MESSAGE = "Too many requests. Please wait a few minutes an
  */
 export type RateLimitClass =
   | "credential"
+  | "registration"
+  | "emailVerification"
+  | "verificationResend"
   | "session"
   | "authenticatedWrite"
   | "authenticatedRead"
@@ -77,6 +90,18 @@ interface LimiterOptions {
    * the widget-side sibling of `keyByUser`.
    */
   keyByCustomer?: boolean;
+  /**
+   * Present for the session class, which keys on the SESSION the refresh
+   * cookie names rather than on the socket address (ADR-035 §2).
+   *
+   * These routes run before any principal exists — the credential is the
+   * cookie — so `keyByUser` cannot apply. But the cookie carries a session id
+   * as its non-secret routing component, and that is a far better key than an
+   * IP: one browser reloading heavily can then only exhaust its own budget,
+   * where an IP key made every tab, every device and every colleague behind
+   * one NAT share sixty refreshes.
+   */
+  keyBySessionCookie?: boolean;
 }
 
 function createLimiter({
@@ -85,6 +110,7 @@ function createLimiter({
   limit,
   keyByUser = false,
   keyByCustomer = false,
+  keyBySessionCookie = false,
 }: LimiterOptions): RequestHandler {
   return rateLimit({
     windowMs,
@@ -113,6 +139,30 @@ function createLimiter({
         // rather-than-throw fallback as keyByUser above.
         const customerId = req.widgetPrincipal?.customerId;
         if (customerId !== undefined) return `customer:${customerId}`;
+      }
+
+      if (keyBySessionCookie) {
+        /*
+          The session id out of the refresh cookie (ADR-035 §2).
+
+          `parseRefreshToken` splits the cookie into its non-secret routing
+          component and its secret, and only the FORMER is used here — the
+          secret never becomes a limiter key, where it would sit in the
+          limiter's memory as a credential in plaintext.
+
+          Nothing is verified: an attacker can invent a well-formed session id
+          and get a fresh budget with it. That is accepted, because this key's
+          job is isolating honest clients from each other rather than bounding
+          an attacker — the `global` per-IP class already does the second, and
+          a refresh secret is 256 bits of entropy, so guessing is not the
+          threat here.
+
+          Falls back to the IP when no cookie arrives, which is exactly the
+          unauthenticated caller who deserves the blunter key.
+        */
+        const cookie = readCookie(req.get("cookie"), REFRESH_COOKIE_NAME);
+        const parsed = cookie === undefined ? null : parseRefreshToken(cookie);
+        if (parsed !== null) return `session:${parsed.sessionId}`;
       }
 
       /*
@@ -159,9 +209,39 @@ function createLimiter({
  * suite cannot exhaust another's budget through shared module state.
  */
 export interface RateLimiters {
-  /** Credential endpoints: register, login, resend-verification, verify-email. */
+  /**
+   * `POST /login`, and only that (ADR-031 §2).
+   *
+   * The three classes below were carved out of this one. Sign-up traffic and
+   * password guessing are different behaviours defended against for different
+   * reasons, and a shared counter meant an honest sign-up spent a password
+   * guesser's budget.
+   */
   credential: RequestHandler;
-  /** Session endpoints: refresh, logout, logout-all. */
+  /** `POST /register` (ADR-031 §3). Bounds Argon2id cost and bulk account creation. */
+  registration: RequestHandler;
+  /**
+   * `POST /verify-email` (ADR-031 §4). The outer of two guessing bounds — the
+   * inner one, `EMAIL_VERIFICATION_MAX_ATTEMPTS`, destroys the code after five
+   * wrong guesses whatever this class allows.
+   */
+  emailVerification: RequestHandler;
+  /**
+   * `POST /resend-verification` (ADR-031 §5). The tightest class in the set:
+   * every accepted call sends mail to an address the caller names, so
+   * generosity here is spent on somebody else's inbox and on the sending
+   * domain's reputation.
+   */
+  verificationResend: RequestHandler;
+  /**
+   * Session endpoints: refresh, logout, logout-all.
+   *
+   * Keyed by the SESSION the refresh cookie names, not by IP (ADR-035 §2).
+   * Reloading a page costs one refresh, and a person with several tabs open
+   * used to spend a budget shared with everyone else on their network — which
+   * is how a valid session ended up refused, and then discarded by a client
+   * that read the refusal as a sign-out.
+   */
   session: RequestHandler;
   /** Authenticated writes. Keyed by user. */
   authenticatedWrite: RequestHandler;
@@ -214,10 +294,26 @@ export function createRateLimiters(): RateLimiters {
       windowMs: CREDENTIAL_WINDOW_MS,
       limit: CREDENTIAL_LIMIT,
     }),
+    registration: createLimiter({
+      limitClass: "registration",
+      windowMs: REGISTRATION_WINDOW_MS,
+      limit: REGISTRATION_LIMIT,
+    }),
+    emailVerification: createLimiter({
+      limitClass: "emailVerification",
+      windowMs: EMAIL_VERIFICATION_WINDOW_MS,
+      limit: EMAIL_VERIFICATION_LIMIT,
+    }),
+    verificationResend: createLimiter({
+      limitClass: "verificationResend",
+      windowMs: VERIFICATION_RESEND_WINDOW_MS,
+      limit: VERIFICATION_RESEND_LIMIT,
+    }),
     session: createLimiter({
       limitClass: "session",
       windowMs: SESSION_WINDOW_MS,
       limit: SESSION_LIMIT,
+      keyBySessionCookie: true,
     }),
     authenticatedWrite: createLimiter({
       limitClass: "authenticatedWrite",
@@ -288,6 +384,9 @@ export function createDisabledRateLimiters(): RateLimiters {
   const passthrough: RequestHandler = (_req, _res, next) => next();
   return {
     credential: passthrough,
+    registration: passthrough,
+    emailVerification: passthrough,
+    verificationResend: passthrough,
     session: passthrough,
     authenticatedWrite: passthrough,
     authenticatedRead: passthrough,

@@ -1,0 +1,73 @@
+/*
+  The private sign-in page, layered over the public one's stylesheet rather
+  than replacing it (ADR-032 §14). Only the differences live here.
+
+  The difference is deliberately atmospheric and not decorative: the console
+  sits on the dark charcoal-green surface the design tokens reserve for dark
+  sections, so an operator can tell at a glance which of the two Serviqos they
+  are signed in to. Emerald stays where it always is — the primary action, and
+  nowhere else.
+*/
+
+.adminAuth {
+  background: var(--dark);
+  color: var(--text-inverse);
+}
+
+.adminAuth .auth__bar {
+  background: var(--dark-2);
+  border-bottom-color: var(--dark-border);
+}
+
+.adminAuth .brand {
+  color: var(--text-inverse);
+}
+
+/*
+  Names the surface without naming the privilege. "Operations" tells an
+  operator they are in the right place; it does not tell a stranger that a
+  platform role exists.
+*/
+.adminAuth__tag {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  padding: 4px 8px;
+  border: 1px solid var(--dark-border);
+  border-radius: var(--r-sm);
+}
+
+.adminAuth__card {
+  background: var(--dark-2);
+  border-color: var(--dark-border);
+}
+
+.adminAuth .auth__title {
+  color: var(--text-inverse);
+}
+
+.adminAuth .auth__lede,
+.adminAuth .field__label {
+  color: var(--text-3);
+}
+
+/*
+  The inputs need their own treatment rather than inheriting the light card's:
+  a white field on a charcoal card is the one combination that reads as an
+  unstyled form rather than a dark one.
+*/
+.adminAuth .field__input {
+  background: var(--dark-3);
+  border-color: var(--dark-border);
+  color: var(--text-inverse);
+}
+
+.adminAuth .field__input:focus {
+  border-color: var(--em-400);
+}
+
+.adminAuth .field__action {
+  color: var(--text-3);
+}

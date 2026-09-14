@@ -6,7 +6,7 @@ import { userRepository } from "../users/user.repository";
 
 import type { MembershipRole } from "../memberships/membership.model";
 import type { OrganizationStatus } from "../organizations/organization.model";
-import type { UserDocument, UserStatus } from "../users/user.model";
+import type { PlatformRole, UserDocument, UserKind, UserStatus } from "../users/user.model";
 import type { AccessTokenPrincipal } from "./accessToken";
 import type { AuthLogger } from "./authLogging";
 
@@ -54,6 +54,33 @@ export interface CurrentUser {
    * unlike `status` it is genuinely per-user data.
    */
   emailVerifiedAt: Date;
+  /**
+   * Whether this account operates Serviqo itself (ADR-032 §6).
+   *
+   * `"none"` for very nearly everyone. It is reported here so the client knows
+   * which surface to render for the person who just signed in, and it is safe
+   * to report because this endpoint tells the authenticated OWNER of an
+   * account a fact about that same account — the caller cannot learn anything
+   * here they did not already have.
+   *
+   * It is an affordance and never a boundary. A client that set this field to
+   * `"admin"` in its own memory would render the portal shell and receive a
+   * 403 from every request that shell makes, because `requirePlatformAdmin`
+   * re-reads the grant from the database and does not ask the client
+   * (SECURITY.md §4).
+   */
+  platformRole: PlatformRole;
+  /**
+   * Which product this account signed up for (ADR-034 §1).
+   *
+   * Decides which surface the client renders — a customer's chat or an agent's
+   * inbox — and, like `platformRole` beside it, is an affordance rather than a
+   * boundary. A client that changed it would render the other shell and be
+   * refused by every request that shell makes: `requireCustomerAccount` turns
+   * away agents, and `requirePermission` turns away customers, both from the
+   * database on the request (SECURITY.md §4).
+   */
+  kind: UserKind;
   createdAt: Date;
 }
 
@@ -118,6 +145,8 @@ function toCurrentUser(user: UserDocument): CurrentUser {
     // that made it reachable as null fails loudly here instead of shipping
     // `null` to a dashboard that renders it.
     emailVerifiedAt: user.emailVerifiedAt!,
+    platformRole: user.platformRole,
+    kind: user.kind,
     createdAt: user.createdAt,
   };
 }

@@ -18,6 +18,43 @@ export interface OrganizationContext {
 }
 
 /**
+ * The caller's PLATFORM standing, established by `requirePlatformAdmin`
+ * (ADR-032 §4).
+ *
+ * Read from the `User` document on this request, exactly like
+ * `OrganizationContext.role` is read from the `Membership` document — never a
+ * token claim. A platform grant that is revoked in the database stops working
+ * on the very next request rather than at token expiry, which is the property
+ * that matters most for the most powerful role in the system.
+ *
+ * Deliberately separate from `organizationContext` rather than an extra field
+ * on it. A platform admin's requests name no tenant, and folding platform
+ * standing into a per-tenant context would invite a handler to read `role`
+ * without noticing which of the two axes it was on.
+ */
+export interface PlatformContext {
+  userId: string;
+  /** Always `"admin"` — the middleware refuses every other value. */
+  platformRole: "admin";
+}
+
+/**
+ * The signed-in CUSTOMER, set by `requireCustomerAccount` and by nothing else
+ * (ADR-034 §4).
+ *
+ * Deliberately the same shape as `WidgetPrincipal`: both answer "which
+ * customer, in which tenant", and the services below take exactly that pair.
+ * They are separate types because they are established by different proofs — a
+ * widget token for an anonymous visitor, an access token plus a customer
+ * account for a signed-in one — and a handler must never be able to read one
+ * while believing it proved the other.
+ */
+export interface CustomerContext {
+  customerId: string;
+  organizationId: string;
+}
+
+/**
  * The verified widget caller, set by `requireWidgetToken` and by nothing
  * else (ADR-022 §6) — the customer-facing sibling of `principal` fused with
  * `organizationContext`, since a widget token carries both identities and
@@ -46,11 +83,24 @@ declare global {
        */
       organizationContext?: OrganizationContext;
       /**
+       * The caller's platform standing, set by `requirePlatformAdmin` and by
+       * nothing else. Optional for the same reason `principal` is, and with a
+       * sharper consequence: a handler that finds this undefined is one no
+       * platform check ever ran on.
+       */
+      platformContext?: PlatformContext;
+      /**
        * Who is calling on the customer-facing surface, set by
        * `requireWidgetToken` and by nothing else. Optional for the same
        * reason `principal` is — most routes have none.
        */
       widgetPrincipal?: WidgetPrincipal;
+      /**
+       * Which customer is calling on the signed-in customer surface, set by
+       * `requireCustomerAccount` and by nothing else. Optional for the same
+       * reason `principal` is.
+       */
+      customerContext?: CustomerContext;
     }
   }
 }

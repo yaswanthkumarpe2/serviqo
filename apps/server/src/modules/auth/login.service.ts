@@ -10,7 +10,7 @@ import { issueAccessToken } from "./accessToken";
 import { failureType } from "./authLogging";
 import { formatRefreshToken, generateRefreshSecret } from "./refreshToken";
 
-import type { UserDocument } from "../users/user.model";
+import type { UserDocument, UserKind } from "../users/user.model";
 import type { LoginInput } from "./auth.validation";
 import type { AuthLogger } from "./authLogging";
 
@@ -36,6 +36,19 @@ export interface AuthenticatedUser {
   id: string;
   name: string;
   email: string;
+  /**
+   * Which product this account signed up for (ADR-034 §1).
+   *
+   * Reported by LOGIN, not only by `/me`, because it decides where the browser
+   * goes next — a customer to their chat, an agent to their inbox — and making
+   * that decision wait for a second round trip would show every agent the
+   * customer dashboard for a frame first.
+   *
+   * Safe to report: it tells the authenticated owner of an account a fact about
+   * that same account, which they demonstrably already know by virtue of which
+   * page they signed in on.
+   */
+  kind: UserKind;
 }
 
 export interface LoginResult {
@@ -71,7 +84,7 @@ const GENERIC_FAILURE_MESSAGE = "Email or password is incorrect";
  * what a session's owner looks like (ADR-012 §8).
  */
 export function toAuthenticatedUser(user: UserDocument): AuthenticatedUser {
-  return { id: user._id.toString(), name: user.name, email: user.email };
+  return { id: user._id.toString(), name: user.name, email: user.email, kind: user.kind };
 }
 
 export function createLoginService(): LoginService {

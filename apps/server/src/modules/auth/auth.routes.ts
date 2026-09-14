@@ -3,7 +3,14 @@ import { Router } from "express";
 import { requireAccessToken } from "../../middleware/requireAccessToken";
 import { validateBody } from "../../middleware/validate";
 import { createAuthController } from "./auth.controller";
-import { loginSchema, registerSchema, resendVerificationSchema, verifyEmailSchema } from "./auth.validation";
+import {
+  changePasswordSchema,
+  loginSchema,
+  registerSchema,
+  resendVerificationSchema,
+  verifyEmailSchema,
+} from "./auth.validation";
+import { createChangePasswordService } from "./changePassword.service";
 import { createCurrentUserService } from "./currentUser.service";
 import { createLoginService } from "./login.service";
 import { createLogoutService } from "./logout.service";
@@ -41,29 +48,42 @@ export function createAuthRouter({ emailProvider, rateLimiters }: AuthRouterDepe
     logoutService: createLogoutService(),
     logoutAllService: createLogoutAllService(),
     currentUserService: createCurrentUserService(),
+    changePasswordService: createChangePasswordService(),
   });
 
   /*
-    The credential class (ADR-018 §3): the endpoints where guessing is the
-    attack, or where an unauthenticated caller triggers Argon2id work. Its
-    limit and window are `LOGIN_MAX_FAILED_ATTEMPTS` and
-    `LOGIN_LOCK_DURATION_MS`, so the per-IP bound and the per-account lockout
-    agree rather than enforcing two different policies.
+    Four unauthenticated endpoints, four separate budgets (ADR-031).
 
-    Mounted BEFORE `validateBody` on purpose. A limiter behind validation
-    would spend a Zod parse per attempt, and — more importantly — a caller
-    could learn from the difference in responses whether their body was
-    well-formed while being refused, which is a distinction a refused caller
-    should not get.
+    They shared one — the credential class — until ADR-031, and the sharing
+    was the bug: completing one honest sign-up costs a register call, a
+    verify call, and a resend whenever the first mail is slow, so a person
+    doing nothing wrong spent three to five of the ten attempts that budget
+    was sized to allow a PASSWORD GUESSER. The result was a sign-up flow that
+    locked out the people using it correctly while barely inconveniencing the
+    attack it was drawn against.
+
+    Splitting them lets each number answer the question its own endpoint
+    poses. `credential` keeps the lockout pair, because guessing is what
+    `/login` faces. `registration` bounds Argon2id cost and bulk account
+    creation over an hour. `emailVerification` is the outer of two guessing
+    bounds — `EMAIL_VERIFICATION_MAX_ATTEMPTS` is the inner and real one.
+    `verificationResend` is the tightest of the four, because it is the only
+    one whose accepted calls put mail in somebody else's inbox.
+
+    All four mount BEFORE `validateBody`, unchanged and on purpose. A limiter
+    behind validation would spend a Zod parse per attempt, and — more
+    importantly — a caller could learn from the difference in responses
+    whether their body was well-formed while being refused, which is a
+    distinction a refused caller should not get.
   */
-  router.post("/register", rateLimiters.credential, validateBody(registerSchema), controller.register);
+  router.post("/register", rateLimiters.registration, validateBody(registerSchema), controller.register);
   router.post(
     "/resend-verification",
-    rateLimiters.credential,
+    rateLimiters.verificationResend,
     validateBody(resendVerificationSchema),
     controller.resendVerification,
   );
-  router.post("/verify-email", rateLimiters.credential, validateBody(verifyEmailSchema), controller.verifyEmail);
+  router.post("/verify-email", rateLimiters.emailVerification, validateBody(verifyEmailSchema), controller.verifyEmail);
   router.post("/login", rateLimiters.credential, validateBody(loginSchema), controller.login);
   // No validateBody on any of these: the credential is the cookie, and none
   // of them accepts a body at all (ADR-012 §1, ADR-013 §3, ADR-014 §3). The
@@ -94,6 +114,23 @@ export function createAuthRouter({ emailProvider, rateLimiters }: AuthRouterDepe
     bound in `api.routes.ts` exists.
   */
   router.get("/me", requireAccessToken, rateLimiters.authenticatedRead, controller.me);
+
+  /*
+    Changing your own password (ADR-034 §8).
+
+    The `credential` class rather than `authenticatedWrite`, and keyed by IP
+    rather than by user like every other authenticated write: this endpoint
+    verifies a password, so it is a place where guessing is the attack — the
+    exact property ADR-018 §3 created that class for. A holder of a stolen
+    access token must not get an unlimited oracle for the password they lack.
+  */
+  router.post(
+    "/change-password",
+    requireAccessToken,
+    rateLimiters.credential,
+    validateBody(changePasswordSchema),
+    controller.changePassword,
+  );
 
   return router;
 }

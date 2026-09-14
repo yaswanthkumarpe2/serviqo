@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -49,7 +50,9 @@ function renderDashboard(initialSession: Session | null = session) {
   );
 }
 
-const welcome = () => screen.findByRole("heading", { name: `Welcome, ${CURRENT_USER.name}` });
+/* The workspace greets by first name (ADR-033 §4); the full name and the
+   address are both still on the page, asserted below. */
+const welcome = () => screen.findByRole("heading", { name: "Welcome back, Ada" });
 
 /*
   No `vi.unstubAllGlobals()` teardown: `tests/setup.ts` installs `matchMedia`
@@ -80,7 +83,7 @@ describe("DashboardPage identity", () => {
     const { container } = renderDashboard();
     await welcome();
 
-    expect(container.querySelector(".dash__who")?.textContent).toBe(CURRENT_USER.name);
+    expect(container.querySelector(".ws__who")?.textContent).toBe(CURRENT_USER.name);
   });
 
   /*
@@ -101,7 +104,7 @@ describe("DashboardPage identity", () => {
 
     renderDashboard();
 
-    expect(await screen.findByRole("heading", { name: "Welcome, Grace Hopper" })).toBeDefined();
+    expect(await screen.findByRole("heading", { name: "Welcome back, Grace" })).toBeDefined();
     expect(screen.getByText("grace@example.com")).toBeDefined();
   });
 
@@ -153,7 +156,7 @@ describe("DashboardPage loading state", () => {
 
   it("marks the region busy while it loads and not afterwards", async () => {
     const { container } = renderDashboard();
-    const welcomeSection = () => container.querySelector(".dash__welcome");
+    const welcomeSection = () => container.querySelector(".ws__wrap");
 
     expect(welcomeSection()?.getAttribute("aria-busy")).toBe("true");
 
@@ -290,23 +293,30 @@ describe("DashboardPage credential handling", () => {
   });
 });
 
-describe("DashboardPage sample data", () => {
-  // CONTRIBUTING.md: demo data must be labelled as demo data. The metrics are
-  // still placeholders — only the identity became real in this slice.
-  it("still labels the metrics as sample data", async () => {
+/**
+ * What this page claims (ADR-032 §15).
+ *
+ * It used to close with three labelled placeholder figures. They were honest
+ * and they were still the first thing a new user saw after signing up, sitting
+ * below the only section that does anything. CONTRIBUTING.md requires demo
+ * data to say what it is; shipping none satisfies that more cheaply, and the
+ * aggregate endpoint that would make those figures real is its own slice.
+ */
+describe("DashboardPage placeholder data", () => {
+  it("presents no sample figures at all", async () => {
     renderDashboard();
     await welcome();
 
-    expect(screen.getByText("SAMPLE DATA")).toBeDefined();
-    expect(screen.getByText(/these figures are placeholders/i)).toBeDefined();
+    expect(screen.queryByText("SAMPLE DATA")).toBeNull();
+    expect(screen.queryByText("Total conversations")).toBeNull();
+    expect(screen.queryByText(/these figures are placeholders/i)).toBeNull();
   });
 
-  it("keeps the sample label off the identity", async () => {
+  it("describes nothing on the page as a placeholder", async () => {
     const { container } = renderDashboard();
     await welcome();
 
-    const welcomeSection = container.querySelector(".dash__welcome");
-    expect(welcomeSection?.textContent).not.toMatch(/sample|placeholder/i);
+    expect(container.textContent).not.toMatch(/sample data|placeholder/i);
   });
 });
 
@@ -354,22 +364,48 @@ describe("DashboardPage agent inbox", () => {
     return fetchMock;
   }
 
+  /**
+   * The inbox is a DESTINATION now, not a section on the landing view
+   * (ADR-033 §2). It mounts when My Chats is selected and unmounts when it is
+   * not, which is what keeps its socket from streaming into a view nobody is
+   * looking at — so reaching it is part of what these tests assert.
+   */
+  const openMyChats = async () => {
+    await userEvent.click(await screen.findByRole("tab", { name: "My Chats" }));
+  };
+
   it("renders the inbox once an organization is confirmed", async () => {
     stubDashboard([stubMembership("org-acme", "Acme")]);
     renderDashboard();
     await welcome();
 
+    await openMyChats();
+
     expect(await screen.findByRole("heading", { name: "Inbox" })).toBeDefined();
   });
 
-  it("does not render the inbox for a user with no organization", async () => {
+  it("does not mount the inbox until My Chats is selected", async () => {
+    stubDashboard([stubMembership("org-acme", "Acme")]);
+    renderDashboard();
+    await welcome();
+
+    // The landing view is the overview, and the inbox's socket is not open.
+    await screen.findByRole("heading", { name: "Quick access" });
+    expect(screen.queryByRole("heading", { name: "Inbox" })).toBeNull();
+  });
+
+  it("offers no inbox at all for a user with no organization", async () => {
     stubDashboard([]);
     renderDashboard();
     await welcome();
 
-    // No tenant is confirmed, so there is nothing an inbox could be scoped
-    // to — rendering an empty one would imply a workspace that does not exist.
+    /*
+      No tenant is confirmed, so there is nothing an inbox could be scoped to.
+      The nav itself is absent as well — four destinations that each render
+      nothing is worse than no navigation.
+    */
     expect(screen.queryByRole("heading", { name: "Inbox" })).toBeNull();
+    expect(screen.queryByRole("tab", { name: "My Chats" })).toBeNull();
   });
 
   it("requests conversations only for the confirmed organization", async () => {
@@ -377,6 +413,7 @@ describe("DashboardPage agent inbox", () => {
     renderDashboard();
     await welcome();
 
+    await openMyChats();
     await screen.findByRole("heading", { name: "Inbox" });
 
     await waitFor(() => {

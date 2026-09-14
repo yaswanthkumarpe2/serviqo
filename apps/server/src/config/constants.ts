@@ -256,7 +256,7 @@ export const REFRESH_COOKIE_PATH = "/api/v1/auth";
 // codebase already committed to, or is a judgement stated in ADR-018 §3.
 
 /**
- * Credential endpoints: register, login, resend-verification, verify-email.
+ * `POST /login` — and nothing else (ADR-031 §2).
  *
  * Deliberately the SAME numbers as `LOGIN_MAX_FAILED_ATTEMPTS` and
  * `LOGIN_LOCK_DURATION_MS` above. Those already encode the approved answer
@@ -267,12 +267,67 @@ export const REFRESH_COOKIE_PATH = "/api/v1/auth";
  * Changing the lockout constants without revisiting these puts them back
  * into disagreement.
  *
- * This also bounds the denial-of-service ADR-007 §13 named: `POST /register`
- * spends ~19 MiB and ~100 ms of Argon2id per call on an unauthenticated
- * path.
+ * This class USED to cover register, resend-verification and verify-email
+ * as well, and the shared budget was the bug ADR-031 exists to fix: one
+ * sign-up costs a register call, a verify call and — whenever the first mail
+ * is slow or lands in spam — a resend, so a single honest person completing
+ * a single sign-up spent three to five of the ten attempts this number was
+ * sized to allow a password guesser. Each of those endpoints now has its own
+ * budget below, sized to what that endpoint is actually defending against.
  */
 export const CREDENTIAL_LIMIT = LOGIN_MAX_FAILED_ATTEMPTS;
 export const CREDENTIAL_WINDOW_MS = LOGIN_LOCK_DURATION_MS;
+
+/**
+ * `POST /register` (ADR-031 §3).
+ *
+ * Guessing is not the attack here — there is nothing to guess — so this is
+ * not derived from the lockout pair. Two things are being bounded: the
+ * denial-of-service ADR-007 §13 named, where each call spends ~19 MiB and
+ * ~100 ms of Argon2id on an unauthenticated path, and bulk creation of
+ * unverified accounts.
+ *
+ * Five per hour per IP. A person signs up once; a shared office address
+ * onboarding a team does it a handful of times in an afternoon. Anything
+ * beyond that in one hour from one address is a script, and the hour-long
+ * window is what makes a slow drip as unrewarding as a burst — a tighter
+ * window with the same rate would simply be a slower script.
+ */
+export const REGISTRATION_LIMIT = 5;
+export const REGISTRATION_WINDOW_MS = 60 * 60 * 1000;
+
+/**
+ * `POST /verify-email` (ADR-031 §4).
+ *
+ * This one IS a guessing defence, but the per-IP budget is the outer of two
+ * bounds, not the real one: `EMAIL_VERIFICATION_MAX_ATTEMPTS` destroys the
+ * issued code after five wrong guesses, so an attacker's ceiling is five
+ * tries per code regardless of what this number says.
+ *
+ * Twenty per fifteen minutes therefore buys headroom for the honest case
+ * that the old shared budget did not have — mistyping a code, a second
+ * browser tab, a family behind one address each verifying their own account
+ * — while still refusing a client that is grinding codes across many
+ * addresses from one IP.
+ */
+export const EMAIL_VERIFICATION_LIMIT = 20;
+export const EMAIL_VERIFICATION_WINDOW_MS = 15 * 60 * 1000;
+
+/**
+ * `POST /resend-verification` (ADR-031 §5).
+ *
+ * The tightest of the four, and the only one that is tighter than the shared
+ * budget it replaced. This endpoint is an email-sending oracle aimed at an
+ * address the caller names: every accepted call puts a message in somebody
+ * else's inbox, so the cost of being generous is paid by a third party and
+ * by the sending domain's reputation, not by this server.
+ *
+ * Three per fifteen minutes is two more than a person who is waiting for a
+ * slow mail needs, and far below anything useful as a mail bomb. Someone who
+ * exhausts it has a delivery problem a fourth copy will not solve.
+ */
+export const VERIFICATION_RESEND_LIMIT = 3;
+export const VERIFICATION_RESEND_WINDOW_MS = 15 * 60 * 1000;
 
 /**
  * Session endpoints: refresh, logout, logout-all.

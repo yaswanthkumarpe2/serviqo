@@ -74,6 +74,27 @@ export const organizationRepository = {
    * partial on `$type: "string"`, and no document stores the key as anything
    * else.
    */
+  /**
+   * The organization a signed-in customer is talking to (ADR-034 §4).
+   *
+   * Serviqo is multi-tenant, but a customer arriving at the product's own
+   * front door names no tenant — there is no widget key in a login, and asking
+   * a customer to pick a company from a list would be exposing the platform's
+   * tenant roster to anyone who registers.
+   *
+   * So the default is DERIVED: the oldest active organization. Oldest rather
+   * than newest because it is stable — a deployment's answer to "who does
+   * support" must not change the moment somebody creates a second tenant — and
+   * `_id` ascending is that order for free, since ObjectIds embed their
+   * creation time and are the primary key.
+   *
+   * `null` when none exists, which is a real state on a fresh deployment and
+   * is reported as "support is not set up yet" rather than as an error.
+   */
+  async findDefaultForCustomers(): Promise<OrganizationDocument | null> {
+    return OrganizationModel.findOne({ status: "active" }).sort({ _id: 1 });
+  },
+
   async findByWidgetKey(widgetKey: string): Promise<OrganizationDocument | null> {
     return OrganizationModel.findOne({ widgetKey });
   },

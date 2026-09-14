@@ -9,6 +9,7 @@ import { logger } from "../logger";
 import { describeActionUrl, maskEmailAddress } from "./redaction";
 
 import type {
+  AgentCredentialsEmailInput,
   EmailProvider,
   InvitationEmailInput,
   PasswordResetEmailInput,
@@ -104,6 +105,73 @@ function verificationEmail(code: string, url: string): EmailContent {
       `<p>The code expires in ${VERIFICATION_EXPIRY_MINUTES} minutes.</p>` +
       `<p>If you didn't create a Serviqo account, you can ignore this email — ` +
       `nobody can use this code without it.</p>`,
+  };
+}
+
+/**
+ * The mail an admin-created agent receives (ADR-034 §7).
+ *
+ * Says what happened, hands over the two things they need, and names the order
+ * they must be used in — verify first, then sign in — because an agent who
+ * tries the password before verifying is refused and the message should have
+ * told them why in advance rather than leaving them to discover it.
+ */
+function agentCredentialsEmail(
+  organizationName: string,
+  temporaryPassword: string,
+  code: string,
+  verificationUrl: string,
+  signInUrl: string,
+): EmailContent {
+  return {
+    subject: `You've been added to ${organizationName} on Serviqo`,
+    text:
+      `You've been added to ${organizationName} as a support agent.
+
+` +
+      `Two steps, in this order.
+
+` +
+      `1. Verify this address. Your ${EMAIL_VERIFICATION_CODE_LENGTH}-digit code is:
+
+` +
+      `   ${code}
+
+` +
+      `   Enter it at ${verificationUrl}
+` +
+      `   The code expires in ${VERIFICATION_EXPIRY_MINUTES} minutes.
+
+` +
+      `2. Sign in at ${signInUrl} with this temporary password:
+
+` +
+      `   ${temporaryPassword}
+
+` +
+      `Change it once you are in. This password is not stored anywhere and ` +
+      `cannot be sent to you again — if you lose this email, ask your admin ` +
+      `to add you again.
+
+` +
+      `If you weren't expecting this, ignore it: the account cannot be used ` +
+      `until the code above is entered.`,
+    html:
+      `<p>You've been added to <strong>${escapeHtml(organizationName)}</strong> as a support agent.</p>` +
+      `<p>Two steps, in this order.</p>` +
+      `<p><strong>1. Verify this address.</strong> Your ${EMAIL_VERIFICATION_CODE_LENGTH}-digit code is:</p>` +
+      `<p style="font-size:28px;font-weight:700;letter-spacing:6px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace">` +
+      `${escapeHtml(code)}</p>` +
+      `<p>Enter it at <a href="${escapeHtml(verificationUrl)}">${escapeHtml(verificationUrl)}</a>. ` +
+      `The code expires in ${VERIFICATION_EXPIRY_MINUTES} minutes.</p>` +
+      `<p><strong>2. Sign in</strong> at <a href="${escapeHtml(signInUrl)}">${escapeHtml(signInUrl)}</a> ` +
+      `with this temporary password:</p>` +
+      `<p style="font-size:18px;font-weight:600;font-family:ui-monospace,SFMono-Regular,Menlo,monospace">` +
+      `${escapeHtml(temporaryPassword)}</p>` +
+      `<p>Change it once you are in. This password is not stored anywhere and cannot be sent to you ` +
+      `again — if you lose this email, ask your admin to add you again.</p>` +
+      `<p>If you weren't expecting this, ignore it: the account cannot be used until the code above ` +
+      `is entered.</p>`,
   };
 }
 
@@ -219,6 +287,24 @@ export function createResendEmailProvider({
         input.to,
         input.invitationUrl,
         invitationEmail(input.organizationName, input.invitationUrl),
+      );
+    },
+
+    async sendAgentCredentials(input: AgentCredentialsEmailInput): Promise<void> {
+      await deliver(
+        "email.resend.agent_credentials",
+        input.to,
+        // The VERIFICATION url is what reaches the log, and it carries no
+        // secret by design. The password and the code go to the template and
+        // never to the logger.
+        input.verificationUrl,
+        agentCredentialsEmail(
+          input.organizationName,
+          input.temporaryPassword,
+          input.code,
+          input.verificationUrl,
+          input.signInUrl,
+        ),
       );
     },
   };

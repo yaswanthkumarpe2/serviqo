@@ -10,6 +10,14 @@ import { ACCESS_TOKEN_SECRET_MIN_LENGTH, WIDGET_TOKEN_SECRET_MIN_LENGTH } from "
  * than a per-workspace file. dotenv never overwrites an already-set
  * process.env value, so tests that set process.env.* before this module
  * is imported (see tests/setup.ts) take precedence over the file.
+ *
+ * "Never overwrites" is not the same as "never adds", and the difference
+ * matters to exactly one suite: `lib/email/index.test.ts` deletes the OPTIONAL
+ * Resend variables to prove the production guard fires without them, and on a
+ * developer machine dotenv would put them straight back from the file. That
+ * suite stubs this module's `dotenv` import for precisely that reason — the
+ * fix lives there rather than as a branch here, because production code should
+ * not carry a test-shaped condition.
  */
 dotenv.config({ path: path.resolve(__dirname, "../../../../../.env") });
 
@@ -115,6 +123,30 @@ const envSchema = z
      */
     RESEND_API_KEY: z.string().min(1).optional(),
     EMAIL_FROM: z.string().min(1).optional(),
+    /*
+     * SMTP configuration (ADR-035 §7), for sending through a server you run
+     * rather than through a vendor's API.
+     *
+     * Optional, like the Resend pair above and resolved in the same place:
+     * `resolveEmailProvider` prefers SMTP when `SMTP_HOST` is set, so a
+     * deployment switches by setting these and nothing else.
+     *
+     * `SMTP_USER`/`SMTP_PASSWORD` are optional even when the host is set — a
+     * relay on your own network commonly authenticates by IP, and sending an
+     * empty AUTH to one is an error rather than a no-op.
+     */
+    SMTP_HOST: z.string().min(1).optional(),
+    SMTP_PORT: z.coerce.number().int().positive().max(65535).default(587),
+    /*
+     * Implicit TLS, which is port 465's convention. The default is false
+     * because 587 with STARTTLS is the common case; set it for 465.
+     */
+    SMTP_SECURE: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((value) => value === "true"),
+    SMTP_USER: z.string().min(1).optional(),
+    SMTP_PASSWORD: z.string().min(1).optional(),
   })
   /*
     The two signing keys must differ, enforced at boot rather than documented

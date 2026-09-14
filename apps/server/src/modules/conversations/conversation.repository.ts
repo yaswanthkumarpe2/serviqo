@@ -175,6 +175,28 @@ export const conversationRepository = {
   },
 
   /**
+   * One customer's own conversations, newest activity first (ADR-034 §5).
+   *
+   * Scoped by BOTH ids in the query, like every other read here. That is what
+   * makes it impossible for this method to return a conversation belonging to
+   * somebody else even if a caller passed an id it had no business holding —
+   * the isolation is produced by the filter rather than checked afterwards.
+   *
+   * No cursor and no filter options, unlike `listByOrganization`. A customer
+   * has at most one OPEN conversation per tenant — the unique partial index on
+   * this collection guarantees it — so their list is a short history, and
+   * paging a screen that fits on a screen would be inventing a contract with
+   * no reader.
+   */
+  async listByCustomer(
+    organizationId: ObjectIdLike,
+    customerId: ObjectIdLike,
+    limit: number,
+  ): Promise<ConversationDocument[]> {
+    return ConversationModel.find({ organizationId, customerId }).sort({ lastMessageAt: -1, _id: -1 }).limit(limit);
+  },
+
+  /**
    * Records that a message just landed, best-effort (ADR-022 §10 — no
    * transaction, and the trade-off that decision states). Scoped by both
    * ids, matching every other write in this repository.

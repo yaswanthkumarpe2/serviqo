@@ -20,6 +20,15 @@ export interface ApiValidationIssue {
 
 /** The authenticated user, exactly as the login endpoint reports it. */
 export interface AuthenticatedUser {
+  /**
+   * Which product this account signed up for (ADR-034 §1).
+   *
+   * Reported by LOGIN as well as `/me`, because it decides where the browser
+   * goes next — a customer to their chat, an agent to their inbox — and making
+   * that wait for a second request would show every agent the customer
+   * dashboard for a frame first.
+   */
+  kind?: string;
   id: string;
   name: string;
   email: string;
@@ -47,6 +56,33 @@ export interface CurrentUser {
   email: string;
   status: string;
   emailVerifiedAt: string;
+  /**
+   * Whether this account operates Serviqo itself (ADR-032 §6).
+   *
+   * `"none"` for very nearly everyone, and the only value that matters to
+   * this client is `"admin"` — it decides which of the two surfaces to send
+   * someone to after they sign in.
+   *
+   * An AFFORDANCE and never a boundary. Editing this value in a debugger
+   * renders the console shell and nothing in it: every request that shell
+   * makes is refused by `requirePlatformAdmin`, which re-reads the grant from
+   * the database and does not ask the client (SECURITY.md §4).
+   *
+   * Typed as `string` rather than a union, like `status` and `role` beside
+   * it. This is a value the server sent, and narrowing it here would mean a
+   * new platform role became a type error in the browser rather than a value
+   * the client simply does not recognise.
+   */
+  platformRole: string;
+  /**
+   * Which product this account signed up for (ADR-034 §1).
+   *
+   * An affordance, never a boundary: a client that changed this would render
+   * the other surface and be refused by every request that surface makes —
+   * `requireCustomerAccount` turns away agents and `requirePermission` turns
+   * away customers, both read from the database on the request.
+   */
+  kind: string;
   createdAt: string;
 }
 
@@ -428,13 +464,76 @@ export async function fetchCurrentUser(authorizedFetch: AuthorizedFetch): Promis
   };
 }
 
-/** Narrows on the fields that are actually rendered; the rest are the server's business. */
+/**
+ * Narrows on the fields that are actually rendered; the rest are the server's
+ * business.
+ *
+ * `platformRole` is deliberately NOT among the required fields. A response
+ * that omits it is an older server, and the right answer to that is a
+ * dashboard — which is what `isPlatformAdmin` returns for an absent value —
+ * rather than a client that refuses to load at all.
+ */
 function isCurrentUser(value: unknown): value is CurrentUser {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Partial<CurrentUser>;
   return (
     typeof candidate.id === "string" && typeof candidate.name === "string" && typeof candidate.email === "string"
   );
+}
+
+/**
+ * Whether this account should be shown the operations console.
+ *
+ * One function rather than `user.platformRole === "admin"` scattered across
+ * the routing, so the string literal exists in one place and the "absent
+ * means no" rule above cannot be forgotten at one of the call sites.
+ */
+export function isPlatformAdmin(user: CurrentUser | null): boolean {
+  return user?.platformRole === "admin";
+}
+
+/**
+ * Whether this account answers conversations rather than starting them.
+ *
+ * One function rather than `kind === "agent"` scattered through the routing,
+ * so the string literal exists once — and so the DEFAULT is stated once:
+ * anything that is not explicitly an agent is treated as a customer, which is
+ * the reading that grants less. An older server that omits the field, or a
+ * value this client does not recognise, lands on the customer surface.
+ */
+export function isAgent(user: { kind?: string } | null): boolean {
+  return user?.kind === "agent";
+}
+
+/**
+ * Whether this account operates the deployment rather than using it
+ * (ADR-035 §4).
+ *
+ * `kind === "admin"`, which is a different question from `platformRole ===
+ * "admin"` even though one account holds both today. `platformRole` is the
+ * GRANT — what the server will let them read — and this is the SURFACE, which
+ * of the three shells to render. Keeping them separate is what lets the login
+ * response route somebody correctly without carrying their grant in it.
+ */
+export function isAdminKind(user: { kind?: string } | null): boolean {
+  return user?.kind === "admin";
+}
+
+/**
+ * Where an account belongs after signing in (ADR-034 §9).
+ *
+ * The one place that decides, so the two login pages and the post-verification
+ * redirect cannot disagree about it.
+ */
+export function homePathFor(user: { kind?: string } | null): string {
+  if (isAdminKind(user)) return "/control";
+  if (isAgent(user)) return "/agent";
+  /*
+    The default, and deliberately the least-privileged surface: an unrecognised
+    kind, or an older server that sends none, lands on the customer chat rather
+    than on a staff shell.
+  */
+  return "/dashboard";
 }
 
 function isCurrentUserMembership(value: unknown): value is CurrentUserMembership {

@@ -96,7 +96,9 @@ describe("Login service", () => {
 
       const result = await service().login(credentials, {});
 
-      expect(result.user).toEqual({ id: user._id.toString(), name: "Ada Lovelace", email: EMAIL });
+      // `kind` joined this projection in ADR-034 §1; everything else about the
+      // account — status, lockout, verification — is still absent.
+      expect(result.user).toEqual({ id: user._id.toString(), name: "Ada Lovelace", email: EMAIL, kind: "customer" });
     });
 
     it("creates exactly one Session for the user", async () => {

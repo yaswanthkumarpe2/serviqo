@@ -1,4 +1,5 @@
 import type {
+  AgentCredentialsEmailInput,
   EmailProvider,
   InvitationEmailInput,
   PasswordResetEmailInput,
@@ -21,17 +22,25 @@ export interface FakeEmailProvider {
   verifications: VerificationEmailInput[];
   passwordResets: PasswordResetEmailInput[];
   invitations: InvitationEmailInput[];
+  /**
+   * Agent invitations, captured with BOTH secrets so a test can sign in as the
+   * agent it just created (ADR-034 §7). They stay in test memory and, like the
+   * verification codes beside them, are never printed or snapshotted.
+   */
+  agentCredentials: AgentCredentialsEmailInput[];
 }
 
 export function createFakeEmailProvider(): FakeEmailProvider {
   const verifications: VerificationEmailInput[] = [];
   const passwordResets: PasswordResetEmailInput[] = [];
   const invitations: InvitationEmailInput[] = [];
+  const agentCredentials: AgentCredentialsEmailInput[] = [];
 
   return {
     verifications,
     passwordResets,
     invitations,
+    agentCredentials,
     provider: {
       async sendVerification(input) {
         verifications.push(input);
@@ -41,6 +50,9 @@ export function createFakeEmailProvider(): FakeEmailProvider {
       },
       async sendInvitation(input) {
         invitations.push(input);
+      },
+      async sendAgentCredentials(input) {
+        agentCredentials.push(input);
       },
     },
   };
@@ -56,6 +68,9 @@ export function createFailingEmailProvider(message = "delivery failed"): EmailPr
       throw new Error(message);
     },
     async sendInvitation() {
+      throw new Error(message);
+    },
+    async sendAgentCredentials() {
       throw new Error(message);
     },
   };

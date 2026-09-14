@@ -9,12 +9,80 @@ import type { HydratedDocument, Model } from "mongoose";
  */
 export type UserStatus = "active" | "disabled";
 
+/**
+ * Standing on the Serviqo PLATFORM, which is a different axis from standing
+ * inside any tenant (ADR-032 §1).
+ *
+ * `MembershipRole` answers "what may this person do inside that
+ * organization". This answers "does this person operate Serviqo itself" —
+ * the people who run the service, not the people who buy it. The two never
+ * substitute for one another: an organization owner is the most powerful
+ * principal inside their own tenant and has no platform standing whatsoever,
+ * which is why this lives on `User` rather than becoming a fifth
+ * `MembershipRole`. A role on Membership is scoped to one organization by
+ * construction, and "operates the platform" is scoped to none.
+ *
+ * `"none"` is the default and the overwhelming majority. It is a stored value
+ * rather than an absent field so that "this account has no platform standing"
+ * is something the database states rather than something code infers from
+ * `undefined` — the distinction that matters when the alternative reading of
+ * a missing field is "unknown".
+ *
+ * Nothing in the product can WRITE this. Registration cannot set it, no
+ * endpoint updates it, and the sign-up path has no code that reaches it. The
+ * only way an account acquires it is `scripts/grantPlatformAdmin.ts`, run by
+ * someone holding the database credentials — which is deliberate, because
+ * self-service escalation to platform admin is precisely the hole an
+ * unauthenticated registration endpoint must not have.
+ */
+export type PlatformRole = "none" | "admin";
+
+/**
+ * WHICH PRODUCT this account signed up for (ADR-034 §1).
+ *
+ * A third axis, and the one that decides which front door an account came
+ * through and which surface it may see:
+ *
+ * - `"customer"` — a person who buys from the tenant and talks to its support
+ *   team. Created by public registration at `/signup`, which is the only way
+ *   this value is ever written.
+ * - `"agent"` — a person who ANSWERS those conversations. Created only by an
+ *   admin from the operations console; public registration cannot produce one.
+ * - `"admin"` — a person who OPERATES the deployment. Created only by
+ *   `reset:platform`, and deliberately neither of the above: an admin is not a
+ *   customer of the tenant and not one of its agents, so they reach neither
+ *   surface (ADR-035 §4). What they get instead is the operations console,
+ *   which ADR-035 widens to carry the team and the conversations they used to
+ *   need the agent workspace for.
+ *
+ * This is deliberately NOT `platformRole` and NOT `MembershipRole`. Platform
+ * standing says whether you operate Serviqo; a membership role says what you
+ * may do inside one tenant; this says which kind of person you are at all, and
+ * the three are independent — an agent holds a membership and no platform
+ * standing, a customer holds neither.
+ *
+ * It also reverses ADR-010 §5's assumption in one specific way, which is worth
+ * naming because that ADR is otherwise unchanged: customers could not
+ * authenticate at all, and now a customer MAY hold an account. What has not
+ * changed is that a customer still holds no `Membership`, still reaches no
+ * tenant surface, and still cannot read anything but their own conversation —
+ * the widget remains the anonymous path, and this is an additional, signed-in
+ * one (ADR-034 §2).
+ *
+ * Defaults to `"customer"`, which makes the field safe to add to a collection
+ * that already holds documents and safe by construction: the value that
+ * appears when nobody stated one is the one with the least reach.
+ */
+export type UserKind = "customer" | "agent" | "admin";
+
 export interface UserAttrs {
   email: string;
   passwordHash: string;
   name: string;
   emailVerifiedAt: Date | null;
   status: UserStatus;
+  platformRole: PlatformRole;
+  kind: UserKind;
   failedLoginAttempts: number;
   lockedUntil: Date | null;
   createdAt: Date;
@@ -64,6 +132,29 @@ const userSchema = new Schema<UserAttrs>(
       type: String,
       enum: ["active", "disabled"] satisfies UserStatus[],
       default: "active",
+    },
+    /*
+      Defaults to "none", which is what makes this field safe to add to a
+      collection that already holds documents: every existing account reads
+      back as having no platform standing, and no migration is required to
+      make that true. `default` applies on read for documents that predate
+      the field, not only on write.
+    */
+    platformRole: {
+      type: String,
+      enum: ["none", "admin"] satisfies PlatformRole[],
+      default: "none",
+    },
+    /*
+      Defaults to the least-privileged value for the same reason `platformRole`
+      does: every document written before this field existed reads back as a
+      customer, which is the reading that grants nothing, and no migration is
+      needed to make that true.
+    */
+    kind: {
+      type: String,
+      enum: ["customer", "agent", "admin"] satisfies UserKind[],
+      default: "customer",
     },
     failedLoginAttempts: {
       type: Number,

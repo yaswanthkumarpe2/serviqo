@@ -2,6 +2,7 @@ import { env } from "../env";
 import { logger } from "../logger";
 import { createConsoleEmailProvider } from "./consoleEmailProvider";
 import { createResendEmailProvider } from "./resendEmailProvider";
+import { createSmtpEmailProvider } from "./smtpEmailProvider";
 
 import type { EmailProvider } from "./emailProvider";
 
@@ -66,10 +67,33 @@ export function resolveEmailProvider(): EmailProvider {
     server that boots happily and then silently discards every verification
     email is exactly the failure this guards against (ADR-007 §10).
   */
-  if (env.NODE_ENV === "production" && (!env.RESEND_API_KEY || !env.EMAIL_FROM)) {
+  const hasSmtp = Boolean(env.SMTP_HOST && env.EMAIL_FROM);
+  const hasResend = Boolean(env.RESEND_API_KEY && env.EMAIL_FROM);
+
+  if (env.NODE_ENV === "production" && !hasSmtp && !hasResend) {
     throw new Error(
-      "No production EmailProvider is configured. Set RESEND_API_KEY and EMAIL_FROM — ConsoleEmailProvider logs instead of delivering and must never serve production traffic.",
+      "No production EmailProvider is configured. Set EMAIL_FROM plus either SMTP_HOST (to send through your own server) or RESEND_API_KEY — ConsoleEmailProvider logs instead of delivering and must never serve production traffic.",
     );
+  }
+
+  /*
+    SMTP wins when both are configured (ADR-035 §7).
+
+    A deployment that has gone to the trouble of pointing `SMTP_HOST` at a
+    server has made a deliberate choice about where its mail originates, and
+    silently preferring the vendor because its key happened to still be in the
+    environment would be the wrong way to resolve that. Removing the Resend key
+    is then optional rather than a prerequisite for switching.
+  */
+  if (hasSmtp) {
+    return createSmtpEmailProvider({
+      host: env.SMTP_HOST!,
+      port: env.SMTP_PORT,
+      secure: env.SMTP_SECURE,
+      user: env.SMTP_USER,
+      password: env.SMTP_PASSWORD,
+      from: env.EMAIL_FROM!,
+    });
   }
 
   /*
