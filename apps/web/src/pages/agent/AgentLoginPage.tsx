@@ -1,4 +1,5 @@
 import { useId, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 
 import { Button } from "@/components/ui/Button";
 import { BrandMark } from "@/components/ui/icons";
@@ -35,6 +36,9 @@ export function AgentLoginPage() {
   */
   const form = useLoginForm({ redirectTo: "/agent" });
   const [showPassword, setShowPassword] = useState(false);
+  const [searchParams] = useSearchParams();
+  // Set by the reset page when the person came from this door (ADR-036).
+  const justReset = searchParams.get("reset") === "1";
 
   const emailId = useId();
   const passwordId = useId();
@@ -67,6 +71,12 @@ export function AgentLoginPage() {
               First time here? Enter the code from your invitation email before signing in.
             </p>
           </div>
+
+          {justReset && form.formError === null && (
+            <div className="auth__notice" role="status">
+              Your password has been reset. Sign in with your new password.
+            </div>
+          )}
 
           {form.formError !== null && (
             <div className="auth__alert" role="alert">
@@ -150,6 +160,25 @@ export function AgentLoginPage() {
               )}
             </Button>
           </form>
+
+          {/*
+            Reset IS offered here, unlike sign-up (ADR-036). An agent who lost
+            the invitation mail, or forgot the password they chose, recovers
+            through their own inbox — which is also how an unverified agent
+            gets in without a second invitation, since redeeming a reset code
+            proves the address just as the invitation's code would have.
+          */}
+          <p className="auth__foot">
+            <Link
+              to={
+                form.email.trim()
+                  ? `/forgot-password?from=agent&email=${encodeURIComponent(form.email.trim())}`
+                  : "/forgot-password?from=agent"
+              }
+            >
+              Forgot your password?
+            </Link>
+          </p>
 
           {/*
             No "create one" link, deliberately. An agent account exists because

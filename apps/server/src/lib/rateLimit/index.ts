@@ -19,6 +19,10 @@ import {
   MEMBER_INVITE_WINDOW_MS,
   OWNERSHIP_TRANSFER_LIMIT,
   OWNERSHIP_TRANSFER_WINDOW_MS,
+  PASSWORD_RESET_LIMIT,
+  PASSWORD_RESET_REQUEST_LIMIT,
+  PASSWORD_RESET_REQUEST_WINDOW_MS,
+  PASSWORD_RESET_WINDOW_MS,
   REGISTRATION_LIMIT,
   REGISTRATION_WINDOW_MS,
   SESSION_LIMIT,
@@ -64,6 +68,8 @@ export type RateLimitClass =
   | "registration"
   | "emailVerification"
   | "verificationResend"
+  | "passwordResetRequest"
+  | "passwordReset"
   | "session"
   | "authenticatedWrite"
   | "authenticatedRead"
@@ -234,6 +240,17 @@ export interface RateLimiters {
    */
   verificationResend: RequestHandler;
   /**
+   * `POST /forgot-password` (ADR-036 §5). Mails a code to an address the caller
+   * names, so it is sized like `verificationResend` — and kept apart from it so
+   * waiting on one kind of mail never costs the other.
+   */
+  passwordResetRequest: RequestHandler;
+  /**
+   * `POST /reset-password` (ADR-036 §5). The outer guessing bound;
+   * `PASSWORD_RESET_MAX_ATTEMPTS` is the inner, real one.
+   */
+  passwordReset: RequestHandler;
+  /**
    * Session endpoints: refresh, logout, logout-all.
    *
    * Keyed by the SESSION the refresh cookie names, not by IP (ADR-035 §2).
@@ -308,6 +325,16 @@ export function createRateLimiters(): RateLimiters {
       limitClass: "verificationResend",
       windowMs: VERIFICATION_RESEND_WINDOW_MS,
       limit: VERIFICATION_RESEND_LIMIT,
+    }),
+    passwordResetRequest: createLimiter({
+      limitClass: "passwordResetRequest",
+      windowMs: PASSWORD_RESET_REQUEST_WINDOW_MS,
+      limit: PASSWORD_RESET_REQUEST_LIMIT,
+    }),
+    passwordReset: createLimiter({
+      limitClass: "passwordReset",
+      windowMs: PASSWORD_RESET_WINDOW_MS,
+      limit: PASSWORD_RESET_LIMIT,
     }),
     session: createLimiter({
       limitClass: "session",
@@ -387,6 +414,8 @@ export function createDisabledRateLimiters(): RateLimiters {
     registration: passthrough,
     emailVerification: passthrough,
     verificationResend: passthrough,
+    passwordResetRequest: passthrough,
+    passwordReset: passthrough,
     session: passthrough,
     authenticatedWrite: passthrough,
     authenticatedRead: passthrough,

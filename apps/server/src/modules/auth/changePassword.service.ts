@@ -19,7 +19,7 @@ import type { AuthLogger } from "./authLogging";
  * This is NOT password RESET. Reset proves control of an inbox for somebody
  * who cannot sign in; this proves knowledge of the current password for
  * somebody who already has. They are different flows with different threat
- * models, and `AccountToken`'s `password_reset` purpose remains unused.
+ * models — reset lives in `passwordReset.service.ts` (ADR-036).
  */
 
 export interface ChangePasswordService {

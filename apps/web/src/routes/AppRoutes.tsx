@@ -7,7 +7,9 @@ import { useCurrentUser } from "@/features/auth/useCurrentUser";
 import { AdminLoginPage } from "@/pages/admin/AdminLoginPage";
 import { AgentLoginPage } from "@/pages/agent/AgentLoginPage";
 import { AdminPortalPage } from "@/pages/admin/AdminPortalPage";
+import { ForgotPasswordPage } from "@/pages/auth/ForgotPasswordPage";
 import { LoginPage } from "@/pages/auth/LoginPage";
+import { ResetPasswordPage } from "@/pages/auth/ResetPasswordPage";
 import { SignUpPage } from "@/pages/auth/SignUpPage";
 import { VerifyEmailPage } from "@/pages/auth/VerifyEmailPage";
 import { CustomerDashboardPage } from "@/pages/customer/CustomerDashboardPage";
@@ -203,6 +205,17 @@ export function AppRoutes() {
         address they were asked to verify.
       */}
       <Route path="/verify-email" element={<VerifyEmailPage />} />
+
+      {/*
+        Password reset (ADR-036), ungated for the reason `/verify-email` is:
+        the code form is opened from an email, often on another device, and
+        somebody signed in as a different account there must still be able to
+        use it. Bouncing a signed-in visitor would also be wrong in principle —
+        a person who suspects their password has leaked may well be signed in
+        when they decide to reset it.
+      */}
+      <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+      <Route path="/reset-password" element={<ResetPasswordPage />} />
 
       {/*
         Where a signed-in person belongs, resolved once (ADR-034 §9).

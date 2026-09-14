@@ -32,9 +32,24 @@ export interface VerificationEmailInput {
   verificationUrl: string;
 }
 
+/**
+ * The mail somebody who forgot their password receives (ADR-036 §1).
+ *
+ * Shaped exactly like `VerificationEmailInput`, and it used to carry a link
+ * with a secret in it instead. It changed for the reasons ADR-030 moved
+ * verification: a code is retyped by a person rather than clicked, so it
+ * survives reading mail on a phone and resetting on a laptop, and a URL that
+ * holds no secret is harmless in a referrer, a history, or a screenshot.
+ */
 export interface PasswordResetEmailInput {
   to: string;
-  /** Fully-formed link the recipient clicks; contains a secret token. */
+  /**
+   * The six-digit reset code. THE credential — body only, never the subject,
+   * never the URL, for the lock-screen reason `VerificationEmailInput.code`
+   * gives.
+   */
+  code: string;
+  /** Where the code is typed. Carries the address for prefill and NO secret. */
   resetUrl: string;
 }
 

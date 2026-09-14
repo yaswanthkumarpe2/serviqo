@@ -100,6 +100,26 @@ export class InvalidVerificationTokenError extends AppError {
 }
 
 /**
+ * A password-reset code could not be redeemed — and deliberately does not say
+ * why (ADR-036 §3).
+ *
+ * Wrong digits, an expired code, a spent one, a code destroyed by too many
+ * guesses, an address with no account, and an account that may not be reset
+ * this way all raise this one error with one message. Each distinction would
+ * answer a question an unauthenticated caller must not get answered: whether
+ * the address has an account, and whether somebody recently asked to reset it.
+ *
+ * Its own error rather than `InvalidVerificationTokenError`, because the
+ * client needs to tell the two forms' failures apart to word them, and a code
+ * named for verification appearing on a password form is a diagnosis waiting
+ * to mislead somebody.
+ */
+export class InvalidPasswordResetCodeError extends AppError {
+  readonly httpStatus = 400;
+  readonly code = "INVALID_PASSWORD_RESET_CODE";
+}
+
+/**
  * A refresh token could not be exchanged — and deliberately does not say why
  * (ADR-012 §3).
  *

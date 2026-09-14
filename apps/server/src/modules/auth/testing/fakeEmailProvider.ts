@@ -79,11 +79,11 @@ export function createFailingEmailProvider(message = "delivery failed"): EmailPr
 /**
  * Pulls the raw secret out of a captured link without ever logging it.
  *
- * Password reset still emails a link with its secret in the query string.
- * Email VERIFICATION no longer does — since ADR-030 the credential is the
- * six-digit `code` on the captured input, and the URL carries only the
- * address — so a verification test that reaches for this is asking the wrong
- * question and will get `null`.
+ * Nothing in the account flows emails a link secret any more. Verification
+ * stopped with ADR-030 and password reset with ADR-036 — both credentials are
+ * the six-digit `code` on the captured input, and both URLs carry only the
+ * address — so a test that reaches for this is asking the wrong question and
+ * will get `null`. It remains for the tests that pin exactly that.
  */
 export function extractToken(actionUrl: string): string | null {
   return new URL(actionUrl).searchParams.get("token");

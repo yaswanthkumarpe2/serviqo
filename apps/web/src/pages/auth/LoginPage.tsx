@@ -38,6 +38,8 @@ export function LoginPage() {
     indistinguishable from having been bounced here for failing.
   */
   const justVerified = searchParams.get("verified") === "1";
+  // Set by the reset page, for the same reason (ADR-036).
+  const justReset = searchParams.get("reset") === "1";
 
   const emailId = useId();
   const passwordId = useId();
@@ -68,6 +70,12 @@ export function LoginPage() {
           {justVerified && form.formError === null && (
             <div className="auth__notice" role="status">
               Your email is verified. Sign in to continue.
+            </div>
+          )}
+
+          {justReset && form.formError === null && (
+            <div className="auth__notice" role="status">
+              Your password has been reset. Sign in with your new password.
             </div>
           )}
 
@@ -112,18 +120,15 @@ export function LoginPage() {
                   Password
                 </label>
                 {/*
-                  Placeholder until the password-reset slice exists. It is a
-                  button, not a link to nowhere, so it cannot advertise a
-                  route that would 404.
+                  A link now that the route exists (ADR-036). It carries the
+                  address already typed, so the person does not type it twice.
                 */}
-                <button
+                <Link
                   className="auth__forgot"
-                  type="button"
-                  onClick={() => undefined}
-                  title="Password reset is not available yet"
+                  to={form.email.trim() ? `/forgot-password?email=${encodeURIComponent(form.email.trim())}` : "/forgot-password"}
                 >
                   Forgot password?
-                </button>
+                </Link>
               </div>
               <div className="field__control">
                 <input
