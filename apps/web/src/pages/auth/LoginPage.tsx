@@ -11,13 +11,24 @@ import { EyeIcon, EyeOffIcon } from "./passwordIcons";
 import "./LoginPage.css";
 
 /**
- * Organization-user sign-in (ADR-010: customers never sign in anywhere).
+ * The public sign-in page (ADR-034 §9).
+ *
+ * The CUSTOMER's front door, and the one the marketing site links to. It is no
+ * longer "organization-user sign-in": as of ADR-034 customers hold accounts,
+ * register here, and land on their own chat. An agent who signs in here is
+ * routed to their workspace rather than refused — they have simply used the
+ * general door instead of theirs.
  *
  * Presentational only — submission, validation and navigation live in
  * `useLoginForm`.
  */
 export function LoginPage() {
-  const form = useLoginForm({ redirectTo: "/dashboard" });
+  /*
+    No fixed destination: the server reports which kind of account this is, and
+    `useLoginForm` routes on it (ADR-034 §9). This one address serves customers
+    and any agent who arrives here by habit rather than through their own page.
+  */
+  const form = useLoginForm();
   const [showPassword, setShowPassword] = useState(false);
   const [searchParams] = useSearchParams();
 
@@ -51,7 +62,7 @@ export function LoginPage() {
         <div className="auth__card card">
           <div className="auth__head">
             <h1 className="auth__title">Sign in to Serviqo</h1>
-            <p className="auth__lede">Use your organization account to reach your workspace.</p>
+            <p className="auth__lede">Sign in to message our support team and see your replies.</p>
           </div>
 
           {justVerified && form.formError === null && (

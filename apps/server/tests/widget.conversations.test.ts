@@ -667,6 +667,11 @@ describe("widget conversations and messages", () => {
           // assertion protects is unchanged: no method here can be called
           // without naming a tenant.
           "findByIdForOrganization",
+          // The signed-in customer's own list (ADR-034 §5). Takes
+          // `organizationId` AND `customerId`, so it is scoped more tightly
+          // than anything above it and the rule this assertion protects —
+          // no method may be called without naming a tenant — still holds.
+          "listByCustomer",
           "listByOrganization",
           "touchLastMessageAt",
           /*

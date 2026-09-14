@@ -157,4 +157,24 @@ export const sessionRepository = {
     );
     return result.modifiedCount;
   },
+
+  /**
+   * Revokes every active session for a user EXCEPT one (ADR-034 §8).
+   *
+   * The password-change sibling of `revokeAllForUser`. Changing a password is
+   * what somebody does when they think another person has it, so every other
+   * session must end — but ending the caller's own would sign them out of the
+   * page they just used to make the change, which reads as a failure.
+   *
+   * The exclusion is applied in the QUERY rather than by revoking everything
+   * and re-issuing, so there is no window in which the caller's own session is
+   * dead.
+   */
+  async revokeAllForUserExcept(userId: ObjectIdLike, sessionId: ObjectIdLike): Promise<number> {
+    const result = await SessionModel.updateMany(
+      { userId, revokedAt: null, _id: { $ne: sessionId } },
+      { revokedAt: new Date() },
+    );
+    return result.modifiedCount;
+  },
 };

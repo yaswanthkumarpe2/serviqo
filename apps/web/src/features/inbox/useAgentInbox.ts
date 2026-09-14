@@ -46,6 +46,19 @@ export interface UseAgentInboxOptions {
   organizationId: string;
   /** Injected by tests so the socket layer runs against a fake (ADR-025 §11). */
   socketFactory?: InboxSocketFactory;
+  /**
+   * A conversation to open as soon as the first page has loaded (ADR-033 §7).
+   *
+   * Set when the reader clicked a row on the workspace overview, which lives
+   * in a sibling view — so the intent is formed before this hook exists and
+   * has to arrive as an option rather than as a call.
+   *
+   * Applied inside the load's promise callback rather than in an effect that
+   * watches it, for the reason `loadedFor` records below: a synchronous
+   * setState in an effect body cascades a render, and React's own lint rule
+   * refuses it.
+   */
+  initialConversationId?: string | null;
 }
 
 export interface AgentInbox {
@@ -184,7 +197,11 @@ function actionErrorFor(caught: unknown): string {
   return GENERIC_ACTION_ERROR;
 }
 
-export function useAgentInbox({ organizationId, socketFactory }: UseAgentInboxOptions): AgentInbox {
+export function useAgentInbox({
+  organizationId,
+  socketFactory,
+  initialConversationId = null,
+}: UseAgentInboxOptions): AgentInbox {
   const { authorizedFetch, session } = useAuth();
 
   const [status, setStatus] = useState<InboxStatus>("loading");
@@ -242,6 +259,45 @@ export function useAgentInbox({ organizationId, socketFactory }: UseAgentInboxOp
 
   // ---- the conversation list ----
 
+  // ---- the selected thread ----
+
+  /**
+   * Selecting is an EVENT, so every state transition it causes happens here
+   * rather than in the effect that follows it.
+   *
+   * That is not only a lint accommodation: the loading state, the cleared
+   * errors, and the reset identity set are all consequences of the click, and
+   * putting them in an effect would mean the UI briefly showed the previous
+   * conversation's messages under the new conversation's title.
+   */
+  const selectConversation = useCallback((conversationId: string) => {
+    selectedRef.current = conversationId;
+    setSelectedConversationId(conversationId);
+    setThreadStatus("loading");
+    setThreadError(null);
+    setSendError(null);
+    // A refusal about the previous conversation must not sit under the new
+    // one's controls, where it would read as a statement about a conversation
+    // it says nothing about.
+    setActionError(null);
+    setMessages([]);
+    // Whatever remained of the previous thread says nothing about this one.
+    setThreadCursor(null);
+
+    // A new thread starts with a fresh identity set: ids from the previous
+    // conversation would otherwise suppress nothing useful and grow forever.
+    seenMessageIds.current = new Set();
+
+    // Selecting is what clears the indicator. Nothing is reported to the
+    // server — this is a local hint, not a read receipt (ADR-025 §12).
+    setUnreadCounts((counts) => {
+      if (counts[conversationId] === undefined) return counts;
+      const next = { ...counts };
+      delete next[conversationId];
+      return next;
+    });
+  }, []);
+
   /**
    * Guards against re-fetching the organization already loaded, the same
    * pattern `OrganizationSwitcher.tsx` uses.
@@ -254,12 +310,33 @@ export function useAgentInbox({ organizationId, socketFactory }: UseAgentInboxOp
    */
   const loadedFor = useRef<string | null>(null);
 
+  /**
+   * The conversation the overview asked for, consumed once.
+   *
+   * A ref rather than a dependency of the loader: it must not re-trigger a
+   * load when it changes, and it must not make a reader who navigated away and
+   * back reopen a thread they had already closed.
+   */
+  const pendingSelection = useRef<string | null>(initialConversationId);
+
   const loadConversations = useCallback(async () => {
     try {
       const page = await fetchConversations(authorizedFetch, organizationId, { limit: PAGE_LIMIT });
       setConversations(page.conversations);
       setConversationsCursor(page.nextCursor);
       setStatus("ready");
+
+      /*
+        Open the requested conversation, if it is really in the list. Selecting
+        an id the page does not contain would leave the thread pane loading a
+        conversation this reader cannot see — a stale click is better ignored
+        than obeyed.
+      */
+      const requested = pendingSelection.current;
+      pendingSelection.current = null;
+      if (requested !== null && page.conversations.some((conversation) => conversation.id === requested)) {
+        selectConversation(requested);
+      }
     } catch (caught: unknown) {
       // A 401 is a sign-out already in progress; ProtectedRoute redirects.
       if (caught instanceof AuthApiError && caught.status === 401) return;
@@ -285,7 +362,7 @@ export function useAgentInbox({ organizationId, socketFactory }: UseAgentInboxOp
       );
       setStatus("error");
     }
-  }, [authorizedFetch, organizationId]);
+  }, [authorizedFetch, organizationId, selectConversation]);
 
   useEffect(() => {
     if (loadedFor.current === organizationId) return;
@@ -338,42 +415,6 @@ export function useAgentInbox({ organizationId, socketFactory }: UseAgentInboxOp
 
   // ---- the selected thread ----
 
-  /**
-   * Selecting is an EVENT, so every state transition it causes happens here
-   * rather than in the effect that follows it.
-   *
-   * That is not only a lint accommodation: the loading state, the cleared
-   * errors, and the reset identity set are all consequences of the click, and
-   * putting them in an effect would mean the UI briefly showed the previous
-   * conversation's messages under the new conversation's title.
-   */
-  const selectConversation = useCallback((conversationId: string) => {
-    selectedRef.current = conversationId;
-    setSelectedConversationId(conversationId);
-    setThreadStatus("loading");
-    setThreadError(null);
-    setSendError(null);
-    // A refusal about the previous conversation must not sit under the new
-    // one's controls, where it would read as a statement about a conversation
-    // it says nothing about.
-    setActionError(null);
-    setMessages([]);
-    // Whatever remained of the previous thread says nothing about this one.
-    setThreadCursor(null);
-
-    // A new thread starts with a fresh identity set: ids from the previous
-    // conversation would otherwise suppress nothing useful and grow forever.
-    seenMessageIds.current = new Set();
-
-    // Selecting is what clears the indicator. Nothing is reported to the
-    // server — this is a local hint, not a read receipt (ADR-025 §12).
-    setUnreadCounts((counts) => {
-      if (counts[conversationId] === undefined) return counts;
-      const next = { ...counts };
-      delete next[conversationId];
-      return next;
-    });
-  }, []);
 
   /**
    * Loads the whole selected thread, following the cursor to its end.

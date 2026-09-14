@@ -8,6 +8,8 @@
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/main.js",
     "create:admin": "tsx scripts/createAdmin.ts",
+    "grant:admin": "tsx scripts/grantPlatformAdmin.ts",
+    "reset:platform": "tsx scripts/resetPlatform.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run"

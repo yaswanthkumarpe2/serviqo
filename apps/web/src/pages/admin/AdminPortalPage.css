@@ -1,0 +1,430 @@
+/*
+  The operations console (ADR-032 §12).
+
+  Dark by construction rather than by theme, matching the private sign-in page
+  it follows: the surface itself is the signal that an operator is looking at
+  the whole platform and not at one tenant's workspace. The design tokens
+  already reserve this charcoal-green for dark sections, so nothing new is
+  invented here — the values are the same ones the marketing site's dark bands
+  use.
+
+  Emerald appears in exactly one role, as everywhere else in the product: the
+  primary action. Data is neutral. Numbers that want attention use --warning,
+  which is a status color and not a decorative one.
+*/
+
+.console {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--dark);
+  color: var(--text-inverse);
+  font-family: var(--font-sans);
+}
+
+/* ---- bar ---- */
+
+.console__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 24px;
+  border-bottom: 1px solid var(--dark-border);
+  background: var(--dark-2);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.console__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.console__brandName {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/*
+  Names the surface without naming the privilege — the same restraint the
+  sign-in page shows. It is a label for the operator, not a badge of rank.
+*/
+.console__tag {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  padding: 3px 7px;
+  border: 1px solid var(--dark-border);
+  border-radius: var(--r-sm);
+}
+
+.console__barRight {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.console__who {
+  font-size: 13.5px;
+  color: var(--text-3);
+}
+
+/* ---- page ---- */
+
+.console__main {
+  flex: 1;
+  width: 100%;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 28px 24px 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+.console__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.console__eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--em-400);
+  margin: 0 0 6px;
+}
+
+/*
+  The colour is stated rather than inherited, and it is load-bearing.
+
+  `globals.css` gives every `h1`–`h4` `color: var(--text)`, which is the dark
+  ink meant for the light canvas — on this page's charcoal it renders at
+  #17211D on #14201B and the title is invisible. Inheriting from `.console`
+  does not help: an element-level rule beats an ancestor's inherited value,
+  whatever their specificity.
+
+  Every heading on this page therefore names its own colour. The section
+  headings below already did, by accident of wanting `--text-3`; this one is
+  the reason the rule is worth stating out loud.
+*/
+.console__title {
+  font-size: 26px;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  margin: 0 0 6px;
+  color: var(--text-inverse);
+}
+
+.console__lede {
+  margin: 0;
+  max-width: 62ch;
+  font-size: 14px;
+  color: var(--text-3);
+}
+
+.console__headActions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.console__stamp {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
+.console__alert {
+  padding: 12px 14px;
+  border: 1px solid var(--danger);
+  border-radius: var(--r-md);
+  background: rgba(190, 64, 52, 0.12);
+  font-size: 13.5px;
+}
+
+.console__loading {
+  color: var(--text-3);
+  font-size: 14px;
+}
+
+.console__sectionTitle {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin: 0 0 12px;
+}
+
+.console__sectionHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.console__sectionHead .console__sectionTitle {
+  margin: 0;
+}
+
+.console__count {
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.console__empty {
+  margin: 0;
+  padding: 20px;
+  border: 1px dashed var(--dark-border);
+  border-radius: var(--r-lg);
+  color: var(--text-3);
+  font-size: 13.5px;
+}
+
+/* ---- figures ---- */
+
+/*
+  auto-fit rather than a fixed column count, so five totals and three
+  conversation figures both fill their row without either group needing its
+  own grid definition.
+*/
+.console__stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+}
+
+.console__stats--compact {
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+}
+
+.console__stat {
+  padding: 16px;
+  border: 1px solid var(--dark-border);
+  border-radius: var(--r-lg);
+  background: var(--dark-2);
+}
+
+.console__statLabel {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.console__statValue {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: -0.01em;
+}
+
+/*
+  Applied only when the figure is non-zero — see the component. A permanent
+  amber zero would train an operator to ignore the color that is supposed to
+  mean "look at this".
+*/
+.console__statValue--warn {
+  color: var(--warning);
+}
+
+.console__split {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 32px;
+}
+
+/* ---- tables ---- */
+
+/*
+  The scroll container, not the table. A table that widens its own page is the
+  one layout bug that breaks every other section on it, so the overflow is
+  bounded here and the table keeps its natural width inside.
+*/
+.console__tableWrap {
+  overflow-x: auto;
+  border: 1px solid var(--dark-border);
+  border-radius: var(--r-lg);
+  background: var(--dark-2);
+}
+
+.console__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+
+.console__table th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--dark-border);
+  white-space: nowrap;
+}
+
+.console__table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--dark-border);
+  vertical-align: top;
+}
+
+.console__table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.console__table tbody tr:hover {
+  background: var(--dark-3);
+}
+
+.console__num {
+  text-align: right;
+  font-family: var(--font-mono);
+}
+
+.console__mono {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
+.console__strong {
+  display: block;
+  font-weight: 550;
+}
+
+.console__sub {
+  display: block;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+/* ---- small status marks ---- */
+
+.console__pill {
+  display: inline-block;
+  padding: 2px 8px;
+  margin-right: 6px;
+  border: 1px solid var(--dark-border);
+  border-radius: 999px;
+  font-size: 11.5px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.console__pill--warn {
+  border-color: var(--warning);
+  color: var(--warning);
+}
+
+/*
+  The one place emerald appears on data, and it earns it: "this account can
+  see the whole platform" is the single most consequential fact a row here can
+  carry, and an operator auditing who holds the grant should be able to find
+  it by scanning rather than by reading.
+*/
+.console__pill--admin {
+  border-color: var(--em-400);
+  color: var(--em-400);
+}
+
+.console__flag {
+  color: var(--warning);
+  font-size: 12.5px;
+}
+
+/* ---- the add-agent form (ADR-034 §11) ---- */
+
+/*
+  A panel like the tables around it, so the console's one write does not read
+  as a foreign object dropped into a read-only page.
+*/
+.console__panel {
+  background: var(--dark-2);
+  border: 1px solid var(--dark-border);
+  border-radius: var(--r-lg);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.console__lede {
+  margin: 0;
+  max-width: 72ch;
+  font-size: 13.5px;
+  color: var(--text-3);
+}
+
+/*
+  Announces an invitation that worked. Emerald-bordered rather than filled: it
+  is a confirmation, not an action, and a solid emerald block here would
+  compete with the button that produced it.
+*/
+.console__notice {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--em-400);
+  border-radius: var(--r-md);
+  background: rgba(63, 152, 115, 0.12);
+  color: var(--text-inverse);
+  font-size: 13.5px;
+}
+
+.console__form {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.console__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  /* Grows to share the row, and stays usable once the row wraps. */
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.console__label {
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+/*
+  Dark fields, for the reason the private sign-in page states: a white input on
+  a charcoal card reads as an unstyled form rather than a dark one.
+*/
+.console__input {
+  font: inherit;
+  font-size: 14px;
+  padding: 9px 11px;
+  border: 1px solid var(--dark-border);
+  border-radius: var(--r-md);
+  background: var(--dark-3);
+  color: var(--text-inverse);
+  min-width: 0;
+}
+
+.console__input:focus {
+  outline: none;
+  border-color: var(--em-400);
+}
+
+.console__input:disabled {
+  color: var(--text-3);
+}

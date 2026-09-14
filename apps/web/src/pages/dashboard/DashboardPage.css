@@ -1,205 +1,673 @@
 /*
-  Temporary workspace shell. Product surface: Inter, borders over shadows,
-  emerald reserved for the primary action only — no green on the stat cards,
-  which are neutral data, not actions.
+  The workspace shell (ADR-033).
+
+  A product surface: Inter, borders over shadows, generous whitespace, and
+  emerald in its four sanctioned roles only — primary action, active rail,
+  online presence, unread count. Nothing here invents a colour; every value is
+  a token from `tokens.css`.
+
+  The layout is a fixed top bar with primary navigation and one view beneath
+  it, replacing the vertical stack of sections this page used to be. A sidebar
+  was the alternative and was rejected: five destinations do not justify
+  surrendering a column of horizontal space on every screen, and the inbox
+  below is a two-pane layout that wants all of it.
 */
 
-.dash {
+.ws {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
   background: var(--canvas);
+  font-family: var(--font-sans);
+  color: var(--text);
 }
 
-.dash__bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 14px 24px;
-  border-bottom: 1px solid var(--border);
+/* ---- top bar ---- */
+
+.ws__topbar {
   background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 20;
 }
 
-.dash__barRight {
+.ws__topbarInner {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 12px 24px;
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 24px;
 }
 
-.dash__who {
-  font-size: 13.5px;
+.ws__brand {
+  flex-shrink: 0;
+}
+
+.ws__nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  /*
+    Takes the slack so the brand sits left and the account controls sit right,
+    with navigation reading as the middle of the bar rather than as something
+    appended to the logo.
+  */
+  flex: 1;
+  overflow-x: auto;
+}
+
+.ws__navLink {
+  appearance: none;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
   color: var(--text-2);
+  padding: 7px 13px;
+  border-radius: var(--r-md);
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+
+.ws__navLink:hover {
+  color: var(--text);
+  background: var(--surface-hover);
 }
 
 /*
-  Holds the name's place in the bar while /me is in flight, so the sign-out
-  controls do not shift sideways when it arrives. Deliberately blank rather
-  than a shimmer: it sits beside two real controls, and an animated bar next
-  to them reads as a fourth thing happening.
+  The active destination. A tinted pill rather than an underline: the bar is
+  horizontal navigation between places, not tabs within one document, and the
+  mint fill is the token pair made for exactly this.
 */
-.dash__who--loading {
-  display: inline-block;
-  width: 96px;
-  height: 1em;
-  border-radius: 4px;
+.ws__navLink--active {
+  color: var(--em-900);
+  background: var(--em-50);
+}
+
+.ws__navLink:focus-visible {
+  outline: 2px solid var(--em-600);
+  outline-offset: 1px;
+}
+
+.ws__topbarRight {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.ws__avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--em-600);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+
+/*
+  Holds the avatar's place while /me is in flight so the controls beside it do
+  not shift. Deliberately inert rather than a shimmer — it sits next to two
+  real controls, and an animation there reads as a third thing happening.
+*/
+.ws__avatar--loading {
   background: var(--border);
-  opacity: 0.5;
 }
 
 /*
-  Deliberately quieter than the Sign out button beside it. Signing out of every
-  device affects machines the person cannot see, so it reads as a secondary
-  choice rather than a second primary one — no border, no fill, no emerald.
+  Quieter than the Sign out button beside it. Signing out of every device
+  affects machines the person cannot see, so it reads as a secondary choice
+  rather than a second primary one.
 */
-.dash__signOutAll {
+.ws__signOutAll {
   padding: 0;
   border: 0;
   background: none;
   font: inherit;
   font-size: 13px;
-  color: var(--text-3);
+  color: var(--text-2);
   text-decoration: underline;
-  text-underline-offset: 3px;
+  text-underline-offset: 2px;
   cursor: pointer;
 }
 
-.dash__signOutAll:hover {
+.ws__signOutAll:hover {
   color: var(--text);
 }
 
-.dash__signOutAll:focus-visible {
-  outline: 2px solid var(--em-600);
-  outline-offset: 3px;
-  border-radius: 4px;
-}
+/* ---- page ---- */
 
-.dash__main {
+.ws__wrap {
   flex: 1;
   width: 100%;
-  max-width: var(--maxw);
+  max-width: 1240px;
   margin: 0 auto;
-  padding: 40px 24px 64px;
+  padding: 28px 24px 72px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
 }
 
-.dash__welcome {
-  margin-bottom: 40px;
+.ws__panelRegion {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
 }
 
-.dash__title {
-  font-size: 26px;
-  font-weight: 600;
-  letter-spacing: -0.015em;
-  margin: 10px 0 6px;
+.ws__panelRegion:focus {
+  outline: none;
 }
 
-.dash__email {
-  font-family: var(--font-mono);
-  font-size: 13px;
+.ws__stack {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* ---- hero ---- */
+
+.ws__hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+  padding: 4px 0 4px;
+}
+
+.ws__heroTitle {
+  font-size: 30px;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  font-weight: 500;
+  margin: 0 0 6px;
+}
+
+.ws__heroLede {
+  margin: 0;
+  font-size: 15px;
   color: var(--text-2);
 }
 
-/*
-  The welcome block while /me loads. Sized to the text it replaces so the page
-  does not jump when the real name lands — the shapes below match
-  .dash__title and .dash__email including their margins.
-*/
-.dash__identityLoading {
+.ws__heroActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* ---- sections ---- */
+
+.ws__section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ws__sectionHead,
+.ws__panelHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.ws__sectionTitle {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-2);
+  margin: 0;
+}
+
+.ws__link {
+  appearance: none;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--em-600);
+  cursor: pointer;
+  padding: 0;
+}
+
+.ws__link:hover {
+  color: var(--em-700);
+  text-decoration: underline;
+}
+
+.ws__muted {
+  color: var(--text-2);
+  font-size: 13.5px;
+  margin: 0;
+}
+
+.ws__panelLede {
+  margin-bottom: 4px;
+}
+
+.ws__note {
+  margin: 12px 0 0;
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+
+.ws__alert {
+  padding: 12px 14px;
+  border: 1px solid var(--danger);
+  border-radius: var(--r-md);
+  background: var(--danger-bg);
+  color: var(--danger);
+  font-size: 13.5px;
+  margin: 0;
+}
+
+.ws__notice {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: 13.5px;
+  margin: 0;
+}
+
+/* ---- quick access ---- */
+
+.ws__quick {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.ws__quickCard {
+  appearance: none;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
+}
+
+.ws__quickCard:hover {
+  border-color: var(--border-strong);
+  /*
+    One pixel, not four. The card is a destination, not a toy — enough
+    movement to confirm it is pressable and not enough to draw the eye away
+    from the conversations below.
+  */
+  transform: translateY(-1px);
+}
+
+.ws__quickCard:focus-visible {
+  outline: 2px solid var(--em-600);
+  outline-offset: 2px;
+}
+
+.ws__quickIcon {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--r-md);
+  background: var(--surface-sunk);
+  color: var(--text-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 4px;
+}
+
+.ws__quickLabel {
+  font-size: 15px;
+  font-weight: 550;
+}
+
+.ws__quickMeta {
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+
+/* ---- panels ---- */
+
+.ws__columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(260px, 1fr);
+  gap: 20px;
+}
+
+/* One column once two would each be too narrow to read. */
+@media (max-width: 900px) {
+  .ws__columns {
+    grid-template-columns: 1fr;
+  }
+}
+
+.ws__panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+/* ---- conversation rows ---- */
+
+.ws__convoList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
   display: flex;
   flex-direction: column;
 }
 
-.dash__skeleton {
+.ws__convo {
+  appearance: none;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 8px;
+  border-radius: var(--r-md);
+  border-bottom: 1px solid var(--border);
+}
+
+.ws__convoList li:last-child .ws__convo {
+  border-bottom: 0;
+}
+
+.ws__convo:hover {
+  background: var(--surface-hover);
+}
+
+.ws__convo:focus-visible {
+  outline: 2px solid var(--em-600);
+  outline-offset: -2px;
+}
+
+.ws__convoAvatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  /*
+    Neutral, not emerald. A row avatar is data, and emerald is reserved — a
+    list of ten green circles would spend the one colour the product uses to
+    mean "act on this".
+  */
+  background: var(--surface-sunk);
+  color: var(--text-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.ws__convoBody {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ws__convoTop {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ws__convoName {
+  font-size: 14px;
+  font-weight: 550;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ws__convoTime {
+  font-size: 12px;
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+
+.ws__convoPreview {
+  font-size: 13px;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- figures ---- */
+
+.ws__stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+
+.ws__stat {
+  background: var(--surface);
+  padding: 16px;
+}
+
+.ws__statValue {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  line-height: 1;
+  letter-spacing: -0.01em;
+}
+
+.ws__statLabel {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+/* ---- empty states ---- */
+
+.ws__empty {
+  padding: 24px 16px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--r-lg);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.ws__emptyTitle {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 550;
+}
+
+/* ---- tables ---- */
+
+/*
+  The scroll container, not the table. A table that widens its own page is the
+  one layout bug that breaks every other section on it.
+*/
+.ws__tableWrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+}
+
+.ws__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+
+.ws__table th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-2);
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  background: var(--surface-sunk);
+}
+
+.ws__table td {
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.ws__table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.ws__num {
+  text-align: right;
+  font-family: var(--font-mono);
+}
+
+.ws__mono {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
+.ws__strong {
+  font-weight: 550;
+}
+
+/* ---- loading identity ---- */
+
+.ws__identityLoading {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ws__skeleton {
   display: block;
-  border-radius: 5px;
+  border-radius: var(--r-xs);
   background: var(--border);
   opacity: 0.55;
 }
 
-.dash__skeleton--title {
+.ws__skeleton--title {
   width: 260px;
-  max-width: 70%;
-  height: 31px;
-  margin: 10px 0 6px;
+  height: 30px;
 }
 
-.dash__skeleton--email {
-  width: 190px;
-  max-width: 55%;
-  height: 18px;
+.ws__skeleton--email {
+  width: 180px;
+  height: 16px;
 }
 
-/*
-  Only reachable for a non-401 failure — the network, or an unreadable
-  response. A 401 signs the user out and never renders here.
-*/
-.dash__identityError {
-  margin: 10px 0 6px;
-  font-size: 14px;
-  color: var(--text-2);
-}
-
-/* Announced to a screen reader, invisible to everyone else. */
-.dash__srOnly {
+.ws__srOnly {
   position: absolute;
   width: 1px;
   height: 1px;
   padding: 0;
   margin: -1px;
   overflow: hidden;
-  clip-path: inset(50%);
+  clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
 }
 
+/* ---- narrow screens ---- */
+
 /*
-  The skeletons are static fills, so there is nothing to disable for reduced
-  motion — stated because the next person will look for it.
+  The bar carries a wordmark, five destinations, a name, and two controls. Below
+  roughly a thousand pixels those stop fitting on one line, and the failure mode
+  is the bad one: `overflow-x: auto` on the nav means the last destination
+  scrolls out of sight behind the account controls rather than wrapping, so
+  "Settings" simply appears to be missing.
+
+  Wrapping the nav onto its own row is the fix, and the breakpoint is set by
+  MEASURING when the collision starts rather than by picking a conventional
+  tablet width: the wordmark is ~94px, the five destinations ~434px, and the
+  account controls ~390px, which with the gaps needs a little over 1000px of
+  inner width. 1120px clears that with room for a longer name, where the 760px
+  a tablet breakpoint would have suggested hid the bug on exactly the laptop
+  widths most likely to hit it.
 */
-
-.dash__statsHead {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 16px;
-}
-
-.dash__stats {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
-}
-
-.dash__statLabel {
-  font-size: 13px;
-  color: var(--text-2);
-}
-
-.dash__statValue {
-  font-family: var(--font-mono);
-  font-size: 30px;
-  font-weight: 500;
-  line-height: 1.2;
-  color: var(--text);
-  margin: 8px 0 6px;
-}
-
-.dash__statHint {
-  font-size: 12px;
-  color: var(--text-3);
-  line-height: 1.5;
-}
-
-.dash__note {
-  margin-top: 20px;
-  font-size: 12.5px;
-  color: var(--text-3);
-  line-height: 1.6;
-  max-width: 60ch;
-}
-
-@media (max-width: 820px) {
-  .dash__stats {
-    grid-template-columns: 1fr;
+@media (max-width: 1120px) {
+  .ws__topbarInner {
+    flex-wrap: wrap;
+    gap: 10px 12px;
   }
+
+  .ws__nav {
+    order: 3;
+    width: 100%;
+    flex: none;
+  }
+}
+
+@media (max-width: 640px) {
+  /*
+    The wider sign-out is the first thing to go when space is short: it is the
+    rarer action, and the button beside it still ends the session on the device
+    the person is holding.
+  */
+  .ws__signOutAll {
+    display: none;
+  }
+
+  .ws__who {
+    /*
+      The avatar still identifies the account, and the full name returns the
+      moment there is room for it.
+    */
+    display: none;
+  }
+}
+
+/*
+  The name beside the avatar. Truncated rather than allowed to push the
+  controls off the bar — a long name is common and is not a reason to lose the
+  sign-out button.
+*/
+.ws__who {
+  font-size: 13.5px;
+  color: var(--text-2);
+  max-width: 22ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

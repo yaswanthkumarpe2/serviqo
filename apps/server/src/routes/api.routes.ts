@@ -3,7 +3,9 @@ import { Router } from "express";
 import { createAgentInboxRouter } from "../modules/agentInbox/agentInbox.routes";
 import { createAuthRouter } from "../modules/auth/auth.routes";
 import { createMemberRouter } from "../modules/members/member.routes";
+import { createCustomerPortalRouter } from "../modules/customerPortal/customerPortal.routes";
 import { createOrganizationRouter } from "../modules/organizations/organization.routes";
+import { createPlatformAdminRouter } from "../modules/platformAdmin/platformAdmin.routes";
 import { createWidgetRouter } from "../modules/widget/widget.routes";
 
 import type { EmailProvider } from "../lib/email/emailProvider";
@@ -79,6 +81,33 @@ export function createApiRouter({ emailProvider, rateLimiters }: ApiRouterDepend
     none shadows another.
   */
   router.use("/api/v1/organizations/:organizationId/members", createMemberRouter({ rateLimiters }));
+  /*
+    The signed-in customer's surface (ADR-034 §5).
+
+    The only prefix here that names neither a tenant nor a resource: a
+    customer's organization, conversations and messages are all derived from
+    their token, so there is nothing for them to address. That is what makes a
+    cross-tenant request unexpressible from this surface rather than merely
+    refused.
+  */
+  router.use("/api/v1/me", createCustomerPortalRouter({ rateLimiters }));
+  /*
+    The platform operations surface (ADR-032 §3).
+
+    Its own top-level prefix, deliberately NOT nested under an organization.
+    Every other authenticated route in this API names a tenant in its path,
+    because ADR-017 §1 made "a URL cannot be addressed without naming a
+    tenant" structural. These routes are the exception that proves it: they
+    read ACROSS tenants, and a path segment for one would be a lie.
+
+    Naming them `/admin` rather than something unguessable is on purpose. The
+    portal that consumes this is unlisted — no link points at it — but that is
+    a product decision about discoverability, never a security control, and a
+    secret URL that protects nothing is worse than a plain one because it
+    invites the belief that it does. What protects these routes is
+    `requirePlatformAdmin` on every one of them.
+  */
+  router.use("/api/v1/admin", createPlatformAdminRouter({ rateLimiters, emailProvider }));
   /*
     The customer-facing namespace ADR-010 §5 reserved: "Customer traffic never
     appears under `/api/v1/auth`." Its own prefix, so the boundary between the

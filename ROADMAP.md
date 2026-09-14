@@ -24,6 +24,7 @@ Note that phases may be adjusted when technically justified. Each phase follows:
   - ✅ Access-token verification and `GET /api/v1/auth/me` ([ADR-015](./docs/decisions/015-access-token-verification-and-current-user.md))
   - ✅ Organization creation with its owner membership ([ADR-016](./docs/decisions/016-organization-onboarding-and-the-first-membership.md))
   - 🔲 Organization context on `/me`, and rate limiting (the [ADR-007 §13](./docs/decisions/007-registration-flow-and-account-enumeration.md) deployment gate)
+  - ✅ Sign-up traffic has its own rate-limit budgets — `/register`, `/verify-email` and `/resend-verification` no longer share the login class, which was refusing honest sign-ups while leaving a password guesser their full ten attempts ([ADR-031](./docs/decisions/031-credential-rate-limit-classes.md))
   - ✅ Widget installation: staff-facing widget key, allowed-origin management, and key rotation ([ADR-020](./docs/decisions/020-widget-installation-configuration-surface.md))
 
 - 🟡 **Phase 3: User / Team / Role management** (RBAC, team management, role management, ownership transfer and the membership lifecycle complete; invitations and profile management deferred)
@@ -73,16 +74,39 @@ Note that phases may be adjusted when technically justified. Each phase follows:
     ([ADR-027](./docs/decisions/027-team-management-and-membership-lifecycle.md) §3)
   - 🔲 Profile management for users
 
-- 🔲 **Phase 4: Customer chat experience**
-  - Basic real-time chat interface for customers
-  - Message sending and receiving capabilities
-  - File attachment support in chat
-  - Chat history loading
+- 🟡 **Phase 4: Customer chat experience** (signed-in customers can chat; the anonymous widget path is unchanged)
+  - ✅ Customer ACCOUNTS — public registration creates a customer, not staff, and
+    they land on a dashboard whose only job is talking to support
+    ([ADR-034](./docs/decisions/034-customer-accounts-and-agent-invitations.md) §1, §6)
+  - ✅ `/api/v1/me` — the customer's own conversations and messages, on a
+    surface that can address no tenant at all ([ADR-034](./docs/decisions/034-customer-accounts-and-agent-invitations.md) §5)
+  - 🟡 Live updates — the customer chat POLLS every three seconds and pauses
+    when the tab is hidden. The socket authenticates customers with a widget
+    token, which a signed-in customer does not hold; teaching the handshake a
+    second credential is its own slice ([ADR-034](./docs/decisions/034-customer-accounts-and-agent-invitations.md) §6)
+  - 🔲 Customer profile — a customer cannot change their own name, and their
+    contact record does not follow later account edits
+  - ✅ Basic real-time chat interface for customers
+  - ✅ Message sending and receiving capabilities
+  - ✅ Chat history loading
+  - 🔲 File attachment support in chat
 
 - 🟡 **Phase 5: Agent workspace** (inbox, assignment and lifecycle complete; context panel and notes deferred)
   - ✅ Agent Inbox in the dashboard — conversation list, message history,
     composer, live incoming messages and live agent replies, unread
     indication, and loading/empty/error/forbidden states ([ADR-025](./docs/decisions/025-agent-inbox-and-live-agent-replies.md))
+  - ✅ The workspace is a **product shell** — a top bar with five destinations
+    (Dashboard, My Chats, Contacts, Team, Settings) over one view at a time,
+    opening on an overview of what is waiting rather than on a settings form.
+    Every figure is derived from real conversations, and a count that is not a
+    total says so ([ADR-033](./docs/decisions/033-workspace-shell.md))
+  - ✅ Contacts — the people who have written in, derived from conversations
+    because a `Customer` exists only because a visitor wrote in
+    ([ADR-033](./docs/decisions/033-workspace-shell.md) §6)
+  - 🔲 Per-organization metrics — the figures are counted client-side over one
+    page of conversations, which is why they are labelled when partial. An
+    aggregate endpoint would make them exact
+    ([ADR-033](./docs/decisions/033-workspace-shell.md) §8)
   - ✅ `GET`/`POST /api/v1/organizations/:organizationId/conversations…` — the
     staff-facing surface, behind `conversation.read` / `conversation.reply`
   - ✅ Assignment and ownership — `assignedTo` on `Conversation`, claim and
@@ -192,11 +216,14 @@ Note that phases may be adjusted when technically justified. Each phase follows:
   - Handoff triggers based on complex queries
   - Status management during transition
 
-- 🔲 **Phase 18: Admin experience**
-  - Comprehensive dashboard for organization metrics
-  - Billing and subscription management
-  - System logs and audit trails access
-  - Configuration of global settings
+- 🟡 **Phase 18: Admin experience** (a read-only platform console exists; billing, audit trails and global settings untouched)
+  - ✅ Platform admins as a second standing axis — `platformRole` on `User`, `requirePlatformAdmin` reading the grant from the database on every request, and `npm run grant:admin` as the only writer ([ADR-032](./docs/decisions/032-platform-admin-and-operations-console.md))
+  - ✅ A private, unlisted operations console at `/control` — platform totals, account health, conversation volume, and tables of every tenant and account. Counts and administrative summaries only; no conversation content reaches it
+  - 🟡 Comprehensive dashboard for organization metrics — platform-wide figures exist; **per-organization** metrics still have no aggregate endpoint, which is why the workspace's sample metrics were removed rather than made real ([ADR-032](./docs/decisions/032-platform-admin-and-operations-console.md) §15)
+  - 🔲 Write actions on the platform surface (disable an account, suspend a tenant) — blocked behind a real audit trail, which does not exist
+  - 🔲 Billing and subscription management
+  - 🔲 System logs and audit trails access
+  - 🔲 Configuration of global settings
 
 - 🔲 **Phase 19: Analytics**
   - Agent performance metrics (resolution time, CSAT)

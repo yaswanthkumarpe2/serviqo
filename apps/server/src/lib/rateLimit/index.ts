@@ -7,14 +7,20 @@ import {
   AUTHENTICATED_WRITE_WINDOW_MS,
   CREDENTIAL_LIMIT,
   CREDENTIAL_WINDOW_MS,
+  EMAIL_VERIFICATION_LIMIT,
+  EMAIL_VERIFICATION_WINDOW_MS,
   GLOBAL_API_LIMIT,
   GLOBAL_API_WINDOW_MS,
   MEMBER_INVITE_LIMIT,
   MEMBER_INVITE_WINDOW_MS,
   OWNERSHIP_TRANSFER_LIMIT,
   OWNERSHIP_TRANSFER_WINDOW_MS,
+  REGISTRATION_LIMIT,
+  REGISTRATION_WINDOW_MS,
   SESSION_LIMIT,
   SESSION_WINDOW_MS,
+  VERIFICATION_RESEND_LIMIT,
+  VERIFICATION_RESEND_WINDOW_MS,
   WIDGET_CONVERSATION_READ_LIMIT,
   WIDGET_CONVERSATION_READ_WINDOW_MS,
   WIDGET_CONVERSATION_WRITE_LIMIT,
@@ -51,6 +57,9 @@ const GENERIC_FAILURE_MESSAGE = "Too many requests. Please wait a few minutes an
  */
 export type RateLimitClass =
   | "credential"
+  | "registration"
+  | "emailVerification"
+  | "verificationResend"
   | "session"
   | "authenticatedWrite"
   | "authenticatedRead"
@@ -159,8 +168,30 @@ function createLimiter({
  * suite cannot exhaust another's budget through shared module state.
  */
 export interface RateLimiters {
-  /** Credential endpoints: register, login, resend-verification, verify-email. */
+  /**
+   * `POST /login`, and only that (ADR-031 §2).
+   *
+   * The three classes below were carved out of this one. Sign-up traffic and
+   * password guessing are different behaviours defended against for different
+   * reasons, and a shared counter meant an honest sign-up spent a password
+   * guesser's budget.
+   */
   credential: RequestHandler;
+  /** `POST /register` (ADR-031 §3). Bounds Argon2id cost and bulk account creation. */
+  registration: RequestHandler;
+  /**
+   * `POST /verify-email` (ADR-031 §4). The outer of two guessing bounds — the
+   * inner one, `EMAIL_VERIFICATION_MAX_ATTEMPTS`, destroys the code after five
+   * wrong guesses whatever this class allows.
+   */
+  emailVerification: RequestHandler;
+  /**
+   * `POST /resend-verification` (ADR-031 §5). The tightest class in the set:
+   * every accepted call sends mail to an address the caller names, so
+   * generosity here is spent on somebody else's inbox and on the sending
+   * domain's reputation.
+   */
+  verificationResend: RequestHandler;
   /** Session endpoints: refresh, logout, logout-all. */
   session: RequestHandler;
   /** Authenticated writes. Keyed by user. */
@@ -213,6 +244,21 @@ export function createRateLimiters(): RateLimiters {
       limitClass: "credential",
       windowMs: CREDENTIAL_WINDOW_MS,
       limit: CREDENTIAL_LIMIT,
+    }),
+    registration: createLimiter({
+      limitClass: "registration",
+      windowMs: REGISTRATION_WINDOW_MS,
+      limit: REGISTRATION_LIMIT,
+    }),
+    emailVerification: createLimiter({
+      limitClass: "emailVerification",
+      windowMs: EMAIL_VERIFICATION_WINDOW_MS,
+      limit: EMAIL_VERIFICATION_LIMIT,
+    }),
+    verificationResend: createLimiter({
+      limitClass: "verificationResend",
+      windowMs: VERIFICATION_RESEND_WINDOW_MS,
+      limit: VERIFICATION_RESEND_LIMIT,
     }),
     session: createLimiter({
       limitClass: "session",
@@ -288,6 +334,9 @@ export function createDisabledRateLimiters(): RateLimiters {
   const passthrough: RequestHandler = (_req, _res, next) => next();
   return {
     credential: passthrough,
+    registration: passthrough,
+    emailVerification: passthrough,
+    verificationResend: passthrough,
     session: passthrough,
     authenticatedWrite: passthrough,
     authenticatedRead: passthrough,

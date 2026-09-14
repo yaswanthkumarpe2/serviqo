@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { Button } from "@/components/ui/Button";
@@ -6,53 +6,58 @@ import { BrandMark } from "@/components/ui/icons";
 import { useAuth } from "@/features/auth/useAuth";
 import { useCurrentUser } from "@/features/auth/useCurrentUser";
 import { AgentInbox } from "@/features/inbox/AgentInbox";
-import { CreateOrganizationForm } from "@/features/organizations/CreateOrganizationForm";
 import { OrganizationSwitcher } from "@/features/organizations/OrganizationSwitcher";
 import { WidgetInstallation } from "@/features/organizations/WidgetInstallation";
 import { TeamManagement } from "@/features/team/TeamManagement";
+import { ContactsPanel } from "@/features/workspace/ContactsPanel";
+import { WorkspaceOverview } from "@/features/workspace/WorkspaceOverview";
+import { ChatIcon } from "@/features/workspace/workspaceIcons";
+import { WORKSPACE_VIEWS } from "@/features/workspace/workspaceViews";
+import { useWorkspaceOverview } from "@/features/workspace/useWorkspaceOverview";
 
 import type { ActiveOrganizationContext } from "@/features/organizations/OrganizationSwitcher";
+import type { WorkspaceView } from "@/features/workspace/workspaceViews";
 
 import "./DashboardPage.css";
 
 /**
- * The workspace shell.
+ * The workspace (ADR-033).
  *
- * Three things on this page are REAL. The identity comes from
- * `GET /auth/me` (ADR-015); the organization context and widget installation
- * come from the organization endpoints (ADR-017, ADR-020); and, as of
- * ADR-025, the inbox reads this tenant's actual conversations and messages
- * and sends actual replies.
+ * A product shell rather than a stack of sections: a top bar with primary
+ * navigation, and one view at a time beneath it. What a signed-in person sees
+ * first is a greeting, four things they can do, and the conversations waiting
+ * for them — not a settings page with an inbox somewhere in the middle.
  *
- * The METRICS at the bottom are still SAMPLE VALUES, labelled as such in the
- * UI. `Conversation` and `Message` now exist — what is missing is anything
- * that aggregates them — so the note beside those figures says only that
- * nothing computes them yet, rather than the older and now-false claim that
- * nothing on this page reads real data. CONTRIBUTING.md requires demo data
- * to say what it is rather than imply a working feature, and it equally
- * requires a working feature not to be described as absent.
+ * Every figure on it is REAL. The overview derives its counts from this
+ * tenant's actual conversations, and where the server's paging means a count
+ * is not a total, the page says so (ADR-033 §4). There is no sample data
+ * anywhere in this tree, and the two sections a mockup would have included —
+ * notifications, and an average response time — are absent precisely because
+ * nothing computes them.
+ *
+ * Who this is FOR is worth stating, because the layout resembles a customer
+ * portal and is not one. Serviqo's customers never sign in (ADR-010 §5) —
+ * they reach a tenant through the embedded widget. The person here is STAFF,
+ * "my chats" are the conversations in their inbox, and "contacts" are the
+ * visitors who wrote to them.
  */
-
-interface StatCard {
-  label: string;
-  value: string;
-  hint: string;
-}
-
-const SAMPLE_STATS: StatCard[] = [
-  // The conversations model exists as of ADR-022 and the inbox reads it; what
-  // is still missing is an aggregate to count against, so this stays "—".
-  { label: "Total conversations", value: "—", hint: "Needs a conversation metrics endpoint" },
-  { label: "Open tickets", value: "—", hint: "Needs the ticketing slice" },
-  { label: "Waiting customers", value: "—", hint: "Needs the queue and presence slices" },
-];
-
 export function DashboardPage() {
   const { session, signOut, signOutAllDevices } = useAuth();
   const { user, memberships, isLoading, error } = useCurrentUser();
   const navigate = useNavigate();
 
   const [activeOrganization, setActiveOrganization] = useState<ActiveOrganizationContext | null>(null);
+  const [view, setView] = useState<WorkspaceView>("dashboard");
+
+  /**
+   * A conversation the overview asked the chats view to open.
+   *
+   * Held here rather than inside the inbox because the two are siblings: a row
+   * clicked on the dashboard has to survive the switch to a view that has not
+   * mounted yet. Cleared once handed over, so returning to My Chats later does
+   * not silently reopen a thread from twenty minutes ago.
+   */
+  const [pendingConversationId, setPendingConversationId] = useState<string | null>(null);
 
   /**
    * Bumped when something the server knows about the reader's standing has
@@ -60,11 +65,11 @@ export function DashboardPage() {
    *
    * Its only writer today is a completed ownership transfer. The switcher
    * re-reads `GET /organizations/:id` when this changes, so the role every
-   * section below is given comes back from the database on a fresh request —
-   * which is what removes the previous owner's owner-only controls without a
-   * reload, and without this page ever deciding what their new role is.
+   * section below is given comes back from the database on a fresh request.
    */
   const [organizationContextNonce, setOrganizationContextNonce] = useState(0);
+
+  const navRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   // ProtectedRoute guarantees a session before this renders; the guard keeps
   // the component honest rather than asserting non-null.
@@ -73,199 +78,313 @@ export function DashboardPage() {
   /**
    * Not awaited, and that is the point (ADR-013): `signOut` clears the session
    * before it returns, so leaving is immediate and the request to revoke it
-   * settles on its own. Only the sign-in state is touched — nothing else on
-   * the page is reset.
+   * settles on its own.
    */
   function handleSignOut() {
     void signOut();
     navigate("/login", { replace: true });
   }
 
-  /**
-   * Ends every session, everywhere (ADR-014). Same shape as the button above,
-   * and reaches /login the same way — the only difference is how much it
-   * revokes on the server.
-   */
+  /** Ends every session, everywhere (ADR-014). Same shape, wider blast radius. */
   function handleSignOutAllDevices() {
     void signOutAllDevices();
     navigate("/login", { replace: true });
   }
 
+  /** Left/Right move between nav items, Home/End jump to the ends. WAI-ARIA's tab pattern. */
+  function handleNavKeyDown(event: React.KeyboardEvent<HTMLButtonElement>, index: number) {
+    const last = WORKSPACE_VIEWS.length - 1;
+    let next: number | null = null;
+
+    if (event.key === "ArrowRight") next = index === last ? 0 : index + 1;
+    else if (event.key === "ArrowLeft") next = index === 0 ? last : index - 1;
+    else if (event.key === "Home") next = 0;
+    else if (event.key === "End") next = last;
+
+    if (next === null) return;
+
+    event.preventDefault();
+    setView(WORKSPACE_VIEWS[next]!.id);
+    navRefs.current[next]?.focus();
+  }
+
+  function openConversation(conversationId: string) {
+    setPendingConversationId(conversationId);
+    setView("chats");
+  }
+
   return (
-    <div className="dash">
-      <header className="dash__bar">
-        <div className="brand">
-          <span className="brand__mark" aria-hidden="true">
-            <BrandMark />
-          </span>
-          Serviqo
-        </div>
-        <div className="dash__barRight">
+    <div className="ws">
+      <header className="ws__topbar">
+        <div className="ws__topbarInner">
+          <div className="brand ws__brand">
+            <span className="brand__mark" aria-hidden="true">
+              <BrandMark />
+            </span>
+            Serviqo
+          </div>
+
           {/*
-            Nothing stands in for the name while it loads. A placeholder that
-            reads like a person — "there", the login response's copy — would be
-            fake identity, which is the thing this slice removed.
+            Rendered only once a tenant is confirmed. Before that there is
+            nothing any of these views could be scoped to, and nav that leads
+            to four empty pages is worse than no nav.
           */}
-          {user === null ? (
-            <span className="dash__who dash__who--loading" aria-hidden="true" />
-          ) : (
-            <span className="dash__who">{user.name}</span>
+          {activeOrganization !== null && (
+            <nav className="ws__nav" role="tablist" aria-label="Workspace">
+              {WORKSPACE_VIEWS.map((entry, index) => (
+                <button
+                  key={entry.id}
+                  ref={(element) => {
+                    navRefs.current[index] = element;
+                  }}
+                  type="button"
+                  role="tab"
+                  id={`ws-tab-${entry.id}`}
+                  aria-controls={`ws-panel-${entry.id}`}
+                  aria-selected={view === entry.id}
+                  /*
+                    Only the selected item is reachable by Tab; the arrows move
+                    within the bar. The WAI-ARIA pattern, and what keeps a
+                    five-item nav from costing five stops on the way to the
+                    conversation list.
+                  */
+                  tabIndex={view === entry.id ? 0 : -1}
+                  className={view === entry.id ? "ws__navLink ws__navLink--active" : "ws__navLink"}
+                  onClick={() => setView(entry.id)}
+                  onKeyDown={(event) => handleNavKeyDown(event, index)}
+                >
+                  {entry.label}
+                </button>
+              ))}
+            </nav>
           )}
-          {/*
-            The wider action is a plain link-style control rather than a second
-            button of equal weight: it ends sessions on devices that are not in
-            front of the person clicking, so it should not sit one mis-click
-            away from the ordinary one.
-          */}
-          <button type="button" className="dash__signOutAll" onClick={handleSignOutAllDevices}>
-            Sign out of all devices
-          </button>
-          <Button variant="secondary" size="sm" onClick={handleSignOut}>
-            Sign out
-          </Button>
+
+          <div className="ws__topbarRight">
+            {/*
+              Nothing stands in for the name while it loads. A placeholder that
+              reads like a person would be fake identity.
+            */}
+            {user === null ? (
+              <span className="ws__avatar ws__avatar--loading" aria-hidden="true" />
+            ) : (
+              <>
+                {/*
+                  The name is text, not only an avatar's tooltip. Which account
+                  a workspace is signed in as must be readable without hovering,
+                  and an avatar's two initials are not an answer to that.
+                */}
+                <span className="ws__who">{user.name}</span>
+                <span className="ws__avatar" aria-hidden="true">
+                  {initials(user.name)}
+                </span>
+              </>
+            )}
+            <button type="button" className="ws__signOutAll" onClick={handleSignOutAllDevices}>
+              Sign out of all devices
+            </button>
+            <Button variant="secondary" size="sm" onClick={handleSignOut}>
+              Sign out
+            </Button>
+          </div>
         </div>
       </header>
 
-      <main className="dash__main">
-        {/*
-          Three states, and the loading one shows no identity at all rather
-          than a name taken from somewhere else. `aria-busy` tells a screen
-          reader the region is still filling in, and `role="status"` announces
-          it when it does without stealing focus.
-        */}
-        <section className="dash__welcome" aria-busy={isLoading}>
-          <p className="eyebrow">Workspace</p>
-          {isLoading ? (
-            <div className="dash__identityLoading" role="status">
-              <span className="dash__skeleton dash__skeleton--title" />
-              <span className="dash__skeleton dash__skeleton--email" />
-              <span className="dash__srOnly">Loading your account…</span>
-            </div>
-          ) : user !== null ? (
-            <>
-              <h1 className="dash__title">Welcome, {user.name}</h1>
-              <p className="dash__email">{user.email}</p>
-            </>
-          ) : (
-            /*
-              Reached only for a failure that is NOT a 401 — the network, or a
-              response this client could not read. A 401 signs the user out and
-              ProtectedRoute redirects, so this branch never renders for one.
-            */
-            <p className="dash__identityError" role="alert">
-              {error ?? "Could not load your account."}
-            </p>
-          )}
-        </section>
+      <main className="ws__wrap" aria-busy={isLoading}>
+        {isLoading ? (
+          <div className="ws__identityLoading" role="status">
+            <span className="ws__skeleton ws__skeleton--title" />
+            <span className="ws__skeleton ws__skeleton--email" />
+            <span className="ws__srOnly">Loading your account…</span>
+          </div>
+        ) : user === null ? (
+          /*
+            Reached only for a failure that is NOT a 401 — the network, or a
+            response this client could not read. A 401 signs the user out and
+            ProtectedRoute redirects, so this never renders for one.
+          */
+          <p className="ws__alert" role="alert">
+            {error ?? "Could not load your account."}
+          </p>
+        ) : (
+          <>
+            {/*
+              The greeting belongs to the PERSON, not to a tenant, so it sits
+              in the shell above everything scoped to one.
 
-        {/*
-          Organization context (ADR-017 §10), then creation. Both are real and
-          sit above the sample metrics deliberately: a workspace with no
-          organization has exactly one useful action, and burying it under
-          placeholder figures would invert that.
+              That distinction is not cosmetic: it used to live inside the
+              overview, which renders only once an organization is confirmed —
+              so somebody who had just registered and created nothing was met
+              by a bare form with no acknowledgement they had signed in at all.
+            */}
+            <section className="ws__hero">
+              <div>
+                <h1 className="ws__heroTitle">Welcome back, {firstNameOf(user.name)}</h1>
+                {/*
+                  The address, because a greeting is not identity: two accounts
+                  belonging to the same person produce the same greeting, and
+                  which one you are signed into is what a workspace must answer
+                  without being asked (ADR-015).
+                */}
+                <p className="ws__heroLede">{user.email}</p>
+              </div>
+              {activeOrganization !== null && (
+                <div className="ws__heroActions">
+                  <Button variant="primary" onClick={() => setView("chats")}>
+                    <ChatIcon aria-hidden="true" />
+                    Open my chats
+                  </Button>
+                </div>
+              )}
+            </section>
 
-          Rendered only once `/me` has settled — a switcher that appears empty
-          and then fills in reads as "you have no organizations", which is the
-          one thing it must not say while it does not yet know.
-        */}
-        {!isLoading && user !== null && (
-          <OrganizationSwitcher
-            memberships={memberships}
-            onActiveOrganizationChange={setActiveOrganization}
-            reloadNonce={organizationContextNonce}
-          />
+            {/*
+              The tenant context, above every view because it is the scope they
+              are all read in. Mounted once and never unmounted: it is what
+              establishes `activeOrganization`, and hiding it behind a view
+              would mean switching views could drop the tenant.
+            */}
+            <OrganizationSwitcher
+              memberships={memberships}
+              onActiveOrganizationChange={setActiveOrganization}
+              reloadNonce={organizationContextNonce}
+            />
+
+            {activeOrganization === null ? (
+              /*
+                An agent who belongs to no organization (ADR-034 §10).
+
+                They are NOT offered a form to create one. Tenants are the
+                admin's to set up — an agent who could create one would be able
+                to make themselves the owner of a workspace nobody asked for,
+                which is precisely the access this slice removed.
+
+                This state should be unreachable in practice: the invitation
+                that created the account also created its membership. It is
+                reachable if that membership write failed (ADR-016 §3), which
+                is exactly when somebody needs to be told plainly rather than
+                handed a form.
+              */
+              <p className="ws__notice" role="status">
+                Your account is not attached to an organization yet. Ask your admin to add you.
+              </p>
+            ) : (
+              <WorkspaceBody
+                key={activeOrganization.organizationId}
+                view={view}
+                organizationId={activeOrganization.organizationId}
+                role={activeOrganization.role}
+                userId={user.id}
+                pendingConversationId={pendingConversationId}
+                onConversationHandled={() => setPendingConversationId(null)}
+                onNavigate={setView}
+                onOpenConversation={openConversation}
+                onOrganizationContextStale={() => setOrganizationContextNonce((nonce) => nonce + 1)}
+              />
+            )}
+          </>
         )}
+      </main>
+    </div>
+  );
+}
 
-        {/*
-          Keyed by organization id so switching tenants remounts this section
-          fresh (ADR-020) rather than reconciling one tenant's widget key and
-          origins into a component that just finished rendering another's.
+interface WorkspaceBodyProps {
+  view: WorkspaceView;
+  organizationId: string;
+  role: string;
+  userId: string;
+  pendingConversationId: string | null;
+  onConversationHandled: () => void;
+  onNavigate: (view: WorkspaceView) => void;
+  onOpenConversation: (conversationId: string) => void;
+  onOrganizationContextStale: () => void;
+}
 
-          The key is PREFIXED with the section's own name, and every keyed
-          section below does the same. These are siblings, and React requires
-          keys to be unique among siblings — three sections sharing the bare
-          organization id made React warn that it could duplicate or omit
-          children, which for sections that must be torn down on a tenant
-          switch is exactly the guarantee being relied on here.
-        */}
-        {activeOrganization !== null && (
-          <WidgetInstallation
-            key={`widget-${activeOrganization.organizationId}`}
-            organizationId={activeOrganization.organizationId}
-          />
-        )}
+/**
+ * Everything below the tenant context, for one tenant.
+ *
+ * Its own component so it can be KEYED by organization id from the parent:
+ * switching tenants tears this subtree down rather than reconciling one
+ * tenant's conversations, contacts and roster into a tree that just finished
+ * rendering another's (ADR-025 §11). Filtering by organizationId in an effect
+ * would be the "rely only on frontend filtering" CONTRIBUTING.md forbids.
+ *
+ * It also owns the overview read, so the dashboard's figures and the contacts
+ * table come from ONE request rather than two that could disagree.
+ */
+function WorkspaceBody({
+  view,
+  organizationId,
+  role,
+  userId,
+  pendingConversationId,
+  onConversationHandled,
+  onNavigate,
+  onOpenConversation,
+  onOrganizationContextStale,
+}: WorkspaceBodyProps) {
+  const overview = useWorkspaceOverview(organizationId, userId);
 
-        {/*
-          The agent inbox (ADR-025 §11) — the first section on this page that
-          reads real tenant data.
+  return (
+    <div className="ws__panelRegion" role="tabpanel" id={`ws-panel-${view}`} aria-labelledby={`ws-tab-${view}`} tabIndex={-1}>
+      {/*
+        One view is mounted at a time rather than all five hidden with CSS,
+        which matters most for the inbox: it holds an open socket, and a
+        hidden-but-mounted copy would keep streaming a tenant's messages into
+        a component nobody is looking at.
+      */}
+      {view === "dashboard" && (
+        <WorkspaceOverview overview={overview} onNavigate={onNavigate} onOpenConversation={onOpenConversation} />
+      )}
 
-          Keyed by organization id for a sharper reason than the section
-          above: switching tenants must DISCARD the inbox's conversations,
-          unread counts, selected thread, and open socket, not reconcile them.
-          React tears down the subtree on a key change, which is the only way
-          to be certain no message from the previous tenant can land in the
-          new one's list. Filtering by organizationId in an effect would be
-          the "rely only on frontend filtering" CONTRIBUTING.md forbids.
-        */}
-        {activeOrganization !== null && (
-          <AgentInbox
-            key={`inbox-${activeOrganization.organizationId}`}
-            organizationId={activeOrganization.organizationId}
-          />
-        )}
+      {view === "chats" && (
+        <AgentInbox
+          organizationId={organizationId}
+          initialConversationId={pendingConversationId}
+          onInitialConversationHandled={onConversationHandled}
+        />
+      )}
 
-        {/*
-          Team management (ADR-027 §16).
+      {view === "contacts" && (
+        <ContactsPanel contacts={overview.contacts} isLoading={overview.isLoading} isComplete={overview.isComplete} />
+      )}
 
-          Keyed by organization id for the same reason the two sections above
-          are: switching tenants must DISCARD one organization's roster rather
-          than reconcile it into a component that just finished rendering
-          another's. React tears down the subtree on a key change, which is the
-          only way to be certain no row from the previous tenant survives.
-
+      {view === "team" && (
+        /*
           The role it receives is the one the SERVER confirmed for this
-          organization on this page load, and `user.id` is the account `/me`
+          organization on this page load, and `userId` is the account `/me`
           reported — so the section can mark the reader's own row and withhold
           its controls without the client deciding anything about standing. A
           hidden control is an affordance, never a boundary: the server
           re-proves `member.read` and `member.manage` on every request.
-        */}
-        {activeOrganization !== null && (
-          <TeamManagement
-            key={`team-${activeOrganization.organizationId}`}
-            organizationId={activeOrganization.organizationId}
-            role={activeOrganization.role}
-            currentUserId={user?.id ?? null}
-            onOrganizationContextStale={() => setOrganizationContextNonce((nonce) => nonce + 1)}
-          />
-        )}
+        */
+        <TeamManagement
+          organizationId={organizationId}
+          role={role}
+          currentUserId={userId}
+          onOrganizationContextStale={onOrganizationContextStale}
+        />
+      )}
 
-        <CreateOrganizationForm />
-
-        <section aria-labelledby="dash-stats-heading">
-          <div className="dash__statsHead">
-            <h2 className="h3" id="dash-stats-heading">
-              Today
-            </h2>
-            <span className="badge badge--neutral">SAMPLE DATA</span>
-          </div>
-
-          <div className="dash__stats">
-            {SAMPLE_STATS.map((stat) => (
-              <article className="dash__stat card pad" key={stat.label}>
-                <p className="dash__statLabel">{stat.label}</p>
-                <p className="dash__statValue">{stat.value}</p>
-                <p className="dash__statHint">{stat.hint}</p>
-              </article>
-            ))}
-          </div>
-
-          <p className="dash__note">
-            These figures are placeholders — nothing computes them yet. The inbox above is real: it reads this
-            organization&rsquo;s conversations and messages.
-          </p>
-        </section>
-      </main>
+      {view === "settings" && (
+        <div className="ws__stack">
+          <WidgetInstallation organizationId={organizationId} />
+        </div>
+      )}
     </div>
   );
+}
+
+/** The greeting uses a first name; the identity elsewhere uses the whole one. */
+function firstNameOf(name: string): string {
+  const first = name.trim().split(/\s+/)[0];
+  return first === undefined || first.length === 0 ? name : first;
+}
+
+/** Up to two letters for the avatar. Never more — three is a word, not a mark. */
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
+  return (parts[0]![0]! + parts[1]![0]!).toUpperCase();
 }

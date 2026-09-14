@@ -91,6 +91,9 @@ describe("POST /api/v1/auth/login", () => {
         id: expect.any(String),
         name: "Ada Lovelace",
         email: EMAIL,
+        // Which product this account signed up for (ADR-034 §1) — reported by
+        // login so the browser knows where to go without a second request.
+        kind: "customer",
       });
       expect(response.body.data.accessToken).toEqual(expect.any(String));
       expect(response.body.data.expiresIn).toBeGreaterThan(0);

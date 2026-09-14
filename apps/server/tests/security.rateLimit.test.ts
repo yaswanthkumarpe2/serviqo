@@ -8,10 +8,13 @@ import {
   AUTHENTICATED_WRITE_LIMIT,
   CREDENTIAL_LIMIT,
   CREDENTIAL_WINDOW_MS,
+  EMAIL_VERIFICATION_LIMIT,
   LOGIN_LOCK_DURATION_MS,
   LOGIN_MAX_FAILED_ATTEMPTS,
+  REGISTRATION_LIMIT,
   SESSION_LIMIT,
   SESSION_WINDOW_MS,
+  VERIFICATION_RESEND_LIMIT,
 } from "../src/config/constants";
 import { AccountTokenModel } from "../src/modules/accountTokens/accountToken.model";
 import { createFakeEmailProvider } from "../src/modules/auth/testing/fakeEmailProvider";
@@ -27,6 +30,7 @@ const REFRESH_PATH = "/api/v1/auth/refresh";
 const LOGOUT_PATH = "/api/v1/auth/logout";
 const ME_PATH = "/api/v1/auth/me";
 const ORGANIZATIONS_PATH = "/api/v1/organizations";
+const RESEND_PATH = "/api/v1/auth/resend-verification";
 
 /** Obvious sentinels — if either reaches a response or a log, the test fails. */
 const PASSWORD = "DO_NOT_LEAK_THIS_PASSWORD";
@@ -220,6 +224,110 @@ describe("rate limiting", () => {
       expect(response.status).toBe(429);
       expect(response.body.data).toBeUndefined();
       expect(response.headers["set-cookie"]).toBeUndefined();
+    });
+  });
+
+  // ---- sign-up traffic has its own budgets (ADR-031) ----
+
+  /*
+    The split these four endpoints got in ADR-031, asserted from the direction
+    that matters: the failure it fixed was an honest person being refused, not
+    an attacker being allowed.
+
+    Every test here builds its own app, so the budgets start full — which is
+    the point. What is being proved is that spending one endpoint's budget
+    leaves the others intact, and a shared bucket would fail every one of
+    them.
+  */
+  describe("the sign-up classes", () => {
+    it("registers while the login budget is exhausted", async () => {
+      const ctx = buildApp();
+
+      for (let i = 0; i <= CREDENTIAL_LIMIT; i += 1) await attemptLogin(ctx, `nobody${i}@example.com`);
+      expect((await attemptLogin(ctx)).status).toBe(429);
+
+      /*
+        The regression in one line. Under the shared class this was a 429:
+        a password guesser somewhere on the same NAT could stop everyone
+        behind it from creating an account.
+      */
+      const registered = await request(ctx.app)
+        .post(REGISTER_PATH)
+        .send({ name: "Ada Lovelace", email: EMAIL, password: PASSWORD });
+
+      expect(registered.status).toBe(201);
+    });
+
+    it("completes a whole sign-up without spending the login budget", async () => {
+      const ctx = buildApp();
+
+      /*
+        Register, ask for another code because the first mail was slow, then
+        verify — the ordinary path, and five requests under the old shared
+        limit of ten. A second person on the same address then had five.
+      */
+      await request(ctx.app).post(REGISTER_PATH).send({ name: "Ada Lovelace", email: EMAIL, password: PASSWORD });
+      await request(ctx.app).post(RESEND_PATH).send({ email: EMAIL });
+      const code = ctx.fake.verifications.at(-1)!.code;
+      const verified = await request(ctx.app).post(VERIFY_PATH).send({ email: EMAIL, code });
+      expect(verified.status).toBe(204);
+
+      // The login budget was never touched, so it is still whole.
+      for (let i = 0; i < CREDENTIAL_LIMIT; i += 1) {
+        expect((await attemptLogin(ctx, `nobody${i}@example.com`)).status).not.toBe(429);
+      }
+    });
+
+    it("refuses registration past its own limit", async () => {
+      const ctx = buildApp();
+
+      for (let i = 0; i < REGISTRATION_LIMIT; i += 1) {
+        const response = await request(ctx.app)
+          .post(REGISTER_PATH)
+          .send({ name: "Ada Lovelace", email: `new${i}@example.com`, password: PASSWORD });
+        expect(response.status).not.toBe(429);
+      }
+
+      const overLimit = await request(ctx.app)
+        .post(REGISTER_PATH)
+        .send({ name: "Ada Lovelace", email: "one-more@example.com", password: PASSWORD });
+
+      expect(overLimit.status).toBe(429);
+    });
+
+    it("refuses resends first, because each one sends mail", async () => {
+      const ctx = buildApp();
+      await request(ctx.app).post(REGISTER_PATH).send({ name: "Ada Lovelace", email: EMAIL, password: PASSWORD });
+      const mailsAfterRegistration = ctx.fake.verifications.length;
+
+      for (let i = 0; i < VERIFICATION_RESEND_LIMIT; i += 1) {
+        expect((await request(ctx.app).post(RESEND_PATH).send({ email: EMAIL })).status).not.toBe(429);
+      }
+      const overLimit = await request(ctx.app).post(RESEND_PATH).send({ email: EMAIL });
+
+      expect(overLimit.status).toBe(429);
+      // The refusal is what stops the mail, not merely what reports it.
+      expect(ctx.fake.verifications.length).toBe(mailsAfterRegistration + VERIFICATION_RESEND_LIMIT);
+      // Tightest of the four: three sends, where a login gets ten guesses.
+      expect(VERIFICATION_RESEND_LIMIT).toBeLessThan(CREDENTIAL_LIMIT);
+    });
+
+    it("gives verification more room than login, since the code has its own attempt bound", async () => {
+      const ctx = buildApp();
+      await request(ctx.app).post(REGISTER_PATH).send({ name: "Ada Lovelace", email: EMAIL, password: PASSWORD });
+
+      /*
+        Past what the shared class allowed. Every one of these is refused as a
+        wrong code (400), never as a refused request (429) — and the code
+        itself is destroyed after EMAIL_VERIFICATION_MAX_ATTEMPTS, which is
+        the bound actually stopping a guesser.
+      */
+      for (let i = 0; i <= CREDENTIAL_LIMIT; i += 1) {
+        const response = await request(ctx.app).post(VERIFY_PATH).send({ email: EMAIL, code: "000000" });
+        expect(response.status).not.toBe(429);
+      }
+
+      expect(EMAIL_VERIFICATION_LIMIT).toBeGreaterThan(CREDENTIAL_LIMIT);
     });
   });
 

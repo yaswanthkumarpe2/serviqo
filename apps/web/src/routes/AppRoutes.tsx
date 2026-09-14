@@ -1,14 +1,22 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import { AuthRestoring } from "@/features/auth/AuthRestoring";
+import { homePathFor, isAgent, isPlatformAdmin } from "@/features/auth/authApi";
 import { useAuth } from "@/features/auth/useAuth";
+import { useCurrentUser } from "@/features/auth/useCurrentUser";
+import { AdminLoginPage } from "@/pages/admin/AdminLoginPage";
+import { AgentLoginPage } from "@/pages/agent/AgentLoginPage";
+import { AdminPortalPage } from "@/pages/admin/AdminPortalPage";
 import { LoginPage } from "@/pages/auth/LoginPage";
 import { SignUpPage } from "@/pages/auth/SignUpPage";
 import { VerifyEmailPage } from "@/pages/auth/VerifyEmailPage";
+import { CustomerDashboardPage } from "@/pages/customer/CustomerDashboardPage";
 import { DashboardPage } from "@/pages/dashboard/DashboardPage";
 import { LandingPage } from "@/pages/marketing/LandingPage";
 
-import { ProtectedRoute } from "./ProtectedRoute";
+import { AgentRoute } from "./AgentRoute";
+import { CustomerRoute } from "./CustomerRoute";
+import { PlatformAdminRoute } from "./PlatformAdminRoute";
 
 /**
  * The sign-in route, which has the same "not yet known" problem
@@ -26,9 +34,13 @@ function SignInRoute() {
     return <AuthRestoring />;
   }
 
-  // Signing in again while already signed in is a dead end, not a form.
+  /*
+    Signing in again while already signed in is a dead end, not a form. Where
+    they go instead is decided by `HomeRoute`, so this file has one answer to
+    "where does a signed-in person belong" rather than three that can drift.
+  */
   if (isAuthenticated) {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to="/home" replace />;
   }
 
   return <LoginPage />;
@@ -48,19 +60,122 @@ function SignUpRoute() {
   }
 
   if (isAuthenticated) {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to="/home" replace />;
   }
 
   return <SignUpPage />;
 }
 
 /**
+ * Sends a signed-in person to the surface their account belongs to
+ * (ADR-034 §9).
+ *
+ * A route rather than a helper, because the answer is not known synchronously:
+ * it comes from `/me`, and every caller would otherwise need its own waiting
+ * state. Rendering the restore placeholder while that settles is what stops a
+ * customer seeing the agent workspace, or the reverse, for a frame.
+ */
+function HomeRoute() {
+  const { isAuthenticated, isRestoring } = useAuth();
+  const { user, isLoading } = useCurrentUser();
+
+  if (isRestoring || (isAuthenticated && isLoading)) {
+    return <AuthRestoring />;
+  }
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return <Navigate to={homePathFor(user)} replace />;
+}
+
+/**
+ * The agent sign-in route (ADR-034 §9).
+ *
+ * Gated like the other two sign-in routes: somebody who already holds an agent
+ * session has no use for the form. A signed-in CUSTOMER is shown it, though,
+ * because they may be about to sign in as the agent they also are — the same
+ * reasoning `AdminSignInRoute` uses.
+ */
+function AgentSignInRoute() {
+  const { isAuthenticated, isRestoring } = useAuth();
+  const { user, isLoading } = useCurrentUser();
+
+  if (isRestoring) {
+    return <AuthRestoring />;
+  }
+
+  // Not signed in is the ordinary case, and it must not wait on `/me`: there
+  // is no session for that request to use.
+  if (!isAuthenticated) {
+    return <AgentLoginPage />;
+  }
+
+  if (isLoading) {
+    return <AuthRestoring />;
+  }
+
+  if (isAgent(user)) {
+    return <Navigate to="/agent" replace />;
+  }
+
+  return <AgentLoginPage />;
+}
+
+/**
+ * The private sign-in route (ADR-032 §14).
+ *
+ * Gated differently from `SignInRoute`, and the difference is the point. That
+ * one bounces ANY signed-in visitor to the dashboard; this one bounces only
+ * someone who already holds the grant, and shows the form to everyone else —
+ * including a signed-in ordinary user, who may well be an operator sitting on
+ * their own tenant account and wanting to switch to their staff one.
+ *
+ * The grant is read from `/me` rather than assumed, which costs one request on
+ * a page almost nobody visits and avoids the alternative: rendering the form
+ * for an admin who is already signed in, letting them retype a password they
+ * did not need, and landing them exactly where they would have been anyway.
+ */
+function AdminSignInRoute() {
+  const { isAuthenticated, isRestoring } = useAuth();
+  const { user, isLoading } = useCurrentUser();
+
+  if (isRestoring) {
+    return <AuthRestoring />;
+  }
+
+  /*
+    Not signed in is the ordinary case here, and it must NOT wait on `/me` —
+    there is no session for that request to use, so waiting would hold the
+    form behind a request that cannot answer.
+  */
+  if (!isAuthenticated) {
+    return <AdminLoginPage />;
+  }
+
+  if (isLoading) {
+    return <AuthRestoring />;
+  }
+
+  // Already an admin: signing in again is a dead end, not a form.
+  if (isPlatformAdmin(user)) {
+    return <Navigate to="/control" replace />;
+  }
+
+  return <AdminLoginPage />;
+}
+
+/**
  * Every route in the application.
  *
  * Deliberately flat and eager: a handful of routes does not justify layout
- * routes or lazy boundaries. `ARCHITECTURE.md` §3's code-split experience zones become
- * worth building when there are zones to split — the agent workspace and
- * admin areas do not exist.
+ * routes or lazy boundaries. `ARCHITECTURE.md` §3's code-split experience
+ * zones become worth building when there are zones to split — and as of
+ * ADR-032 there are two, the workspace and the operations console, which is
+ * the first real argument for splitting this file that has existed. It is
+ * still not enough: both zones are one page each today, and a lazy boundary
+ * around a single component buys a spinner and no bytes.
  *
  * Customer-facing surfaces are absent by design, not omission: customers
  * never authenticate and reach Serviqo through the widget (ADR-010).
@@ -89,13 +204,68 @@ export function AppRoutes() {
       */}
       <Route path="/verify-email" element={<VerifyEmailPage />} />
 
+      {/*
+        Where a signed-in person belongs, resolved once (ADR-034 §9).
+
+        Every "you are already signed in" redirect in this file points here
+        rather than guessing, because the answer depends on the account's kind
+        and only the server knows it. One hop through a component that waits
+        for `/me` is the cost of never showing somebody the wrong surface.
+      */}
+      <Route path="/home" element={<HomeRoute />} />
+
+      {/*
+        The CUSTOMER's dashboard: one chat with support, and nothing else
+        (ADR-034 §6). No organization picker, no inbox, no team — a customer is
+        not staff.
+      */}
       <Route
         path="/dashboard"
         element={
-          <ProtectedRoute>
-            <DashboardPage />
-          </ProtectedRoute>
+          <CustomerRoute>
+            <CustomerDashboardPage />
+          </CustomerRoute>
         }
+      />
+
+      {/*
+        The AGENT workspace, which used to live at /dashboard (ADR-033). It
+        moved when customers got a dashboard of their own, and the guard is what
+        keeps the two audiences from landing on each other's surface.
+      */}
+      <Route path="/agent/login" element={<AgentSignInRoute />} />
+
+      <Route
+        path="/agent"
+        element={
+          <AgentRoute>
+            <DashboardPage />
+          </AgentRoute>
+        }
+      />
+
+      {/*
+        The operations console (ADR-032 §14), and the two routes in this file
+        that NOTHING links to.
+
+        Not a secret — `/control` is as guessable as any other word, and the
+        server refuses every request behind it from anyone without the grant.
+        Unlisted is a product decision about what belongs in the customer's
+        experience, not a security control, and treating it as one would be the
+        mistake. The reason it is worth doing anyway is that a support product
+        whose marketing site advertises a staff door invites people to knock on
+        it, and there is nothing to gain from the invitation.
+
+        `/control/login` is deliberately declared BEFORE `/control`, even
+        though React Router ranks by specificity rather than by order — the
+        pair reads as "the door, then the room", and a future change to a
+        wildcard child would otherwise silently swallow the login path.
+      */}
+      <Route path="/control/login" element={<AdminSignInRoute />} />
+
+      <Route
+        path="/control"
+        element={<PlatformAdminRoute>{(user) => <AdminPortalPage user={user} />}</PlatformAdminRoute>}
       />
 
       {/* No 404 page yet; an unknown path returns to the landing page. */}

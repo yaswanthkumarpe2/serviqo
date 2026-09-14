@@ -1,5 +1,22 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+/*
+  `lib/env` calls `dotenv.config()` at module load, and this file is the one
+  place that cannot tolerate it.
+
+  Every test below re-imports that module after DELETING `RESEND_API_KEY` and
+  `EMAIL_FROM`, to prove the production guard fires when a deployment has not
+  configured a mail provider. dotenv does not overwrite variables that are
+  already set — but these have deliberately been unset, so it adds them back
+  from whatever .env the developer happens to have. The result was four
+  failures that appeared only on machines with a populated .env: a suite whose
+  outcome depended on a gitignored file.
+
+  Stubbed to a no-op so the environment under test is exactly what these tests
+  construct, and nothing else.
+*/
+vi.mock("dotenv", () => ({ default: { config: () => ({ parsed: {} }) } }));
+
 /**
  * The guard reads NODE_ENV through `lib/env`, which validates at module
  * load — so switching environments means re-importing both modules under a

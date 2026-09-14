@@ -112,7 +112,7 @@ describe("organization context and RBAC", () => {
       expect(response.body.data.memberships).toEqual([]);
     });
 
-    it("keeps the six user fields unchanged", async () => {
+    it("keeps the user fields unchanged", async () => {
       const ctx = buildApp();
       const staff = await signedInStaff(ctx);
 
@@ -123,7 +123,14 @@ describe("organization context and RBAC", () => {
         "email",
         "emailVerifiedAt",
         "id",
+        // Which product this account signed up for (ADR-034 §1). The eighth
+        // field, and the one that decides whether a customer's chat or an
+        // agent's inbox is rendered.
+        "kind",
         "name",
+        // Added by ADR-032 §6 so a client knows whether to offer the
+        // operations console for the account that just signed in.
+        "platformRole",
         "status",
       ]);
       expect(Object.keys(response.body.data).sort()).toEqual(["memberships", "user"]);

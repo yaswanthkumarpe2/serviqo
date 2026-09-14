@@ -50,6 +50,13 @@ describe("createRateLimiters", () => {
       "authenticatedRead",
       "authenticatedWrite",
       "credential",
+      /*
+        The eleventh, twelfth and thirteenth classes, carved out of
+        `credential` by ADR-031. Sorted position puts them apart from each
+        other and from the class they came from; they belong together
+        conceptually — one honest sign-up touches all three.
+      */
+      "emailVerification",
       "global",
       /*
         The ninth class, added for `POST /organizations/:id/members`
@@ -70,7 +77,9 @@ describe("createRateLimiters", () => {
         one pattern an operator most wants to see.
       */
       "ownershipTransfer",
+      "registration",
       "session",
+      "verificationResend",
       // The seventh and eighth classes, added for conversation and message
       // traffic (ADR-022 §12) — customer-keyed, since a verified widget
       // principal already exists by the time these mount.

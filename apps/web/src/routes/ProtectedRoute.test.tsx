@@ -51,7 +51,7 @@ beforeEach(() => {
 });
 
 /** The welcome heading, once `/me` has answered. */
-const welcome = () => screen.findByRole("heading", { name: "Welcome, Ada Lovelace" });
+const welcome = () => screen.findByRole("heading", { name: "Welcome back, Ada" });
 
 describe("ProtectedRoute", () => {
   // The redirect now waits for the startup refresh (ADR-012): until it
@@ -106,21 +106,19 @@ describe("DashboardPage", () => {
     expect(screen.getByText("ada@example.com")).toBeDefined();
   });
 
-  it("shows the three placeholder metrics", () => {
+  /*
+    The three labelled placeholder metrics this page used to close with are
+    gone (ADR-032 §15). CONTRIBUTING.md requires demo data to say what it is;
+    shipping none satisfies that more cheaply, and the aggregate endpoint that
+    would have made those figures real is its own slice.
+  */
+  it("shows no placeholder metrics", () => {
     renderDashboard(session);
 
-    expect(screen.getByText("Total conversations")).toBeDefined();
-    expect(screen.getByText("Open tickets")).toBeDefined();
-    expect(screen.getByText("Waiting customers")).toBeDefined();
-  });
-
-  // CONTRIBUTING.md: demo data must be labelled as demo data, never left to
-  // read as a working feature.
-  it("labels the metrics as sample data", () => {
-    renderDashboard(session);
-
-    expect(screen.getByText("SAMPLE DATA")).toBeDefined();
-    expect(screen.getByText(/these figures are placeholders/i)).toBeDefined();
+    expect(screen.queryByText("SAMPLE DATA")).toBeNull();
+    expect(screen.queryByText("Total conversations")).toBeNull();
+    expect(screen.queryByText("Open tickets")).toBeNull();
+    expect(screen.queryByText("Waiting customers")).toBeNull();
   });
 
   it("never renders the access token", async () => {

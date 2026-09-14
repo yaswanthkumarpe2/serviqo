@@ -24,7 +24,15 @@ function renderAt(path: string, initialSession: Session | null = null) {
 }
 
 /** The dashboard's welcome heading, once `/me` has answered (ADR-015). */
-const welcome = () => screen.findByRole("heading", { name: "Welcome, Ada Lovelace" });
+/*
+  `/dashboard` is the CUSTOMER's chat as of ADR-034 §6 — the agent workspace
+  moved to `/agent`. The stubbed account is a customer, which is what public
+  registration creates, so this is the greeting these routes now produce.
+*/
+const welcome = () => screen.findByRole("heading", { name: "Hi Ada" });
+
+/** The agent workspace's greeting, for the routes that should reach it. */
+const workspaceWelcome = () => screen.findByRole("heading", { name: "Welcome back, Ada" });
 
 /**
  * Anonymous by default here, unlike ProtectedRoute's suite: most cases below
@@ -71,12 +79,41 @@ describe("AppRoutes", () => {
     expect(await screen.findByRole("heading", { name: /sign in to serviqo/i })).toBeDefined();
   });
 
-  it("serves the dashboard once a session exists", async () => {
+  it("serves the customer dashboard once a session exists", async () => {
     stubAuthFetch();
 
     renderAt("/dashboard", session);
 
     expect(await welcome()).toBeDefined();
+  });
+
+  /*
+    The two audiences land on different surfaces from the same session, decided
+    by the account's kind rather than by the address they typed (ADR-034 §9).
+  */
+  it("serves the agent workspace to an agent", async () => {
+    stubAuthFetch({ currentUser: { kind: "agent" } });
+
+    renderAt("/agent", session);
+
+    expect(await workspaceWelcome()).toBeDefined();
+  });
+
+  it("sends a customer who reaches /agent back to their own dashboard", async () => {
+    stubAuthFetch();
+
+    renderAt("/agent", session);
+
+    expect(await welcome()).toBeDefined();
+    expect(screen.queryByRole("heading", { name: "Welcome back, Ada" })).toBeNull();
+  });
+
+  it("sends an agent who reaches /dashboard to their workspace", async () => {
+    stubAuthFetch({ currentUser: { kind: "agent" } });
+
+    renderAt("/dashboard", session);
+
+    expect(await workspaceWelcome()).toBeDefined();
   });
 
   // Landing on the form you have already completed is a dead end.

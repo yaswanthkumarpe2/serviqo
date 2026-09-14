@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { useAgentInbox } from "./useAgentInbox";
 
@@ -29,6 +29,24 @@ export interface AgentInboxProps {
   organizationId: string;
   /** Injected by tests so the socket layer runs against a fake. */
   socketFactory?: InboxSocketFactory;
+  /**
+   * A conversation to open as soon as the list has loaded (ADR-033 §7).
+   *
+   * Set when the reader clicked a row on the workspace overview, which lives
+   * in a sibling view: the click happens before this component exists, so the
+   * intent has to arrive as a prop rather than as a call.
+   *
+   * Honoured ONCE, and only if the conversation is actually in the loaded
+   * list — a stale id from a thread that has since been archived must not
+   * select nothing and leave the pane blank.
+   */
+  initialConversationId?: string | null;
+  /**
+   * Called after `initialConversationId` has been acted on, so the owner can
+   * clear it. Without this the same thread would reopen every time the reader
+   * returned to this view.
+   */
+  onInitialConversationHandled?: () => void;
 }
 
 /** A conversation's display name — the customer's, or an honest stand-in. */
@@ -91,8 +109,32 @@ function MessageBubble({ message }: { message: InboxMessage }) {
   );
 }
 
-export function AgentInbox({ organizationId, socketFactory }: AgentInboxProps) {
-  const inbox = useAgentInbox({ organizationId, socketFactory });
+export function AgentInbox({
+  organizationId,
+  socketFactory,
+  initialConversationId = null,
+  onInitialConversationHandled,
+}: AgentInboxProps) {
+  /*
+    The initial selection is handed to the HOOK rather than applied here in an
+    effect. The hook opens it inside its own load callback, once the list it
+    must be found in has arrived — which is the only place the write is not a
+    synchronous setState inside an effect body (ADR-033 §7).
+  */
+  const inbox = useAgentInbox({ organizationId, socketFactory, initialConversationId });
+
+  /*
+    Told once, immediately: the hook has taken the id and will act on it when
+    the list lands, so the owner can stop asking. Calling this during render
+    would be a parent update from a child's render, so it rides the mount
+    effect — which writes no state of this component's own.
+  */
+  useEffect(() => {
+    if (initialConversationId !== null) onInitialConversationHandled?.();
+    // Mount only: a later id arrives with a remount, because the workspace
+    // keys this component by organization.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [draft, setDraft] = useState("");
 
   async function handleSubmit(event: React.FormEvent) {

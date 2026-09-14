@@ -129,7 +129,14 @@ describe("currentUserService", () => {
         "email",
         "emailVerifiedAt",
         "id",
+        // Which product this account signed up for (ADR-034 §1). The eighth
+        // field, and the one that decides whether a customer's chat or an
+        // agent's inbox is rendered.
+        "kind",
         "name",
+        // Added by ADR-032 §6 so a client knows whether to offer the
+        // operations console for the account that just signed in.
+        "platformRole",
         "status",
       ]);
     });

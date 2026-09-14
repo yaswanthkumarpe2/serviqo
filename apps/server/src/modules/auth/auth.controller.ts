@@ -5,7 +5,14 @@ import { created, noContent, success } from "../../lib/response";
 import { RefreshRejectedError } from "./refresh.service";
 import { clearRefreshCookieOptions, refreshCookieOptions } from "./refreshToken";
 
-import type { LoginInput, RegisterInput, ResendVerificationInput, VerifyEmailInput } from "./auth.validation";
+import type {
+  ChangePasswordInput,
+  LoginInput,
+  RegisterInput,
+  ResendVerificationInput,
+  VerifyEmailInput,
+} from "./auth.validation";
+import type { ChangePasswordService } from "./changePassword.service";
 import type { CurrentUserService } from "./currentUser.service";
 import type { LoginService } from "./login.service";
 import type { LogoutService } from "./logout.service";
@@ -23,6 +30,7 @@ export interface AuthControllerDependencies {
   logoutService: LogoutService;
   logoutAllService: LogoutAllService;
   currentUserService: CurrentUserService;
+  changePasswordService: ChangePasswordService;
 }
 
 /**
@@ -41,6 +49,7 @@ export function createAuthController({
   logoutService,
   logoutAllService,
   currentUserService,
+  changePasswordService,
 }: AuthControllerDependencies) {
   // Safe to assert in both handlers: validateBody replaced req.body with the
   // route's schema output before either could run.
@@ -197,6 +206,17 @@ export function createAuthController({
    * a `userId` the client supplied is not rejected, it is never consulted,
    * which is the stronger guarantee (ADR-015 §11).
    */
+  /**
+   * Changes the caller's own password (ADR-034 §8).
+   *
+   * 204: nothing to report that the caller does not already know, and a body
+   * here could only echo something about a credential.
+   */
+  const changePassword: RequestHandler = async (req, res) => {
+    await changePasswordService.changePassword(req.principal!, req.body as ChangePasswordInput, req.log);
+    noContent(res);
+  };
+
   const me: RequestHandler = async (req, res) => {
     const { user, memberships } = await currentUserService.getCurrentUser(req.principal!, req.log);
 
@@ -214,5 +234,5 @@ export function createAuthController({
     success(res, { user, memberships });
   };
 
-  return { register, resendVerification, verifyEmail, login, refresh, logout, logoutAll, me };
+  return { register, resendVerification, verifyEmail, login, refresh, logout, logoutAll, me, changePassword };
 }

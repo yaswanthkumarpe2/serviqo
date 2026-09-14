@@ -21,14 +21,37 @@ export const CURRENT_USER = {
   email: "ada@example.com",
   status: "active",
   emailVerifiedAt: "2026-08-01T09:30:00.000Z",
+  /*
+    What the server reports for very nearly everyone (ADR-032 §6). Present
+    here rather than omitted so the default stub matches the real payload —
+    a test that wants the operations console overrides it through
+    `currentUser`.
+  */
+  platformRole: "none",
+  /*
+    Which product this account signed up for (ADR-034 §1). Defaults to
+    `customer`, matching the server's default and public registration — a test
+    that wants the agent workspace overrides it through `currentUser`.
+  */
+  kind: "customer",
   createdAt: "2026-07-28T14:00:00.000Z",
 };
 
 /** What the login/refresh endpoints report — deliberately narrower than `/me`. */
-export const SESSION_USER = { id: CURRENT_USER.id, name: CURRENT_USER.name, email: CURRENT_USER.email };
+export const SESSION_USER = {
+  id: CURRENT_USER.id,
+  name: CURRENT_USER.name,
+  email: CURRENT_USER.email,
+  // Login reports the kind so the client can route without a second request
+  // (ADR-034 §1).
+  kind: CURRENT_USER.kind,
+};
 
 /** An obvious sentinel — if it reaches storage or the DOM, the test fails. */
 export const RESTORED_TOKEN = "RESTORED_ACCESS_TOKEN";
+
+/** A fixed timestamp, so a rendered time never depends on when the suite runs. */
+const NOW = "2026-09-12T10:00:00.000Z";
 
 const REFRESH_SUCCESS = {
   success: true,
@@ -81,7 +104,27 @@ export interface StubAuthFetchOptions {
    * user who has registered and not onboarded is actually in (ADR-017 §9).
    */
   memberships?: StubMembership[];
+  /**
+   * The conversation `POST /me/conversations` resolves, and the messages in it
+   * (ADR-034 §5). Defaults to an empty chat, which is what a customer who has
+   * never written in actually has.
+   */
+  myConversationId?: string | null;
+  myMessages?: unknown[];
+  /** What `GET /admin/overview` reports, for console tests (ADR-032 §3). */
+  platformOverview?: unknown;
+  /** What `GET /admin/organizations` reports. */
+  platformOrganizations?: unknown[];
+  /** What `GET /admin/users` reports. */
+  platformUsers?: unknown[];
 }
+
+/** A readable overview, so console tests do not each restate the shape. */
+export const PLATFORM_OVERVIEW = {
+  totals: { organizations: 3, users: 7, customers: 12, conversations: 41, messages: 260 },
+  users: { verified: 5, unverified: 2, disabled: 0, platformAdmins: 1 },
+  conversations: { open: 9, closed: 32, unassigned: 4 },
+};
 
 /**
  * Installs the stub and hands back the mock, so a test can assert on which
@@ -95,6 +138,11 @@ export function stubAuthFetch({
   refresh = "ok",
   currentUser = {},
   memberships = [],
+  myConversationId = "conv-1",
+  myMessages = [],
+  platformOverview = PLATFORM_OVERVIEW,
+  platformOrganizations = [],
+  platformUsers = [],
 }: StubAuthFetchOptions = {}) {
   const fetchMock = vi.fn().mockImplementation((url: string) => {
     const path = String(url);
@@ -142,6 +190,72 @@ export function stubAuthFetch({
             })
           : jsonResponse(401, UNAUTHENTICATED),
       );
+    }
+
+    /*
+      The signed-in customer's own chat (ADR-034 §5).
+
+      Answered here rather than by the catch-all below, which returns
+      `{ data: {} }` — a conversation with no id, which the chat hook would then
+      try to poll. `myConversationId: null` models the deployment with no
+      organization yet, where the server answers 404.
+    */
+    if (path.includes("/api/v1/me/conversations")) {
+      if (myConversationId === null) {
+        return Promise.resolve(
+          jsonResponse(404, {
+            success: false,
+            error: { code: "NOT_FOUND", message: "Support is not available yet." },
+          }),
+        );
+      }
+
+      if (path.includes("/messages")) {
+        return Promise.resolve(jsonResponse(200, { success: true, data: { messages: myMessages, nextCursor: null } }));
+      }
+
+      return Promise.resolve(
+        jsonResponse(200, {
+          success: true,
+          data: { id: myConversationId, status: "open", createdAt: NOW, lastMessageAt: NOW },
+        }),
+      );
+    }
+
+    /*
+      The platform console (ADR-032 §3). Answered here rather than left to the
+      catch-all below, because that returns `{ data: {} }` — which
+      `fetchPlatformOverview` correctly rejects as unreadable, so every console
+      test would otherwise assert against an error state.
+
+      Refused with 403 unless the stubbed `/me` says this account holds the
+      grant, which is what the server does and what lets a test exercise the
+      refusal by changing one field.
+    */
+    if (path.includes("/api/v1/admin/")) {
+      const isAdmin = { ...CURRENT_USER, ...currentUser }.platformRole === "admin";
+      if (!isAdmin) {
+        return Promise.resolve(
+          jsonResponse(403, {
+            success: false,
+            error: { code: "INSUFFICIENT_PERMISSION", message: "You do not have permission to perform this action" },
+          }),
+        );
+      }
+
+      if (path.endsWith("/overview")) {
+        return Promise.resolve(jsonResponse(200, { success: true, data: platformOverview }));
+      }
+      if (path.includes("/admin/organizations")) {
+        return Promise.resolve(
+          jsonResponse(200, { success: true, data: { organizations: platformOrganizations, total: platformOrganizations.length } }),
+        );
+      }
+      if (path.includes("/admin/users")) {
+        return Promise.resolve(
+          jsonResponse(200, { success: true, data: { users: platformUsers, total: platformUsers.length } }),
+        );
+      }
     }
 
     // logout, logout-all, and anything else this suite does not model.

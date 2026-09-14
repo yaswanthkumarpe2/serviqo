@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { AuthApiError, login } from "./authApi";
+import { AuthApiError, homePathFor, login } from "./authApi";
 import { hasFieldErrors, validateLogin } from "./loginValidation";
 import { useAuth } from "./useAuth";
 
@@ -14,8 +14,20 @@ import type { FormEvent } from "react";
  */
 
 interface UseLoginFormOptions {
-  /** Where to land after a successful sign-in. */
-  redirectTo: string;
+  /**
+   * Where to land after a successful sign-in.
+   *
+   * OPTIONAL as of ADR-034 §9. Left unset, the destination is decided by the
+   * account's `kind`, which login now reports: a customer goes to their chat
+   * and an agent to their workspace. That is what the public `/login` page
+   * wants — one address, two kinds of person, and the server saying which.
+   *
+   * Set explicitly by the pages that exist FOR one audience: the agent
+   * sign-in page and the operations console both know where they are sending
+   * somebody, and a guard on the far side re-checks that the account belongs
+   * there.
+   */
+  redirectTo?: string;
 }
 
 export interface LoginFormState {
@@ -32,7 +44,7 @@ export interface LoginFormState {
   handleSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }
 
-export function useLoginForm({ redirectTo }: UseLoginFormOptions): LoginFormState {
+export function useLoginForm({ redirectTo }: UseLoginFormOptions = {}): LoginFormState {
   const { signIn } = useAuth();
   const navigate = useNavigate();
 
@@ -59,7 +71,13 @@ export function useLoginForm({ redirectTo }: UseLoginFormOptions): LoginFormStat
       login({ email: email.trim(), password })
         .then((result) => {
           signIn({ user: result.user, accessToken: result.accessToken });
-          navigate(redirectTo, { replace: true });
+          /*
+            The server's answer decides, unless this page already knew. Routing
+            on `kind` here rather than after a `/me` round trip is what keeps an
+            agent from seeing the customer dashboard for a frame on the way to
+            their inbox.
+          */
+          navigate(redirectTo ?? homePathFor(result.user), { replace: true });
         })
         .catch((error: unknown) => {
           if (error instanceof AuthApiError) {

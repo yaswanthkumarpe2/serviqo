@@ -2,6 +2,7 @@ import { logger } from "../logger";
 import { describeActionUrl, maskEmailAddress } from "./redaction";
 
 import type {
+  AgentCredentialsEmailInput,
   EmailProvider,
   InvitationEmailInput,
   PasswordResetEmailInput,
@@ -82,6 +83,27 @@ export function createConsoleEmailProvider(log: EmailLogger = logger): EmailProv
           url: describeActionUrl(input.invitationUrl),
         },
         "Invitation email (development: not delivered)",
+      );
+    },
+
+    /*
+      Neither secret is logged — not the temporary password and not the code —
+      which is the same rule `sendVerification` follows and matters more here,
+      because this message carries two. A development log that printed the
+      password would put a working credential in a terminal, a scrollback
+      buffer, and any log shipper pointed at it.
+    */
+    async sendAgentCredentials(input: AgentCredentialsEmailInput): Promise<void> {
+      log.info(
+        {
+          event: "email.dev.agent_credentials",
+          delivery: "console",
+          recipient: maskEmailAddress(input.to),
+          organizationName: input.organizationName,
+          url: describeActionUrl(input.verificationUrl),
+          credentialsIssued: true,
+        },
+        "Agent credentials email (development: not delivered)",
       );
     },
   };
