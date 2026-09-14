@@ -61,8 +61,8 @@ function buildUnlimitedApp() {
   return { fake, app: createApp({ emailProvider: fake.provider, rateLimiting: false }) };
 }
 
-async function registerAndVerify(ctx: Ctx, email: string) {
-  await request(ctx.app).post(REGISTER_PATH).send({ name: "Ada Lovelace", email, password: PASSWORD });
+async function registerAndVerify(ctx: Ctx, email: string, name = "Ada Lovelace") {
+  await request(ctx.app).post(REGISTER_PATH).send({ name, email, password: PASSWORD });
   const code = ctx.fake.verifications.at(-1)!.code;
   await request(ctx.app).post(VERIFY_PATH).send({ email, code });
 }
