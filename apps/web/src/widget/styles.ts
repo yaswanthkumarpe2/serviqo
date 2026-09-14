@@ -62,6 +62,29 @@ export const WIDGET_STYLES = `
     width: 26px;
     height: 26px;
   }
+  .launcher {
+    position: relative;
+  }
+  /* Unseen replies while the panel is shut (ADR-040 §4). */
+  .launcher__badge {
+    position: absolute;
+    top: -2px;
+    right: -2px;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: #dc2626;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 20px;
+    text-align: center;
+    box-shadow: 0 0 0 2px #fff;
+  }
+  .launcher__badge[hidden] {
+    display: none;
+  }
 
   .panel {
     width: 360px;
@@ -113,8 +136,26 @@ export const WIDGET_STYLES = `
     font-size: 15px;
     font-weight: 600;
   }
+  .panel__subtitleRow {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 2px;
+  }
+  /* Grey when nobody is available, green when someone is (ADR-040 §2). */
+  .panel__dot {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.45);
+  }
+  .panel__dot--online {
+    background: #4ade80;
+    box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.35);
+  }
   .panel__subtitle {
-    margin: 2px 0 0;
+    margin: 0;
     font-size: 12.5px;
     color: rgba(255, 255, 255, 0.85);
   }
@@ -376,6 +417,46 @@ export const WIDGET_STYLES = `
   }
   .msg--agent .msg__time {
     color: rgba(255, 255, 255, 0.82);
+  }
+
+  /* "Seen" under the visitor's latest message (ADR-040 §4). */
+  .msg__seen {
+    align-self: flex-end;
+    margin: -4px 4px 0;
+    font-size: 10.5px;
+    color: var(--sq-muted);
+  }
+
+  /* Three bouncing dots while support types (ADR-040 §3). */
+  .chat__typing {
+    padding: 2px 14px 6px;
+  }
+  .chat__typing[hidden] {
+    display: none;
+  }
+  .chat__typingDots {
+    display: inline-flex;
+    gap: 4px;
+    padding: 9px 12px;
+    border-radius: 12px;
+    border-bottom-left-radius: 4px;
+    background: #e8ebe6;
+  }
+  .chat__typingDots i {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--sq-muted);
+    animation: sq-typing 1.2s infinite ease-in-out;
+  }
+  .chat__typingDots i:nth-child(2) { animation-delay: 0.15s; }
+  .chat__typingDots i:nth-child(3) { animation-delay: 0.3s; }
+  @keyframes sq-typing {
+    0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
+    30% { transform: translateY(-3px); opacity: 1; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .chat__typingDots i { animation: none; }
   }
 
   .chat__status {

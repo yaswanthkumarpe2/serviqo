@@ -605,6 +605,16 @@ export const SOCKET_CONNECTION_WINDOW_MS = WIDGET_SESSION_WINDOW_MS;
 export const SOCKET_MESSAGE_WRITE_LIMIT = WIDGET_CONVERSATION_WRITE_LIMIT;
 export const SOCKET_MESSAGE_WRITE_WINDOW_MS = WIDGET_CONVERSATION_WRITE_WINDOW_MS;
 
+/**
+ * Typing and read events over the socket, per principal (ADR-040 §3–4).
+ *
+ * Typing is throttled client-side to about one event every two seconds, so
+ * two hundred and forty a minute is far past any person and still bounds a
+ * script.
+ */
+export const SOCKET_INTERACTION_LIMIT = 240;
+export const SOCKET_INTERACTION_WINDOW_MS = 60 * 1000;
+
 // ---- session metadata ----
 
 /**

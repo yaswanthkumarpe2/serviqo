@@ -21,6 +21,10 @@ import type { Socket } from "socket.io-client";
 const EVENT_CONVERSATION_JOIN = "conversation:join";
 const EVENT_MESSAGE_SEND = "message:send";
 const EVENT_MESSAGE_NEW = "message:new";
+/** ADR-040 §2–4, restated rather than imported across the server boundary. */
+const EVENT_PRESENCE = "presence:update";
+const EVENT_TYPING = "typing";
+const EVENT_READ = "conversation:read";
 
 /**
  * What the widget shows about the connection (ADR-024 §7). The panel stays
@@ -51,12 +55,22 @@ export interface RealtimeCallbacks {
    * credential the server has already rejected.
    */
   onAuthFailure(): void;
+  /** Whether an agent of this organisation is connected (ADR-040 §2). */
+  onPresence?(agentsOnline: boolean): void;
+  /** An agent started or stopped typing in a conversation (ADR-040 §3). */
+  onAgentTyping?(conversationId: string, isTyping: boolean): void;
+  /** The team read a conversation (ADR-040 §4). */
+  onAgentRead?(conversationId: string, readAt: string): void;
 }
 
 export interface RealtimeClient {
   connect(): void;
   join(conversationId: string): Promise<void>;
   send(conversationId: string, body: string): Promise<WidgetMessage>;
+  /** Fire-and-forget: a lost typing event is harmless (ADR-040 §3). */
+  typing(conversationId: string, isTyping: boolean): void;
+  /** Fire-and-forget: the next read covers a lost one (ADR-040 §4). */
+  markRead(conversationId: string): void;
   destroy(): void;
 }
 
@@ -156,6 +170,25 @@ export function createRealtimeClient({
       if (isWidgetMessage(payload)) callbacks.onMessage(payload);
     });
 
+    socket.on(EVENT_PRESENCE, (payload: unknown) => {
+      const agentsOnline = (payload as { agentsOnline?: unknown } | null)?.agentsOnline;
+      if (typeof agentsOnline === "boolean") callbacks.onPresence?.(agentsOnline);
+    });
+
+    socket.on(EVENT_TYPING, (payload: unknown) => {
+      const event = payload as { conversationId?: unknown; sender?: unknown; isTyping?: unknown } | null;
+      if (typeof event?.conversationId === "string" && event.sender === "agent" && typeof event.isTyping === "boolean") {
+        callbacks.onAgentTyping?.(event.conversationId, event.isTyping);
+      }
+    });
+
+    socket.on(EVENT_READ, (payload: unknown) => {
+      const event = payload as { conversationId?: unknown; reader?: unknown; readAt?: unknown } | null;
+      if (typeof event?.conversationId === "string" && event.reader === "agent" && typeof event.readAt === "string") {
+        callbacks.onAgentRead?.(event.conversationId, event.readAt);
+      }
+    });
+
     socket.on("disconnect", () => {
       if (destroyed) return;
       // The library retries underneath; the conversation stays readable
@@ -237,6 +270,14 @@ export function createRealtimeClient({
     return data;
   }
 
+  function typing(conversationId: string, isTyping: boolean): void {
+    if (socket?.connected) socket.emit(EVENT_TYPING, { conversationId, isTyping });
+  }
+
+  function markRead(conversationId: string): void {
+    if (socket?.connected) socket.emit(EVENT_READ, { conversationId }, () => undefined);
+  }
+
   function destroy(): void {
     destroyed = true;
     if (socket !== null) {
@@ -246,7 +287,7 @@ export function createRealtimeClient({
     }
   }
 
-  return { connect, join, send, destroy };
+  return { connect, join, send, typing, markRead, destroy };
 }
 
 /**

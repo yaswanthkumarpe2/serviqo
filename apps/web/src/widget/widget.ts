@@ -1,3 +1,4 @@
+import { darken, isWithinBusinessHours } from "./availability";
 import { WidgetAuthError, loadHistory, resolveConversation } from "./conversation";
 import { RealtimeError, createRealtimeClient } from "./realtime";
 import { openWidgetSession, WidgetSessionError } from "./session";
@@ -7,7 +8,7 @@ import { createChatSurface, createLauncher, createMessageBubble, createPanelSkel
 
 import type { RealtimeClient, RealtimeStatus, SocketFactory } from "./realtime";
 import type { ChatSurface } from "./ui";
-import type { WidgetConfig, WidgetMessage, WidgetSessionCustomer } from "./types";
+import type { WidgetAppearance, WidgetConfig, WidgetMessage, WidgetSessionCustomer } from "./types";
 
 /**
  * Mounts the widget and wires its interactions (ADR-021 §3, §7, §8, §9;
@@ -151,6 +152,22 @@ export function initWidget(config: WidgetConfig, options: InitWidgetOptions = {}
   /** The last message id rendered, used as the catch-up cursor after a re-join (ADR-024 §5). */
   let lastRenderedMessageId: string | null = null;
 
+  // ---- live chat state (ADR-040) ----
+
+  /** The organisation's colour, title and messages, once the session has said. */
+  let appearance: WidgetAppearance | null = null;
+  /** Whether an agent of this organisation is connected. */
+  let agentsOnline = false;
+  /** When the team last read this conversation, for "Seen". */
+  let agentReadAt: string | null = null;
+  let isAgentTyping = false;
+  let agentTypingTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Agent messages that arrived while the launcher panel was closed. */
+  let unseenWhileClosed = 0;
+  /** When this visitor last told the server they are typing, and the timer that says they stopped. */
+  let lastTypingSentAt = 0;
+  let typingIdleTimer: ReturnType<typeof setTimeout> | null = null;
+
   function setState(next: PanelState) {
     state = next;
     renderBody();
@@ -242,6 +259,11 @@ export function initWidget(config: WidgetConfig, options: InitWidgetOptions = {}
     }
     if (renderedMessages.length === 0) renderEmptyState(surface);
 
+    // "Typing…" sits between the thread and the composer, so it never scrolls away (ADR-040 §3).
+    surface.element.insertBefore(typingIndicator, surface.notice);
+    typingIndicator.hidden = !isAgentTyping;
+    surface.input.addEventListener("input", onComposerInput);
+
     applyStatus(surface, currentStatus);
 
     surface.form.addEventListener("submit", (event) => {
@@ -258,6 +280,8 @@ export function initWidget(config: WidgetConfig, options: InitWidgetOptions = {}
         void submitMessage();
       }
     });
+
+    updateSeenMarker(surface);
 
     return surface.element;
   }
@@ -388,8 +412,125 @@ export function initWidget(config: WidgetConfig, options: InitWidgetOptions = {}
     if (empty !== null) empty.remove();
 
     chat.list.appendChild(createMessageBubble(message.senderType, message.body, message.createdAt));
+
+    if (message.senderType === "agent") {
+      // A reply arriving ends "typing", and is read at once if someone is looking.
+      setAgentTyping(false);
+      if (isOpen) markReadIfVisible();
+      else {
+        unseenWhileClosed += 1;
+        renderLauncherBadge();
+      }
+    }
+
+    updateSeenMarker(chat);
     scrollToLatest();
   }
+
+  // ---- appearance, availability, typing and "seen" (ADR-040) ----
+
+  const typingIndicator = document.createElement("div");
+  typingIndicator.className = "chat__typing";
+  typingIndicator.setAttribute("role", "status");
+  typingIndicator.hidden = true;
+  typingIndicator.innerHTML = '<span class="chat__typingDots" aria-hidden="true"><i></i><i></i><i></i></span>';
+  const typingLabel = document.createElement("span");
+  typingLabel.className = "sr-only";
+  typingLabel.textContent = "Support is typing";
+  typingIndicator.appendChild(typingLabel);
+
+  const launcherBadge = document.createElement("span");
+  launcherBadge.className = "launcher__badge";
+  launcherBadge.hidden = true;
+  launcher.appendChild(launcherBadge);
+
+  function renderLauncherBadge() {
+    launcherBadge.hidden = unseenWhileClosed === 0;
+    launcherBadge.textContent = unseenWhileClosed > 9 ? "9+" : String(unseenWhileClosed);
+    launcher.setAttribute("aria-label", unseenWhileClosed > 0 ? `Open chat, ${unseenWhileClosed} new` : "Open chat");
+  }
+
+  function applyAppearance() {
+    const title = appearance?.title ?? options.title ?? "Chat with us";
+    panel.title.textContent = title;
+    if (appearance !== null) {
+      root.style.setProperty("--sq-brand", appearance.accentColor);
+      root.style.setProperty("--sq-brand-dark", darken(appearance.accentColor));
+    }
+    renderAvailability();
+  }
+
+  /** Online means an agent is connected AND it is within business hours. */
+  function renderAvailability() {
+    const online = agentsOnline && isWithinBusinessHours(appearance?.businessHours);
+    panel.statusDot.classList.toggle("panel__dot--online", online);
+    panel.subtitle.textContent = online
+      ? (appearance?.welcomeMessage ?? "We usually reply within a few minutes.")
+      : (appearance?.awayMessage ?? "We're away right now. Leave a message and we'll reply here.");
+  }
+
+  function setAgentTyping(next: boolean) {
+    isAgentTyping = next;
+    typingIndicator.hidden = !next;
+    if (agentTypingTimer !== null) clearTimeout(agentTypingTimer);
+    agentTypingTimer = null;
+    // A "stopped typing" can be lost with a dropped connection; never show it forever.
+    if (next) agentTypingTimer = setTimeout(() => setAgentTyping(false), 6000);
+    if (next) scrollToLatest();
+  }
+
+  /**
+   * "Seen" under this visitor's latest message, once the team has read past it.
+   * One marker at most, and only for a message sent before the read.
+   */
+  function updateSeenMarker(surface: ChatSurface) {
+    surface.list.querySelector(".msg__seen")?.remove();
+    if (agentReadAt === null) return;
+
+    const bubbles = surface.list.querySelectorAll<HTMLDivElement>(".msg");
+    const last = bubbles[bubbles.length - 1];
+    if (last === undefined || !last.classList.contains("msg--customer")) return;
+    if (new Date(agentReadAt).getTime() < new Date(last.dataset.createdAt ?? "").getTime()) return;
+
+    const seen = document.createElement("p");
+    seen.className = "msg__seen";
+    seen.textContent = "Seen";
+    last.insertAdjacentElement("afterend", seen);
+  }
+
+  function markReadIfVisible() {
+    if (state.status !== "ready" || realtime === null || !isOpen) return;
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+    realtime.markRead(state.conversationId);
+  }
+
+  /** Tells the team this visitor is typing: at most every 2.5s, and "stopped" after 3s idle. */
+  function onComposerInput() {
+    if (state.status !== "ready" || realtime === null) return;
+    const now = Date.now();
+    if (now - lastTypingSentAt > 2500) {
+      realtime.typing(state.conversationId, true);
+      lastTypingSentAt = now;
+    }
+    if (typingIdleTimer !== null) clearTimeout(typingIdleTimer);
+    typingIdleTimer = setTimeout(stopTyping, 3000);
+  }
+
+  function stopTyping() {
+    if (typingIdleTimer !== null) clearTimeout(typingIdleTimer);
+    typingIdleTimer = null;
+    if (lastTypingSentAt === 0) return;
+    lastTypingSentAt = 0;
+    if (state.status === "ready" && realtime !== null) realtime.typing(state.conversationId, false);
+  }
+
+  function onVisibilityChange() {
+    if (document.visibilityState === "visible") markReadIfVisible();
+  }
+  document.addEventListener("visibilitychange", onVisibilityChange);
+
+  // Business hours can open or close while the chat sits open.
+  const availabilityTimer = setInterval(renderAvailability, 60_000);
 
   function scrollToLatest() {
     if (chat === null) return;
@@ -476,8 +617,12 @@ export function initWidget(config: WidgetConfig, options: InitWidgetOptions = {}
         ...(visitorKey !== undefined ? { visitorKey } : {}),
       });
       rememberVisitor(session);
+      appearance = session.appearance ?? null;
+      agentsOnline = session.availability?.agentsOnline ?? false;
+      applyAppearance();
 
       const conversation = await resolveConversation(config.apiBase, session.token);
+      agentReadAt = conversation.agentLastReadAt ?? null;
       const history = await loadHistory(config.apiBase, session.token, conversation.id);
 
       setState({
@@ -491,6 +636,11 @@ export function initWidget(config: WidgetConfig, options: InitWidgetOptions = {}
       scrollToLatest();
 
       startRealtime(session.token, conversation.id);
+      // History loaded before `isOpen` checks run for each message; count unread once, here.
+      if (!isOpen && (conversation.unreadCount ?? 0) > 0) {
+        unseenWhileClosed = conversation.unreadCount ?? 0;
+        renderLauncherBadge();
+      }
     } catch (error) {
       /*
         A token the server has refused is cleared (ADR-024 §8): keeping it
@@ -536,6 +686,18 @@ export function initWidget(config: WidgetConfig, options: InitWidgetOptions = {}
         onAuthFailure: () => {
           clearStoredToken(config.widgetKey);
         },
+        onPresence: (online) => {
+          agentsOnline = online;
+          renderAvailability();
+        },
+        onAgentTyping: (typingConversationId, typing) => {
+          if (state.status === "ready" && state.conversationId === typingConversationId) setAgentTyping(typing);
+        },
+        onAgentRead: (readConversationId, readAt) => {
+          if (state.status !== "ready" || state.conversationId !== readConversationId) return;
+          agentReadAt = readAt;
+          if (chat !== null) updateSeenMarker(chat);
+        },
       },
     });
 
@@ -564,6 +726,7 @@ export function initWidget(config: WidgetConfig, options: InitWidgetOptions = {}
     }
 
     clearNotice();
+    markReadIfVisible();
 
     try {
       const missed = await loadHistory(
@@ -604,6 +767,7 @@ export function initWidget(config: WidgetConfig, options: InitWidgetOptions = {}
     surface.input.disabled = true;
     surface.sendButton.disabled = true;
     clearNotice();
+    stopTyping();
 
     try {
       const message = await realtime.send(conversationId, body);
@@ -696,6 +860,10 @@ export function initWidget(config: WidgetConfig, options: InitWidgetOptions = {}
     document.addEventListener("keydown", onKeyDown);
     panel.closeButton.focus();
 
+    unseenWhileClosed = 0;
+    renderLauncherBadge();
+    markReadIfVisible();
+
     if (state.status === "idle") void openSession();
   }
 
@@ -729,6 +897,10 @@ export function initWidget(config: WidgetConfig, options: InitWidgetOptions = {}
 
   function destroy() {
     document.removeEventListener("keydown", onKeyDown);
+    document.removeEventListener("visibilitychange", onVisibilityChange);
+    clearInterval(availabilityTimer);
+    if (agentTypingTimer !== null) clearTimeout(agentTypingTimer);
+    if (typingIdleTimer !== null) clearTimeout(typingIdleTimer);
     realtime?.destroy();
     realtime = null;
     host.remove();

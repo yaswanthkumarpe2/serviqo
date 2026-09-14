@@ -148,7 +148,7 @@ async function recordAndAnnounce(
   log: AuthLogger,
 ): Promise<void> {
   try {
-    await conversationRepository.touchLastMessageAt(conversationId, organizationId, message.createdAt);
+    await conversationRepository.touchLastMessageAt(conversationId, organizationId, message.createdAt, message.senderType);
   } catch (err) {
     log.error(
       {

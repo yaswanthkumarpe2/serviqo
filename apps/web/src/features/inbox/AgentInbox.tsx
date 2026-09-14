@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 
+import { BellIcon, BellOffIcon, VolumeIcon, VolumeOffIcon } from "@/features/workspace/workspaceIcons";
+
 import { useAgentInbox } from "./useAgentInbox";
 
 import type { InboxConversation, InboxMessage } from "./inboxApi";
@@ -91,7 +93,7 @@ function assigneeOf(conversation: InboxConversation) {
   return conversation.assignedTo ?? null;
 }
 
-function MessageBubble({ message }: { message: InboxMessage }) {
+function MessageBubble({ message, seen }: { message: InboxMessage; seen: boolean }) {
   const isAgent = message.senderType === "agent";
 
   return (
@@ -102,11 +104,25 @@ function MessageBubble({ message }: { message: InboxMessage }) {
           Named rather than colour-coded alone: "filled is human" is a visual
           convention, and a screen reader gets nothing from it.
         */}
-        <span className="inbox__messageSender">{isAgent ? "You" : "Customer"}</span>
+        <span className="inbox__messageSender">{isAgent ? "Support" : "Customer"}</span>
         <time dateTime={message.createdAt}>{formatTime(message.createdAt)}</time>
+        {/* The customer has read up to here (ADR-040 §4). */}
+        {seen && <span className="inbox__seen">Seen</span>}
       </p>
     </li>
   );
+}
+
+/** The index of the last agent message the customer has read, or -1 (ADR-040 §4). */
+function lastSeenAgentIndex(messages: InboxMessage[], customerLastReadAt: string | null | undefined): number {
+  if (customerLastReadAt === null || customerLastReadAt === undefined) return -1;
+  const readAt = new Date(customerLastReadAt).getTime();
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]!;
+    if (message.senderType !== "agent") continue;
+    return new Date(message.createdAt).getTime() <= readAt ? index : -1;
+  }
+  return -1;
 }
 
 export function AgentInbox({
@@ -148,6 +164,17 @@ export function AgentInbox({
   }
 
   const selected = inbox.conversations.find((c) => c.id === inbox.selectedConversationId) ?? null;
+  const seenIndex = selected === null ? -1 : lastSeenAgentIndex(inbox.messages, selected.customerLastReadAt);
+
+  /* The total unread count in the tab title, so it is visible from another tab (ADR-040 §5). */
+  const totalUnread = Object.values(inbox.unreadCounts).reduce((sum, count) => sum + count, 0);
+  useEffect(() => {
+    const base = document.title.replace(/^\(\d+\+?\) /, "");
+    document.title = totalUnread > 0 ? `(${totalUnread > 99 ? "99+" : totalUnread}) ${base}` : base;
+    return () => {
+      document.title = document.title.replace(/^\(\d+\+?\) /, "");
+    };
+  }, [totalUnread]);
 
   return (
     <section className="inbox card" aria-labelledby="inbox-heading">
@@ -155,6 +182,39 @@ export function AgentInbox({
         <h2 className="h3" id="inbox-heading">
           Inbox
         </h2>
+        <div className="inbox__alerts">
+          <button
+            type="button"
+            className="inbox__alertToggle"
+            onClick={inbox.notifications.toggleSound}
+            aria-pressed={inbox.notifications.soundEnabled}
+            aria-label={inbox.notifications.soundEnabled ? "Mute new-message sound" : "Turn on new-message sound"}
+            title={inbox.notifications.soundEnabled ? "Sound on" : "Sound off"}
+          >
+            {inbox.notifications.soundEnabled ? <VolumeIcon aria-hidden="true" /> : <VolumeOffIcon aria-hidden="true" />}
+          </button>
+          {inbox.notifications.desktopPermission !== "unsupported" && (
+            <button
+              type="button"
+              className="inbox__alertToggle"
+              onClick={() => void inbox.notifications.toggleDesktop()}
+              aria-pressed={inbox.notifications.desktopEnabled}
+              disabled={inbox.notifications.desktopPermission === "denied"}
+              aria-label={
+                inbox.notifications.desktopEnabled ? "Turn off desktop notifications" : "Turn on desktop notifications"
+              }
+              title={
+                inbox.notifications.desktopPermission === "denied"
+                  ? "Notifications are blocked in this browser"
+                  : inbox.notifications.desktopEnabled
+                    ? "Desktop notifications on"
+                    : "Desktop notifications off"
+              }
+            >
+              {inbox.notifications.desktopEnabled ? <BellIcon aria-hidden="true" /> : <BellOffIcon aria-hidden="true" />}
+            </button>
+          )}
+        </div>
         {/*
           The transport state, announced politely rather than as an alert:
           it changes on every network blip and must not interrupt an agent
@@ -226,8 +286,14 @@ export function AgentInbox({
                         monochrome display.
                       */}
                       <span className="inbox__rowMeta">
-                        {assignmentLabel(conversation, inbox.currentUserId)}
-                        {conversation.status === "closed" && <span className="inbox__closedTag"> · Closed</span>}
+                        {inbox.customerTyping[conversation.id] ? (
+                          <span className="inbox__typingTag">typing…</span>
+                        ) : (
+                          <>
+                            {assignmentLabel(conversation, inbox.currentUserId)}
+                            {conversation.status === "closed" && <span className="inbox__closedTag"> · Closed</span>}
+                          </>
+                        )}
                       </span>
                       {unread > 0 && (
                         /*
@@ -288,6 +354,12 @@ export function AgentInbox({
             ) : (
               <>
                 <h3 className="inbox__threadTitle">{conversationTitle(selected)}</h3>
+                {/* Contact details the visitor chose to give (ADR-038 §5). */}
+                {(selected.customer?.email || selected.customer?.phone) && (
+                  <p className="inbox__contact">
+                    {[selected.customer?.email, selected.customer?.phone].filter(Boolean).join(" · ")}
+                  </p>
+                )}
 
                 {/*
                   Ownership and lifecycle (ADR-026 §13). Each control has its
@@ -380,8 +452,8 @@ export function AgentInbox({
                       </p>
                     ) : (
                       <ul className="inbox__messages">
-                        {inbox.messages.map((message) => (
-                          <MessageBubble key={message.id} message={message} />
+                        {inbox.messages.map((message, index) => (
+                          <MessageBubble key={message.id} message={message} seen={index === seenIndex} />
                         ))}
                       </ul>
                     )}
@@ -420,6 +492,22 @@ export function AgentInbox({
                       </p>
                     ) : (
                       <>
+                        {inbox.customerTyping[selected.id] && (
+                          <p className="inbox__typing" role="status">
+                            <span className="inbox__typingDots" aria-hidden="true">
+                              <i />
+                              <i />
+                              <i />
+                            </span>
+                            Customer is typing…
+                          </p>
+                        )}
+                        {/* Two agents answering the same person at once is the collision this prevents (ADR-040 §3). */}
+                        {inbox.colleagueTyping[selected.id] && (
+                          <p className="inbox__typing inbox__typing--colleague" role="status">
+                            A colleague is replying to this conversation.
+                          </p>
+                        )}
                         <form className="inbox__composer" onSubmit={handleSubmit}>
                           <label className="inbox__srOnly" htmlFor="inbox-composer">
                             Reply to this conversation
@@ -430,7 +518,10 @@ export function AgentInbox({
                             value={draft}
                             rows={2}
                             placeholder="Write a reply…"
-                            onChange={(event) => setDraft(event.target.value)}
+                            onChange={(event) => {
+                              setDraft(event.target.value);
+                              inbox.notifyTyping();
+                            }}
                             disabled={inbox.isSending}
                           />
                           <button

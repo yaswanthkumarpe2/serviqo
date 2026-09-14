@@ -1,7 +1,10 @@
 import { Schema, model } from "mongoose";
 import type { HydratedDocument, Model } from "mongoose";
 
+import { DEFAULT_ACCENT_COLOR, defaultBusinessHours } from "./widgetAppearance";
 import { generateWidgetKey, isValidOrigin, normalizeOrigin } from "./widgetConfig";
+
+import type { WidgetAppearance } from "./widgetAppearance";
 
 /**
  * Organization is a Serviqo tenant/workspace — identity and
@@ -40,6 +43,8 @@ export interface OrganizationAttrs {
    * The default is therefore safe (ADR-019 §10).
    */
   allowedOrigins: string[];
+  /** How the customer chat looks and when it is open (ADR-040 §1). */
+  widgetAppearance: WidgetAppearance;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -134,6 +139,23 @@ const organizationSchema = new Schema<OrganizationAttrs>(
       and host and drops a default port, so one origin cannot be stored twice
       in two spellings.
     */
+    widgetAppearance: {
+      accentColor: { type: String, default: DEFAULT_ACCENT_COLOR, match: /^#[0-9a-fA-F]{6}$/ },
+      title: { type: String, default: null, trim: true, maxlength: 60 },
+      welcomeMessage: { type: String, default: null, trim: true, maxlength: 200 },
+      awayMessage: { type: String, default: null, trim: true, maxlength: 200 },
+      businessHours: {
+        enabled: { type: Boolean, default: false },
+        timezone: { type: String, default: "UTC" },
+        // Seven entries, Sunday first, each `{ open, close }` or `null` for a
+        // closed day. Mixed because Mongoose casts nulls out of subdocument
+        // arrays; the shape is enforced by `widgetAppearanceSchema` on the way in.
+        days: {
+          type: Schema.Types.Mixed,
+          default: () => defaultBusinessHours().days,
+        },
+      },
+    },
     allowedOrigins: {
       type: [String],
       default: [],

@@ -1,7 +1,10 @@
 import { OrganizationNotAccessibleError } from "../../lib/errors";
 import { logger } from "../../lib/logger";
 import { organizationRepository } from "./organization.repository";
+import { appearanceOf } from "./widgetAppearance";
 import { buildWidgetUrl } from "./widgetLink";
+
+import type { WidgetAppearance } from "./widgetAppearance";
 
 import type { AuthLogger } from "../auth/authLogging";
 import type { OrganizationDocument } from "./organization.model";
@@ -23,6 +26,8 @@ export interface WidgetSettings {
   allowedOrigins: string[];
   /** The organisation's hosted chat link (ADR-038 §1), beside the embed settings. */
   widgetUrl: string;
+  /** Colour, title, messages and business hours (ADR-040 §1). */
+  appearance: WidgetAppearance;
 }
 
 /** Who is acting. Comes from the verified access token, never from the body. */
@@ -39,6 +44,12 @@ export interface WidgetSettingsService {
     log?: AuthLogger,
   ): Promise<WidgetSettings>;
   rotateWidgetKey(organizationId: string, actor: WidgetSettingsActor, log?: AuthLogger): Promise<WidgetSettings>;
+  updateAppearance(
+    organizationId: string,
+    appearance: WidgetAppearance,
+    actor: WidgetSettingsActor,
+    log?: AuthLogger,
+  ): Promise<WidgetSettings>;
 }
 
 /**
@@ -53,6 +64,7 @@ function toWidgetSettings(organization: OrganizationDocument): WidgetSettings {
     widgetKey: organization.widgetKey!,
     allowedOrigins: organization.allowedOrigins,
     widgetUrl: buildWidgetUrl(organization.slug),
+    appearance: appearanceOf(organization.widgetAppearance),
   };
 }
 
@@ -116,6 +128,18 @@ export function createWidgetSettingsService(): WidgetSettingsService {
      * through `findByWidgetKey` from the moment this write commits — there is
      * no separate revocation step because there is no separate list.
      */
+    async updateAppearance(organizationId, appearance, actor, log = logger) {
+      const organization = await organizationRepository.updateWidgetAppearance(organizationId, appearance);
+      if (organization === null) {
+        throw new OrganizationNotAccessibleError("Organization not found");
+      }
+      log.info(
+        { event: "organization.widget_appearance_updated", organizationId, userId: actor.userId },
+        "Widget appearance updated",
+      );
+      return toWidgetSettings(organization);
+    },
+
     async rotateWidgetKey(organizationId, actor, log = logger) {
       const organization = await organizationRepository.rotateWidgetKey(organizationId);
       if (organization === null) {

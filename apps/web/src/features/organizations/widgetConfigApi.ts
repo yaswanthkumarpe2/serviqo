@@ -13,9 +13,30 @@ const ORGANIZATIONS_BASE = "/api/v1/organizations";
 const GENERIC_NETWORK_MESSAGE = "Could not reach the server. Check your connection and try again.";
 
 /** The two fields this surface owns. Never a secret, never a JWT. */
+export interface BusinessDay {
+  open: string;
+  close: string;
+}
+
+/** How the customer chat looks and when it is open (ADR-040 §1). */
+export interface WidgetAppearance {
+  accentColor: string;
+  title: string | null;
+  welcomeMessage: string | null;
+  awayMessage: string | null;
+  businessHours: {
+    enabled: boolean;
+    timezone: string;
+    /** Sunday first; `null` is closed all day. */
+    days: (BusinessDay | null)[];
+  };
+}
+
 export interface WidgetSettings {
   widgetKey: string;
   allowedOrigins: string[];
+  widgetUrl?: string;
+  appearance?: WidgetAppearance;
 }
 
 /** The provider's `authorizedFetch` — the only thing that can present an access token. */
@@ -78,4 +99,17 @@ export function replaceAllowedOrigins(
  */
 export function rotateWidgetKey(authorizedFetch: AuthorizedFetch, organizationId: string): Promise<WidgetSettings> {
   return callWidgetConfig(authorizedFetch, widgetConfigPath(organizationId, "/rotate-key"), { method: "POST" });
+}
+
+/** Replaces the chat's appearance and business hours (ADR-040 §1). Behind `organization.manage`. */
+export function updateWidgetAppearance(
+  authorizedFetch: AuthorizedFetch,
+  organizationId: string,
+  appearance: WidgetAppearance,
+): Promise<WidgetSettings> {
+  return callWidgetConfig(authorizedFetch, widgetConfigPath(organizationId, "/appearance"), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(appearance),
+  });
 }

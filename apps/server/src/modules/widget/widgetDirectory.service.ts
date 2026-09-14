@@ -3,6 +3,8 @@ import { logger } from "../../lib/logger";
 import { normalizeSlug } from "../organizations/organization.model";
 import { organizationRepository } from "../organizations/organization.repository";
 import { isWellFormedSlug } from "../organizations/organizationSlug";
+import { toPublicChatSettings } from "../organizations/widgetAppearance";
+import { agentPresence } from "../../realtime/presence";
 
 import type { AuthLogger } from "../auth/authLogging";
 
@@ -27,7 +29,7 @@ import type { AuthLogger } from "../auth/authLogging";
  * handing its customers a link.
  */
 
-export interface WidgetDirectoryEntry {
+export interface WidgetDirectoryEntry extends ReturnType<typeof toPublicChatSettings> {
   name: string;
   widgetKey: string;
 }
@@ -78,7 +80,12 @@ export function createWidgetDirectoryService(): WidgetDirectoryService {
         throw new NotFoundError(NOT_AVAILABLE_MESSAGE);
       }
 
-      return { name: withKey.name, widgetKey: withKey.widgetKey };
+      return {
+        name: withKey.name,
+        widgetKey: withKey.widgetKey,
+        // How the chat looks and whether anyone is there (ADR-040 §1–2).
+        ...toPublicChatSettings(withKey, agentPresence.isOnline(withKey._id.toString())),
+      };
     },
   };
 }

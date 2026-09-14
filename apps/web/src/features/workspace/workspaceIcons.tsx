@@ -191,3 +191,42 @@ export function PlayIcon(props: SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
+
+export function BellIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="16" height="16" {...STROKE} {...props}>
+      <path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
+      <path d="M13.73 21a2 2 0 01-3.46 0" />
+    </svg>
+  );
+}
+
+export function BellOffIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="16" height="16" {...STROKE} {...props}>
+      <path d="M13.73 21a2 2 0 01-3.46 0" />
+      <path d="M18.63 13A17.9 17.9 0 0118 8" />
+      <path d="M6.26 6.26A5.86 5.86 0 006 8c0 7-3 9-3 9h14" />
+      <path d="M18 8a6 6 0 00-9.33-5" />
+      <path d="M1 1l22 22" />
+    </svg>
+  );
+}
+
+export function VolumeIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="16" height="16" {...STROKE} {...props}>
+      <path d="M11 5L6 9H2v6h4l5 4V5z" />
+      <path d="M15.54 8.46a5 5 0 010 7.07M19.07 4.93a10 10 0 010 14.14" />
+    </svg>
+  );
+}
+
+export function VolumeOffIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="16" height="16" {...STROKE} {...props}>
+      <path d="M11 5L6 9H2v6h4l5 4V5z" />
+      <path d="M23 9l-6 6M17 9l6 6" />
+    </svg>
+  );
+}

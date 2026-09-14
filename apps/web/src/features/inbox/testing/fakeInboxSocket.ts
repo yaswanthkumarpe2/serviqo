@@ -26,6 +26,8 @@ export interface FakeInboxSocket {
   removeAllListenersCalls: number;
   /** Every event this socket was asked to listen for. */
   listenedEvents: string[];
+  /** Events the client emitted: typing and read receipts (ADR-040 §3–4). */
+  emissions: { event: string; payload: unknown }[];
 
   /** Drives the client: fire a server-sent event. */
   fire(event: string, ...args: unknown[]): void;
@@ -57,6 +59,7 @@ export function createFakeInboxSocketHarness(): FakeInboxSocketHarness {
       disconnectCalls: 0,
       removeAllListenersCalls: 0,
       listenedEvents: [],
+      emissions: [],
 
       fire(event, ...args) {
         for (const listener of listeners.get(event) ?? []) listener(...args);
@@ -92,6 +95,10 @@ export function createFakeInboxSocketHarness(): FakeInboxSocketHarness {
         const existing = listeners.get(event) ?? [];
         existing.push(listener);
         listeners.set(event, existing);
+        return impl;
+      },
+      emit(event: string, payload: unknown) {
+        socket.emissions.push({ event, payload });
         return impl;
       },
       disconnect() {

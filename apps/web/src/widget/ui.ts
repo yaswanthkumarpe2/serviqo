@@ -34,6 +34,10 @@ export interface PanelSkeleton {
   body: HTMLDivElement;
   closeButton: HTMLButtonElement;
   titleId: string;
+  title: HTMLHeadingElement;
+  subtitle: HTMLParagraphElement;
+  /** The online/away dot beside the subtitle (ADR-040 §2). */
+  statusDot: HTMLSpanElement;
 }
 
 /**
@@ -61,10 +65,16 @@ export function createPanelSkeleton(titleId: string, titleText = "Chat with us")
   // `textContent`, never markup: on the hosted page this is an organisation's
   // name, which a person typed.
   title.textContent = titleText;
+  const subtitleRow = document.createElement("div");
+  subtitleRow.className = "panel__subtitleRow";
+  const statusDot = document.createElement("span");
+  statusDot.className = "panel__dot";
+  statusDot.setAttribute("aria-hidden", "true");
   const subtitle = document.createElement("p");
   subtitle.className = "panel__subtitle";
   subtitle.textContent = "We usually reply within a few minutes.";
-  titleWrap.append(title, subtitle);
+  subtitleRow.append(statusDot, subtitle);
+  titleWrap.append(title, subtitleRow);
 
   const closeButton = document.createElement("button");
   closeButton.type = "button";
@@ -79,7 +89,7 @@ export function createPanelSkeleton(titleId: string, titleText = "Chat with us")
 
   element.append(header, body);
 
-  return { element, body, closeButton, titleId };
+  return { element, body, closeButton, titleId, title, subtitle, statusDot };
 }
 
 /**
@@ -168,6 +178,7 @@ export function createChatSurface(maxBodyLength: number): ChatSurface {
 export function createMessageBubble(senderType: "customer" | "agent", body: string, createdAt: string): HTMLDivElement {
   const wrap = document.createElement("div");
   wrap.className = `msg msg--${senderType}`;
+  wrap.dataset.createdAt = createdAt;
 
   const text = document.createElement("p");
   text.className = "msg__body";

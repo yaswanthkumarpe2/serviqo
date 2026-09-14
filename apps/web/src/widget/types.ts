@@ -16,6 +16,26 @@ export interface WidgetSessionCustomer {
   phone: string | null;
 }
 
+/** How an organisation's chat looks and when it is open (ADR-040 §1). */
+export interface WidgetAppearance {
+  accentColor: string;
+  title: string;
+  welcomeMessage: string | null;
+  awayMessage: string | null;
+  businessHours: {
+    enabled: boolean;
+    timezone: string;
+    days: ({ open: string; close: string } | null)[];
+  };
+}
+
+/** Whether anyone is available right now (ADR-040 §2). */
+export interface WidgetAvailability {
+  online: boolean;
+  agentsOnline: boolean;
+  withinBusinessHours: boolean;
+}
+
 /** The full success payload of `POST /api/v1/widget/session`. */
 export interface WidgetSessionResult {
   token: string;
@@ -28,6 +48,9 @@ export interface WidgetSessionResult {
    * one-day token has expired.
    */
   visitorKey?: string;
+  /** Absent from servers before ADR-040; the widget falls back to its defaults. */
+  appearance?: WidgetAppearance;
+  availability?: WidgetAvailability;
 }
 
 /** Resolved once at startup from the `<script>` tag that loaded this file (ADR-021 §4). */
@@ -66,6 +89,10 @@ export interface WidgetConversation {
   status: "open" | "closed";
   createdAt: string;
   lastMessageAt: string;
+  /** When the team last read the conversation, for "Seen" (ADR-040 §4). */
+  agentLastReadAt?: string | null;
+  /** Agent messages this visitor has not seen yet (ADR-040 §4). */
+  unreadCount?: number;
 }
 
 /** One page of history (ADR-022 §11, §13). */

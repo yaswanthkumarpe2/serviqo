@@ -22,6 +22,9 @@ export function toConversationResponse(conversation: ConversationDocument) {
     status: conversation.status,
     createdAt: conversation.createdAt,
     lastMessageAt: conversation.lastMessageAt,
+    // When the team last read it, so the chat can show "Seen" (ADR-040 §4). No one's identity.
+    agentLastReadAt: conversation.agentLastReadAt ?? null,
+    unreadCount: conversation.unreadByCustomer ?? 0,
   };
 }
 

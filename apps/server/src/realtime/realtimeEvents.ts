@@ -22,6 +22,12 @@ export const SOCKET_EVENTS = {
    * operational detail that must not cross to the customer.
    */
   CONVERSATION_UPDATED: "conversation:updated",
+  /** Whether anyone is available to answer, sent to an organisation's visitors (ADR-040 §2). */
+  PRESENCE_UPDATE: "presence:update",
+  /** Someone started or stopped typing in a conversation (ADR-040 §3). Both directions. */
+  TYPING: "typing",
+  /** A side read a conversation; clears unread counts and shows "Seen" (ADR-040 §4). Both directions. */
+  CONVERSATION_READ: "conversation:read",
 } as const;
 
 /** One machine-readable code per ack failure, mirroring the REST error codes this transport parallels. */
@@ -41,6 +47,15 @@ export interface SocketErrorPayload {
 export type SocketAck<T> = (response: { ok: true; data: T } | { ok: false; error: SocketErrorPayload }) => void;
 
 export interface ConversationJoinPayload {
+  conversationId?: unknown;
+}
+
+export interface TypingPayload {
+  conversationId?: unknown;
+  isTyping?: unknown;
+}
+
+export interface ConversationReadPayload {
   conversationId?: unknown;
 }
 

@@ -21,6 +21,8 @@ export interface InboxCustomer {
   id: string;
   name: string | null;
   email: string | null;
+  /** Optional contact detail the visitor gave (ADR-038 §5). */
+  phone?: string | null;
 }
 
 /**
@@ -52,6 +54,12 @@ export interface InboxConversation {
   customer: InboxCustomer | null;
   /** `null` when nobody has claimed it (ADR-026 §1). */
   assignedTo: InboxAssignee | null;
+  /** Customer messages nobody on the team has read (ADR-040 §4). Absent from older servers. */
+  unreadCount?: number;
+  /** When the team last read it. */
+  agentLastReadAt?: string | null;
+  /** When the customer last read it, for "Seen" under an agent's reply. */
+  customerLastReadAt?: string | null;
 }
 
 /**

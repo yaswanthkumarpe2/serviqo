@@ -483,7 +483,15 @@ describe("widget session", () => {
         on the response that minted it, and never again (ADR-038 §3).
         `phone` is the third optional detail (ADR-038 §5).
       */
-      expect(Object.keys(response.body.data).sort()).toEqual(["customer", "expiresInSeconds", "token", "visitorKey"]);
+      // `appearance` and `availability` since ADR-040 §1–2: how the chat looks and whether anyone is there.
+      expect(Object.keys(response.body.data).sort()).toEqual([
+        "appearance",
+        "availability",
+        "customer",
+        "expiresInSeconds",
+        "token",
+        "visitorKey",
+      ]);
       expect(Object.keys(response.body.data.customer).sort()).toEqual(["email", "id", "name", "phone"]);
     });
 
@@ -494,7 +502,7 @@ describe("widget session", () => {
 
       expect(response.text).not.toContain(organization._id.toString());
       expect(response.text).not.toContain(organization.slug);
-      expect(response.text).not.toContain(organization.name);
+      // The name IS shown now: it is the chat's default title (ADR-040 §1), which every visitor sees anyway.
       expect(response.text).not.toContain(organization.widgetKey!);
       expect(response.text).not.toContain(ALLOWED_ORIGIN);
     });

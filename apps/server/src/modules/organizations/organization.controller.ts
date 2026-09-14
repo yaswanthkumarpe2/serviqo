@@ -3,7 +3,7 @@ import { InsufficientPermissionError, OrganizationNotAccessibleError } from "../
 import { organizationRepository } from "./organization.repository";
 import { buildWidgetUrl } from "./widgetLink";
 
-import type { ReplaceAllowedOriginsInput } from "./organization.validation";
+import type { ReplaceAllowedOriginsInput, WidgetAppearanceInput } from "./organization.validation";
 import type { TransferOwnershipInput } from "./ownership.validation";
 import type { OwnershipTransferService } from "./ownershipTransfer.service";
 import type { WidgetSettingsService } from "./widgetSettings.service";
@@ -172,5 +172,17 @@ export function createOrganizationController({
     success(res, result);
   };
 
-  return { read, getWidgetConfig, updateAllowedOrigins, rotateWidgetKey, transferOwnership };
+  /** Replaces the chat's appearance and business hours (ADR-040 §1). */
+  const updateWidgetAppearance: RequestHandler = async (req, res) => {
+    const context = req.organizationContext!;
+    const settings = await widgetSettingsService.updateAppearance(
+      context.organizationId,
+      req.body as WidgetAppearanceInput,
+      { userId: req.principal!.userId },
+      req.log,
+    );
+    success(res, settings);
+  };
+
+  return { read, getWidgetConfig, updateAllowedOrigins, updateWidgetAppearance, rotateWidgetKey, transferOwnership };
 }

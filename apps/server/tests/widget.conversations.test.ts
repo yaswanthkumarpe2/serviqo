@@ -160,7 +160,15 @@ describe("widget conversations and messages", () => {
 
       expect(created.text).not.toContain(organization._id.toString());
       expect(message.text).not.toContain(organization._id.toString());
-      expect(Object.keys(created.body.data).sort()).toEqual(["createdAt", "id", "lastMessageAt", "status"]);
+      // `agentLastReadAt` and `unreadCount` since ADR-040 §4: when the team last read it, and how many replies are unseen.
+      expect(Object.keys(created.body.data).sort()).toEqual([
+        "agentLastReadAt",
+        "createdAt",
+        "id",
+        "lastMessageAt",
+        "status",
+        "unreadCount",
+      ]);
       expect(Object.keys(message.body.data).sort()).toEqual(["body", "conversationId", "createdAt", "id", "senderType"]);
     });
   });
@@ -673,6 +681,9 @@ describe("widget conversations and messages", () => {
           "listByCustomer",
           "listByOrganization",
           "touchLastMessageAt",
+          // Read receipts (ADR-040 §4). Both take `organizationId`; the customer's also takes `customerId`.
+          "markReadByAgents",
+          "markReadByCustomer",
           /*
             The state-changing trio (ADR-026 §4, §7). Every one of them takes
             `organizationId` as a mandatory key in its own filter — a

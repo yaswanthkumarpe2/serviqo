@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { isValidTimezone } from "./widgetAppearance";
 import { normalizeOrigin } from "./widgetConfig";
 
 /**
@@ -121,3 +122,40 @@ export const replaceAllowedOriginsSchema = z.object({
 });
 
 export type ReplaceAllowedOriginsInput = z.infer<typeof replaceAllowedOriginsSchema>;
+
+// ---- widget appearance (ADR-040 §1) ----
+
+const TIME_PATTERN = /^([01][0-9]|2[0-3]):[0-5][0-9]$/;
+
+const optionalText = (max: number) =>
+  z
+    .string()
+    .trim()
+    .max(max, `must be at most ${max} characters`)
+    .refine((value) => !CONTROL_CHARACTERS.test(value.replace(/\n/g, "")), "must not contain control characters")
+    .transform((value) => (value.length === 0 ? null : value))
+    .nullable();
+
+const businessDaySchema = z
+  .object({ open: z.string().regex(TIME_PATTERN, "use HH:MM"), close: z.string().regex(TIME_PATTERN, "use HH:MM") })
+  .strict()
+  .refine((day) => day.open < day.close, "closing time must be after opening time")
+  .nullable();
+
+export const widgetAppearanceSchema = z
+  .object({
+    accentColor: z.string().regex(/^#[0-9a-fA-F]{6}$/, "accentColor must be a colour like #14684A"),
+    title: optionalText(60),
+    welcomeMessage: optionalText(200),
+    awayMessage: optionalText(200),
+    businessHours: z
+      .object({
+        enabled: z.boolean(),
+        timezone: z.string().refine(isValidTimezone, "timezone must be an IANA timezone such as Asia/Kolkata"),
+        days: z.array(businessDaySchema).length(7, "days must list all seven days, Sunday first"),
+      })
+      .strict(),
+  })
+  .strict();
+
+export type WidgetAppearanceInput = z.infer<typeof widgetAppearanceSchema>;

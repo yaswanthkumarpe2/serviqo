@@ -263,7 +263,8 @@ describe("AgentInbox", () => {
       const agentMessage = screen.getByText("from us").closest("li")!;
 
       expect(within(customerMessage).getByText("Customer")).toBeDefined();
-      expect(within(agentMessage).getByText("You")).toBeDefined();
+      // "Support", not "You": the reply may be a colleague's (ADR-040 §3).
+      expect(within(agentMessage).getByText("Support")).toBeDefined();
     });
 
     it("shows an empty thread state for a conversation with no messages", async () => {
