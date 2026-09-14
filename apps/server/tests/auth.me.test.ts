@@ -9,10 +9,10 @@ import { ACCESS_TOKEN_AUDIENCE, ACCESS_TOKEN_ISSUER, REFRESH_COOKIE_NAME } from 
 import { env } from "../src/lib/env";
 import { AccountTokenModel } from "../src/modules/accountTokens/accountToken.model";
 import { createFakeEmailProvider } from "../src/modules/auth/testing/fakeEmailProvider";
+import { createStaffAccount } from "../src/modules/auth/testing/staffAccounts";
 import { SessionModel } from "../src/modules/sessions/session.model";
 import { UserModel } from "../src/modules/users/user.model";
 
-const REGISTER_PATH = "/api/v1/auth/register";
 const VERIFY_PATH = "/api/v1/auth/verify-email";
 const LOGIN_PATH = "/api/v1/auth/login";
 const LOGOUT_PATH = "/api/v1/auth/logout";
@@ -36,7 +36,7 @@ function buildApp() {
 type Ctx = ReturnType<typeof buildApp>;
 
 async function registerAndVerify(ctx: Ctx, email: string, name = NAME) {
-  await request(ctx.app).post(REGISTER_PATH).send({ name, email, password: PASSWORD });
+  await createStaffAccount(ctx.fake.provider, { name, email, password: PASSWORD });
   const code = ctx.fake.verifications.at(-1)!.code;
   await request(ctx.app).post(VERIFY_PATH).send({ email, code });
 }

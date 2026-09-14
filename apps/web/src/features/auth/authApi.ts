@@ -21,12 +21,12 @@ export interface ApiValidationIssue {
 /** The authenticated user, exactly as the login endpoint reports it. */
 export interface AuthenticatedUser {
   /**
-   * Which product this account signed up for (ADR-034 §1).
+   * Which staff surface this account belongs on (ADR-034 §1, ADR-037).
    *
    * Reported by LOGIN as well as `/me`, because it decides where the browser
-   * goes next — a customer to their chat, an agent to their inbox — and making
-   * that wait for a second request would show every agent the customer
-   * dashboard for a frame first.
+   * goes next — an agent to the workspace, the super admin to the console —
+   * and making that wait for a second request would show the wrong shell for
+   * a frame first.
    */
   kind?: string;
   id: string;
@@ -277,33 +277,6 @@ async function postAuthNoContent(path: string, init: RequestInit = {}): Promise<
   throw new AuthApiError(UNEXPECTED_RESPONSE, GENERIC_FAILURE_MESSAGE, response.status);
 }
 
-export interface RegisterInput {
-  name: string;
-  email: string;
-  password: string;
-}
-
-/**
- * Creates an account and triggers the verification email (ADR-007).
- *
- * Resolves with nothing a caller should act on. The endpoint deliberately
- * answers the same way whether the address was new or already registered —
- * naming the difference would turn signup into an account-existence oracle
- * (ADR-007 §4) — so "success" here means "if that address can hold an
- * account, a code is on its way", and the UI must say exactly that rather
- * than "account created".
- *
- * The account exists but CANNOT be used until the code is redeemed: login is
- * refused for an unverified address. Registration is therefore two steps,
- * and this is only the first.
- */
-export async function register(input: RegisterInput): Promise<void> {
-  await postAuth<{ user: unknown }>("/register", {
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
-  });
-}
-
 export interface VerifyEmailInput {
   email: string;
   code: string;
@@ -531,9 +504,7 @@ export function isPlatformAdmin(user: CurrentUser | null): boolean {
  *
  * One function rather than `kind === "agent"` scattered through the routing,
  * so the string literal exists once — and so the DEFAULT is stated once:
- * anything that is not explicitly an agent is treated as a customer, which is
- * the reading that grants less. An older server that omits the field, or a
- * value this client does not recognise, lands on the customer surface.
+ * anything that is not explicitly an agent is not one.
  */
 export function isAgent(user: { kind?: string } | null): boolean {
   return user?.kind === "agent";
@@ -554,20 +525,20 @@ export function isAdminKind(user: { kind?: string } | null): boolean {
 }
 
 /**
- * Where an account belongs after signing in (ADR-034 §9).
+ * Where a staff account belongs after signing in (ADR-034 §9, ADR-037).
  *
- * The one place that decides, so the two login pages and the post-verification
- * redirect cannot disagree about it.
+ * The one place that decides, so the sign-in page, the console's door and the
+ * post-verification redirect cannot disagree about it.
+ *
+ * `null` for anything that is neither kind of staff. There is no customer
+ * surface to default to any more, and inventing a destination would send an
+ * unrecognised account into a guard that bounces it straight back — so the
+ * caller renders `NoStaffSurface`, which signs the browser out instead.
  */
-export function homePathFor(user: { kind?: string } | null): string {
+export function homePathFor(user: { kind?: string } | null): string | null {
   if (isAdminKind(user)) return "/control";
   if (isAgent(user)) return "/agent";
-  /*
-    The default, and deliberately the least-privileged surface: an unrecognised
-    kind, or an older server that sends none, lands on the customer chat rather
-    than on a staff shell.
-  */
-  return "/dashboard";
+  return null;
 }
 
 function isCurrentUserMembership(value: unknown): value is CurrentUserMembership {

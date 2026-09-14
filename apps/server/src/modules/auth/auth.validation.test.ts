@@ -1,6 +1,22 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 
-import { loginSchema, registerSchema, resendVerificationSchema, verifyEmailSchema } from "./auth.validation";
+import {
+  chosenPasswordField,
+  emailField,
+  loginSchema,
+  personNameField,
+  resendVerificationSchema,
+  verifyEmailSchema,
+} from "./auth.validation";
+
+/**
+ * The three account fields, composed the way registration composed them
+ * before ADR-037 removed it. They are tested together because they are still
+ * used — by invitations and password reset — and the rules were written, and
+ * are easiest to read, as one form.
+ */
+const accountFields = z.object({ name: personNameField, email: emailField, password: chosenPasswordField });
 
 const validInput = {
   name: "Ada Lovelace",
@@ -10,19 +26,19 @@ const validInput = {
 
 /** Field paths of every issue, so a case can assert which field failed. */
 function failedFields(input: unknown): string[] {
-  const result = registerSchema.safeParse(input);
+  const result = accountFields.safeParse(input);
   if (result.success) return [];
   return result.error.issues.map((issue) => issue.path.join("."));
 }
 
-describe("registerSchema — accepted input", () => {
-  it("accepts a valid registration", () => {
-    const result = registerSchema.safeParse(validInput);
+describe("accountFields — accepted input", () => {
+  it("accepts valid account fields", () => {
+    const result = accountFields.safeParse(validInput);
     expect(result.success).toBe(true);
   });
 
   it("strips keys the schema does not declare", () => {
-    const result = registerSchema.parse({
+    const result = accountFields.parse({
       ...validInput,
       status: "disabled",
       emailVerifiedAt: new Date().toISOString(),
@@ -34,7 +50,7 @@ describe("registerSchema — accepted input", () => {
   });
 });
 
-describe("registerSchema — required fields", () => {
+describe("accountFields — required fields", () => {
   it.each(["name", "email", "password"])("rejects a missing %s", (field) => {
     const input: Record<string, unknown> = { ...validInput };
     delete input[field];
@@ -43,12 +59,12 @@ describe("registerSchema — required fields", () => {
   });
 
   it("rejects a body that is not an object", () => {
-    expect(registerSchema.safeParse(undefined).success).toBe(false);
-    expect(registerSchema.safeParse("a string").success).toBe(false);
+    expect(accountFields.safeParse(undefined).success).toBe(false);
+    expect(accountFields.safeParse("a string").success).toBe(false);
   });
 });
 
-describe("registerSchema — email", () => {
+describe("accountFields — email", () => {
   it.each(["not-an-email", "missing@tld", "@example.com", "spaces in@example.com", "double@@example.com"])(
     "rejects malformed address %s",
     (email) => {
@@ -57,7 +73,7 @@ describe("registerSchema — email", () => {
   );
 
   it("trims surrounding whitespace before validating", () => {
-    const result = registerSchema.parse({ ...validInput, email: "   ada@example.com   " });
+    const result = accountFields.parse({ ...validInput, email: "   ada@example.com   " });
     expect(result.email).toBe("ada@example.com");
   });
 
@@ -69,12 +85,12 @@ describe("registerSchema — email", () => {
   // normalizeEmail (user.model.ts) is the single canonicalization authority;
   // a second one here would be free to drift from it.
   it("does not lowercase — canonicalization belongs to the User model", () => {
-    const result = registerSchema.parse({ ...validInput, email: "Ada@Example.COM" });
+    const result = accountFields.parse({ ...validInput, email: "Ada@Example.COM" });
     expect(result.email).toBe("Ada@Example.COM");
   });
 });
 
-describe("registerSchema — name", () => {
+describe("accountFields — name", () => {
   it("rejects an empty name", () => {
     expect(failedFields({ ...validInput, name: "" })).toContain("name");
   });
@@ -84,12 +100,12 @@ describe("registerSchema — name", () => {
   });
 
   it("trims surrounding whitespace", () => {
-    const result = registerSchema.parse({ ...validInput, name: "  Ada Lovelace  " });
+    const result = accountFields.parse({ ...validInput, name: "  Ada Lovelace  " });
     expect(result.name).toBe("Ada Lovelace");
   });
 
   it("accepts a name of exactly 100 characters", () => {
-    expect(registerSchema.safeParse({ ...validInput, name: "a".repeat(100) }).success).toBe(true);
+    expect(accountFields.safeParse({ ...validInput, name: "a".repeat(100) }).success).toBe(true);
   });
 
   it("rejects a name of 101 characters", () => {
@@ -118,30 +134,30 @@ describe("registerSchema — name", () => {
     ["Devanagari", "यशवंत"],
     ["emoji", "Ada \u{1F600}"],
   ])("accepts a %s name", (_label, name) => {
-    expect(registerSchema.safeParse({ ...validInput, name }).success).toBe(true);
+    expect(accountFields.safeParse({ ...validInput, name }).success).toBe(true);
   });
 
   // Zero canonicalization: a name is presentation data belonging to its owner.
   it("does not normalize an accepted name", () => {
     const decomposed = "Jose\u0301 Alvarez";
-    const result = registerSchema.parse({ ...validInput, name: decomposed });
+    const result = accountFields.parse({ ...validInput, name: decomposed });
 
     expect(result.name).toBe(decomposed);
     expect(result.name).not.toBe(decomposed.normalize("NFC"));
   });
 });
 
-describe("registerSchema — password length", () => {
+describe("accountFields — password length", () => {
   it("rejects a password of 9 code points", () => {
     expect(failedFields({ ...validInput, password: "a".repeat(9) })).toContain("password");
   });
 
   it("accepts a password of exactly 10 code points", () => {
-    expect(registerSchema.safeParse({ ...validInput, password: "a".repeat(10) }).success).toBe(true);
+    expect(accountFields.safeParse({ ...validInput, password: "a".repeat(10) }).success).toBe(true);
   });
 
   it("accepts a password of exactly 128 code points", () => {
-    expect(registerSchema.safeParse({ ...validInput, password: "a".repeat(128) }).success).toBe(true);
+    expect(accountFields.safeParse({ ...validInput, password: "a".repeat(128) }).success).toBe(true);
   });
 
   it("rejects a password of 129 code points", () => {
@@ -163,7 +179,7 @@ describe("registerSchema — password length", () => {
   });
 
   it("accepts 10 astral characters", () => {
-    expect(registerSchema.safeParse({ ...validInput, password: "\u{1F600}".repeat(10) }).success).toBe(true);
+    expect(accountFields.safeParse({ ...validInput, password: "\u{1F600}".repeat(10) }).success).toBe(true);
   });
 
   it("rejects 129 astral characters", () => {
@@ -182,22 +198,22 @@ describe("registerSchema — password length", () => {
   });
 });
 
-describe("registerSchema — password is never transformed", () => {
+describe("accountFields — password is never transformed", () => {
   it("preserves leading and trailing whitespace", () => {
     const password = "   spaced password   ";
-    expect(registerSchema.parse({ ...validInput, password }).password).toBe(password);
+    expect(accountFields.parse({ ...validInput, password }).password).toBe(password);
   });
 
   it("preserves internal whitespace and case", () => {
     const password = "MiXeD Case\tWith\tTabs";
-    expect(registerSchema.parse({ ...validInput, password }).password).toBe(password);
+    expect(accountFields.parse({ ...validInput, password }).password).toBe(password);
   });
 
   // The composed form is measured, but the decomposed form is what comes
   // back — NFC ownership stays inside the crypto boundary.
   it("does not NFC-normalize the returned password", () => {
     const decomposed = "cafe\u0301-password-long";
-    const result = registerSchema.parse({ ...validInput, password: decomposed });
+    const result = accountFields.parse({ ...validInput, password: decomposed });
 
     expect(result.password).toBe(decomposed);
     expect(result.password).not.toBe(decomposed.normalize("NFC"));
@@ -317,11 +333,11 @@ describe("verifyEmailSchema", () => {
   });
 });
 
-describe("registerSchema — issue messages", () => {
+describe("accountFields — issue messages", () => {
   it("never echoes the submitted value in a message", () => {
     const password = "sh0rt";
     const email = "leak-me@@example";
-    const result = registerSchema.safeParse({ name: "\u0000bad", email, password });
+    const result = accountFields.safeParse({ name: "\u0000bad", email, password });
 
     expect(result.success).toBe(false);
     if (result.success) return;

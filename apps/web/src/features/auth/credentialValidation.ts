@@ -1,5 +1,7 @@
 /**
- * Client-side checks for the sign-up and verification forms.
+ * Client-side checks for the forms where a person proves an address or chooses
+ * a password: verification and password reset. (Sign-up used them too, until
+ * ADR-037 removed public registration.)
  *
  * Same posture as `loginValidation.ts`: these save a round trip and point at
  * the offending field, and the server remains the only authority. Its
@@ -9,7 +11,7 @@
  * contradiction of `loginValidation.ts`'s reasoning — the opposite. At login,
  * stating the policy would tell an unauthenticated visitor what it is while
  * telling a legitimate user nothing they can act on, because a short password
- * is simply wrong. At registration the person is CHOOSING a password, so the
+ * is simply wrong. At a reset the person is CHOOSING a password, so the
  * rule has to be visible or they cannot comply with it, and the server would
  * reject them after a round trip that taught them nothing.
  */
@@ -30,12 +32,6 @@ export const PASSWORD_MAX_LENGTH = 128;
 /** Mirrors `EMAIL_VERIFICATION_CODE_LENGTH` on the server (ADR-030). */
 export const VERIFICATION_CODE_LENGTH = 6;
 
-export interface SignUpFieldErrors {
-  name?: string;
-  email?: string;
-  password?: string;
-}
-
 export interface VerifyFieldErrors {
   email?: string;
   code?: string;
@@ -47,37 +43,6 @@ export interface VerifyFieldErrors {
  * failure than letting one reach a server that validates it properly.
  */
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-export function validateSignUp(values: { name: string; email: string; password: string }): SignUpFieldErrors {
-  const errors: SignUpFieldErrors = {};
-
-  if (values.name.trim().length === 0) {
-    errors.name = "Name is required";
-  }
-
-  const email = values.email.trim();
-  if (email.length === 0) {
-    errors.email = "Email is required";
-  } else if (!EMAIL_PATTERN.test(email)) {
-    errors.email = "Enter a valid email address";
-  }
-
-  /*
-    Not trimmed, and measured in UTF-16 units the way the server does. A
-    password is a sequence of characters the person chose, including any
-    spaces at either end — silently trimming one would let someone register a
-    password they cannot subsequently type.
-  */
-  if (values.password.length === 0) {
-    errors.password = "Password is required";
-  } else if (values.password.length < PASSWORD_MIN_LENGTH) {
-    errors.password = `Password must be at least ${PASSWORD_MIN_LENGTH} characters`;
-  } else if (values.password.length > PASSWORD_MAX_LENGTH) {
-    errors.password = `Password must be at most ${PASSWORD_MAX_LENGTH} characters`;
-  }
-
-  return errors;
-}
 
 /**
  * Checks the verification form.
@@ -150,6 +115,6 @@ export function validateForgotPassword(values: { email: string }): Pick<VerifyFi
   return {};
 }
 
-export function hasSignUpErrors(errors: SignUpFieldErrors | VerifyFieldErrors): boolean {
+export function hasFieldErrors(errors: VerifyFieldErrors): boolean {
   return Object.keys(errors).length > 0;
 }

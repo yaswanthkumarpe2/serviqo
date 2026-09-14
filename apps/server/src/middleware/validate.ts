@@ -9,7 +9,7 @@ import type { ZodError, ZodType } from "zod";
  *
  * A route declares its schema in its own definition:
  *
- *   router.post("/register", validateBody(registerSchema), controller.register);
+ *   router.post("/login", validateBody(loginSchema), controller.login);
  *
  * so "does this route validate its input?" is answered by reading the route
  * file, not by auditing the handler. The handler never runs on invalid input,

@@ -7,9 +7,9 @@ import { sha256 } from "../src/lib/crypto/tokens";
 import { createApp } from "../src/app";
 import { AccountTokenModel } from "../src/modules/accountTokens/accountToken.model";
 import { createFakeEmailProvider } from "../src/modules/auth/testing/fakeEmailProvider";
+import { createStaffAccount } from "../src/modules/auth/testing/staffAccounts";
 import { UserModel } from "../src/modules/users/user.model";
 
-const REGISTER_PATH = "/api/v1/auth/register";
 const VERIFY_PATH = "/api/v1/auth/verify-email";
 
 const PASSWORD = "DO_NOT_LEAK_THIS_PASSWORD";
@@ -30,7 +30,7 @@ function buildApp() {
 }
 
 async function registerAndGetCode(ctx: ReturnType<typeof buildApp>) {
-  await request(ctx.app).post(REGISTER_PATH).send({ name: "Ada Lovelace", email: EMAIL, password: PASSWORD });
+  await createStaffAccount(ctx.fake.provider, { name: "Ada Lovelace", email: EMAIL, password: PASSWORD });
   return ctx.fake.verifications.at(-1)!.code;
 }
 

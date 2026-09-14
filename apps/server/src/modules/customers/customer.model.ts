@@ -72,22 +72,6 @@ export interface CustomerAttrs {
    * written against the collection that will grow fastest in the system.
    */
   lastSeenAt: Date;
-  /**
-   * The registered account this customer IS, when they have one (ADR-034 §3).
-   *
-   * `null` for every visitor who arrived through the widget, which is the
-   * overwhelming majority and the only kind that existed before this field.
-   *
-   * This is the one lookup key on this collection besides `_id`, and the
-   * contrast with `email` two fields up is the whole point. Email must never
-   * find a customer, because anyone who typed a known address would inherit
-   * that person's history — an account-takeover primitive on an
-   * unauthenticated endpoint. `userId` is safe to look up precisely because it
-   * cannot be typed: it is read from a verified access token, never from a
-   * request body, so finding a customer by it proves the caller IS that
-   * customer rather than merely naming them.
-   */
-  userId: Types.ObjectId | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -131,14 +115,6 @@ const customerSchema = new Schema<CustomerAttrs>(
         exist (ADR-019 §3, §5).
       */
     },
-    userId: {
-      type: Schema.Types.ObjectId,
-      ref: "User",
-      // Explicitly null rather than absent, so `{ userId: null }` matches
-      // every anonymous visitor — the same reasoning `Conversation.assignedTo`
-      // records for its own nullable reference.
-      default: null,
-    },
     lastSeenAt: {
       type: Date,
       default: () => new Date(),
@@ -175,22 +151,6 @@ const customerSchema = new Schema<CustomerAttrs>(
  * which the default `_id` index serves.
  */
 customerSchema.index({ organizationId: 1 });
-
-/**
- * One customer per account per tenant (ADR-034 §3).
- *
- * Partial, constrained to documents that actually carry a `userId`: anonymous
- * visitors all have `null` there, and a plain unique index would let exactly
- * one of them exist per organization.
- *
- * It is also the lookup this collection's authenticated path depends on —
- * "which customer is this signed-in person" — so the uniqueness and the query
- * are served by one index rather than two.
- */
-customerSchema.index(
-  { organizationId: 1, userId: 1 },
-  { unique: true, partialFilterExpression: { userId: { $type: "objectId" } } },
-);
 
 /**
  * The same serialization boundary as User, Organization, and Membership:

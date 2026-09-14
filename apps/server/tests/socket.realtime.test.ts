@@ -19,6 +19,8 @@ import { UserModel } from "../src/modules/users/user.model";
 import { createSocketServer } from "../src/realtime/createSocketServer";
 
 import type { OrganizationDocument, OrganizationStatus } from "../src/modules/organizations/organization.model";
+import { createStaffAccount } from "../src/modules/auth/testing/staffAccounts";
+import { createFakeEmailProvider } from "../src/modules/auth/testing/fakeEmailProvider";
 import type { Server as HttpServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { Socket as ClientSocket } from "socket.io-client";
@@ -193,9 +195,7 @@ describe("socket.io real-time transport", () => {
     });
 
     it("rejects a token with the wrong audience (a staff access token)", async () => {
-      await request(app)
-        .post("/api/v1/auth/register")
-        .send({ name: "Ada Lovelace", email: "staff-socket@example.com", password: "DO_NOT_LEAK_PASSWORD_1" });
+      await createStaffAccount(createFakeEmailProvider().provider, { name: "Ada Lovelace", email: "staff-socket@example.com", password: "DO_NOT_LEAK_PASSWORD_1" });
       const registered = await UserModel.findOne({ email: "staff-socket@example.com" });
       const { issueAccessToken } = await import("../src/modules/auth/accessToken");
       const { token } = await issueAccessToken({

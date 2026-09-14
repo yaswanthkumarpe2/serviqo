@@ -6,6 +6,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { createApp } from "../src/app";
 import { AccountTokenModel } from "../src/modules/accountTokens/accountToken.model";
 import { createFakeEmailProvider } from "../src/modules/auth/testing/fakeEmailProvider";
+import { createStaffAccount } from "../src/modules/auth/testing/staffAccounts";
 import { ConversationModel } from "../src/modules/conversations/conversation.model";
 import { CustomerModel } from "../src/modules/customers/customer.model";
 import { MembershipModel } from "../src/modules/memberships/membership.model";
@@ -14,7 +15,6 @@ import { OrganizationModel } from "../src/modules/organizations/organization.mod
 import { SessionModel } from "../src/modules/sessions/session.model";
 import { UserModel } from "../src/modules/users/user.model";
 
-const REGISTER_PATH = "/api/v1/auth/register";
 const VERIFY_PATH = "/api/v1/auth/verify-email";
 const LOGIN_PATH = "/api/v1/auth/login";
 const ME_PATH = "/api/v1/auth/me";
@@ -44,7 +44,7 @@ function buildApp() {
 type Ctx = ReturnType<typeof buildApp>;
 
 async function registerAndVerify(ctx: Ctx, email: string, name = "Ada Lovelace") {
-  await request(ctx.app).post(REGISTER_PATH).send({ name, email, password: PASSWORD });
+  await createStaffAccount(ctx.fake.provider, { name, email, password: PASSWORD });
   const code = ctx.fake.verifications.at(-1)!.code;
   await request(ctx.app).post(VERIFY_PATH).send({ email, code });
 }
@@ -204,10 +204,8 @@ describe("the platform admin API", () => {
       await registerAndVerify(ctx, ADMIN_EMAIL, "Grace Hopper");
       await grantPlatformAdmin(ADMIN_EMAIL);
       await registerAndVerify(ctx, TENANT_EMAIL);
-      // Registered and never verified — the state that blocks sign-in.
-      await request(ctx.app)
-        .post(REGISTER_PATH)
-        .send({ name: "Unverified Person", email: "pending@example.com", password: PASSWORD });
+      // Invited and never verified — the state that blocks sign-in.
+      await createStaffAccount(ctx.fake.provider, { name: "Unverified Person", email: "pending@example.com", password: PASSWORD });
 
       const tenantToken = await signIn(ctx, TENANT_EMAIL);
       await request(ctx.app)
@@ -285,9 +283,7 @@ describe("the platform admin API", () => {
       const ctx = buildApp();
       await registerAndVerify(ctx, ADMIN_EMAIL, "Grace Hopper");
       await grantPlatformAdmin(ADMIN_EMAIL);
-      await request(ctx.app)
-        .post(REGISTER_PATH)
-        .send({ name: "Unverified Person", email: "pending@example.com", password: PASSWORD });
+      await createStaffAccount(ctx.fake.provider, { name: "Unverified Person", email: "pending@example.com", password: PASSWORD });
 
       const accessToken = await signIn(ctx, ADMIN_EMAIL);
       const response = await get(ctx, ADMIN_USERS_PATH, accessToken);

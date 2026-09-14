@@ -7,9 +7,9 @@ import { createApp } from "../src/app";
 import { AccountTokenModel } from "../src/modules/accountTokens/accountToken.model";
 import { accountTokenRepository } from "../src/modules/accountTokens/accountToken.repository";
 import { createFakeEmailProvider } from "../src/modules/auth/testing/fakeEmailProvider";
+import { createStaffAccount } from "../src/modules/auth/testing/staffAccounts";
 import { UserModel } from "../src/modules/users/user.model";
 
-const REGISTER_PATH = "/api/v1/auth/register";
 const RESEND_PATH = "/api/v1/auth/resend-verification";
 
 /** Obvious sentinel — if it reaches a response body, the test fails. */
@@ -22,8 +22,8 @@ function buildApp() {
   return { fake, app: createApp({ emailProvider: fake.provider }) };
 }
 
-async function registerAda(app: ReturnType<typeof buildApp>["app"]) {
-  return request(app).post(REGISTER_PATH).send({ name: "Ada Lovelace", email: EMAIL, password: PASSWORD });
+async function registerAda(ctx: ReturnType<typeof buildApp>) {
+  return createStaffAccount(ctx.fake.provider, { name: "Ada Lovelace", email: EMAIL, password: PASSWORD });
 }
 
 describe("POST /api/v1/auth/resend-verification", () => {
@@ -50,8 +50,9 @@ describe("POST /api/v1/auth/resend-verification", () => {
 
   describe("silent 204 contract", () => {
     it("answers 204 with no body for an unverified account", async () => {
-      const { app, fake } = buildApp();
-      await registerAda(app);
+      const ctx = buildApp();
+      const { app, fake } = ctx;
+      await registerAda(ctx);
       fake.verifications.length = 0;
 
       const response = await request(app).post(RESEND_PATH).send({ email: EMAIL });
@@ -63,7 +64,8 @@ describe("POST /api/v1/auth/resend-verification", () => {
     });
 
     it("answers 204 with no body for an unknown address", async () => {
-      const { app, fake } = buildApp();
+      const ctx = buildApp();
+      const { app, fake } = ctx;
 
       const response = await request(app).post(RESEND_PATH).send({ email: UNKNOWN_EMAIL });
 
@@ -73,8 +75,9 @@ describe("POST /api/v1/auth/resend-verification", () => {
     });
 
     it("answers 204 with no body for an already-verified account", async () => {
-      const { app, fake } = buildApp();
-      await registerAda(app);
+      const ctx = buildApp();
+      const { app, fake } = ctx;
+      await registerAda(ctx);
       await UserModel.updateOne({ email: EMAIL }, { $set: { emailVerifiedAt: new Date() } });
       fake.verifications.length = 0;
 
@@ -86,8 +89,9 @@ describe("POST /api/v1/auth/resend-verification", () => {
     });
 
     it("sends no content-type or content-length that could vary by outcome", async () => {
-      const { app } = buildApp();
-      await registerAda(app);
+      const ctx = buildApp();
+      const { app } = ctx;
+      await registerAda(ctx);
 
       const response = await request(app).post(RESEND_PATH).send({ email: EMAIL });
 
@@ -105,10 +109,11 @@ describe("POST /api/v1/auth/resend-verification", () => {
      * which is verified, and which received mail.
      */
     it("answers identically for unknown, unverified, and verified addresses", async () => {
-      const { app } = buildApp();
+      const ctx = buildApp();
+      const { app } = ctx;
 
       // unverified
-      await registerAda(app);
+      await registerAda(ctx);
       const unverified = await request(app).post(RESEND_PATH).send({ email: EMAIL });
 
       // verified
@@ -135,8 +140,9 @@ describe("POST /api/v1/auth/resend-verification", () => {
     it("does not disclose existence through a token-write failure", async () => {
       // A 500 would be reachable only for an existing unverified account,
       // making the status itself an oracle (ADR-008 §5).
-      const { app, fake } = buildApp();
-      await registerAda(app);
+      const ctx = buildApp();
+      const { app, fake } = ctx;
+      await registerAda(ctx);
       fake.verifications.length = 0;
 
       const create = vi.spyOn(accountTokenRepository, "create").mockRejectedValue(new Error("boom"));
@@ -158,8 +164,9 @@ describe("POST /api/v1/auth/resend-verification", () => {
 
   describe("persistence", () => {
     it("replaces the outstanding token rather than accumulating tokens", async () => {
-      const { app } = buildApp();
-      await registerAda(app);
+      const ctx = buildApp();
+      const { app } = ctx;
+      await registerAda(ctx);
 
       const before = await AccountTokenModel.find({}).select("+tokenHash");
       expect(before).toHaveLength(1);
@@ -173,7 +180,8 @@ describe("POST /api/v1/auth/resend-verification", () => {
     });
 
     it("creates nothing for an unknown address", async () => {
-      const { app } = buildApp();
+      const ctx = buildApp();
+      const { app } = ctx;
 
       await request(app).post(RESEND_PATH).send({ email: UNKNOWN_EMAIL });
 
@@ -186,7 +194,8 @@ describe("POST /api/v1/auth/resend-verification", () => {
 
   describe("validation", () => {
     it("answers 400 VALIDATION_ERROR for a malformed address", async () => {
-      const { app } = buildApp();
+      const ctx = buildApp();
+      const { app } = ctx;
       const response = await request(app).post(RESEND_PATH).send({ email: "not-an-email" });
 
       expect(response.status).toBe(400);
@@ -195,7 +204,8 @@ describe("POST /api/v1/auth/resend-verification", () => {
     });
 
     it("answers 400 when email is missing", async () => {
-      const { app } = buildApp();
+      const ctx = buildApp();
+      const { app } = ctx;
       const response = await request(app).post(RESEND_PATH).send({});
 
       expect(response.status).toBe(400);
@@ -203,15 +213,17 @@ describe("POST /api/v1/auth/resend-verification", () => {
     });
 
     it("never echoes the submitted address", async () => {
-      const { app } = buildApp();
+      const ctx = buildApp();
+      const { app } = ctx;
       const response = await request(app).post(RESEND_PATH).send({ email: "leak-me@@example" });
 
       expect(JSON.stringify(response.body)).not.toContain("leak-me");
     });
 
     it("ignores unrecognized keys instead of honouring them", async () => {
-      const { app, fake } = buildApp();
-      await registerAda(app);
+      const ctx = buildApp();
+      const { app, fake } = ctx;
+      await registerAda(ctx);
       fake.verifications.length = 0;
 
       const response = await request(app)
@@ -225,7 +237,8 @@ describe("POST /api/v1/auth/resend-verification", () => {
     });
 
     it("answers 400 MALFORMED_JSON without echoing the body fragment", async () => {
-      const { app } = buildApp();
+      const ctx = buildApp();
+      const { app } = ctx;
       const response = await request(app)
         .post(RESEND_PATH)
         .set("Content-Type", "application/json")
@@ -237,7 +250,8 @@ describe("POST /api/v1/auth/resend-verification", () => {
     });
 
     it("answers 400 for a non-JSON content type", async () => {
-      const { app } = buildApp();
+      const ctx = buildApp();
+      const { app } = ctx;
       const response = await request(app)
         .post(RESEND_PATH)
         .set("Content-Type", "text/plain")
@@ -248,7 +262,8 @@ describe("POST /api/v1/auth/resend-verification", () => {
     });
 
     it.each(["get", "put", "patch", "delete"] as const)("answers 404 for %s", async (method) => {
-      const { app } = buildApp();
+      const ctx = buildApp();
+      const { app } = ctx;
       const response = await request(app)[method](RESEND_PATH);
 
       expect(response.status).toBe(404);
@@ -260,8 +275,9 @@ describe("POST /api/v1/auth/resend-verification", () => {
 
   describe("correlation", () => {
     it("still returns request identifiers in headers despite the empty body", async () => {
-      const { app } = buildApp();
-      await registerAda(app);
+      const ctx = buildApp();
+      const { app } = ctx;
+      await registerAda(ctx);
 
       const response = await request(app).post(RESEND_PATH).set("X-Request-Id", "resend-req-id").send({ email: EMAIL });
 
@@ -275,8 +291,9 @@ describe("POST /api/v1/auth/resend-verification", () => {
 
   describe("concurrency", () => {
     it("answers 204 to every concurrent request and issues no extra tokens", async () => {
-      const { app, fake } = buildApp();
-      await registerAda(app);
+      const ctx = buildApp();
+      const { app, fake } = ctx;
+      await registerAda(ctx);
       fake.verifications.length = 0;
 
       const responses = await Promise.all(

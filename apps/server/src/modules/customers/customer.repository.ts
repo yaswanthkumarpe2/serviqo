@@ -11,11 +11,6 @@ export interface CreateCustomerInput {
   /** Optional. An anonymous visitor supplies neither of these (ADR-019 §7). */
   name?: string | null;
   email?: string | null;
-  /**
-   * The registered account this customer is, for the signed-in path
-   * (ADR-034 §3). Absent for every widget visitor.
-   */
-  userId?: ObjectIdLike | null;
 }
 
 /**
@@ -47,24 +42,6 @@ export const customerRepository = {
    */
   async create(input: CreateCustomerInput): Promise<CustomerDocument> {
     return CustomerModel.create(input);
-  },
-
-  /**
-   * The customer belonging to a signed-in account, inside one tenant
-   * (ADR-034 §3).
-   *
-   * The ONE lookup on this collection keyed by something other than `_id`, and
-   * safe for the reason the model records: a `userId` is read from a verified
-   * access token and can never be typed into a request, so finding a customer
-   * by it proves the caller IS that customer. `findByEmail` remains absent and
-   * must stay absent — an address CAN be typed, which is exactly why it must
-   * never find anybody.
-   */
-  async findByUserAndOrganization(
-    userId: ObjectIdLike,
-    organizationId: ObjectIdLike,
-  ): Promise<CustomerDocument | null> {
-    return CustomerModel.findOne({ userId, organizationId });
   },
 
   /**

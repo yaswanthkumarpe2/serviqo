@@ -62,7 +62,11 @@ const REFUSAL_MESSAGE = "Password reset code could not be redeemed";
 /**
  * Who may recover an account through their inbox (ADR-036 §6).
  *
- * Everybody active, except the platform admin. That account can read every
+ * Every active STAFF account, except the platform admin. Legacy customer
+ * accounts are refused too: customers no longer sign in (ADR-037), so a reset
+ * would hand them a password for nothing.
+ *
+ * The platform admin is the other exception. That account can read every
  * tenant's counts and owns the organization, and its recovery path is
  * `npm run reset:password` against the database — a step that needs the
  * deployment's credentials, where this one needs only somebody's mailbox. A
@@ -73,7 +77,7 @@ const REFUSAL_MESSAGE = "Password reset code could not be redeemed";
  * would tell a stranger which address is the admin's.
  */
 function mayResetByEmail(user: UserDocument): boolean {
-  return user.status === "active" && user.platformRole !== "admin" && user.kind !== "admin";
+  return user.status === "active" && user.kind === "agent" && user.platformRole !== "admin";
 }
 
 /**

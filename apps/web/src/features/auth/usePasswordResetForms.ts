@@ -2,9 +2,9 @@ import { useCallback, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { AuthApiError, requestPasswordReset, resetPassword } from "./authApi";
-import { hasSignUpErrors, validateForgotPassword, validateResetPassword } from "./signUpValidation";
+import { hasFieldErrors, validateForgotPassword, validateResetPassword } from "./credentialValidation";
 
-import type { ResetPasswordFieldErrors } from "./signUpValidation";
+import type { ResetPasswordFieldErrors } from "./credentialValidation";
 import type { FormEvent } from "react";
 
 /**
@@ -21,9 +21,8 @@ import type { FormEvent } from "react";
  * Carried as `?from=agent` rather than inferred, because the reset endpoints
  * are deliberately silent about the account — this page cannot ask the server
  * whether an address belongs to an agent, and should not be able to. Anything
- * other than the one known value means the customer door, so a hand-edited URL
- * can at worst send somebody to the general sign-in page, which routes an
- * agent onward anyway (ADR-034 §9).
+ * other than the one known value means `/login`, which is the same staff page
+ * since ADR-037, so a hand-edited URL changes nothing that matters.
  */
 export function signInPathFor(from: string | null): string {
   return from === "agent" ? "/agent/login" : "/login";
@@ -164,7 +163,7 @@ export function useResetPasswordForm({
       setFieldErrors(errors);
       setFormError(null);
       setNotice(null);
-      if (hasSignUpErrors(errors)) return;
+      if (hasFieldErrors(errors)) return;
 
       setIsSubmitting(true);
 

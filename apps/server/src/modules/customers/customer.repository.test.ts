@@ -265,75 +265,28 @@ describe("customerRepository", () => {
         "name",
         "organizationId",
         "updatedAt",
-        // Null for every widget visitor; set only for a customer who signed in
-        // (ADR-034 §3).
-        "userId",
       ]);
     });
   });
 
   describe("indexes", () => {
     /*
-      ADR-019 §3 said "the tenant-boundary index, and deliberately the only
-      one". ADR-034 §3 added a second — the account link — and these
-      assertions were rewritten to protect what that rule was actually FOR
-      rather than its original count.
-
-      The two things that must never happen are unchanged: an index on `email`
-      would be the first half of writing the lookup that must not exist, and a
-      unique constraint reaching anonymous visitors would collapse two
-      genuinely distinct people into one.
+      The tenant-boundary index, and deliberately the only one (ADR-019 §3).
+      An email index would be the first half of writing the lookup that must
+      not exist, and a unique constraint of any kind would collapse two
+      genuinely distinct visitors into one.
     */
-    it("indexes the tenant and the account link, and nothing else", async () => {
+    it("indexes organizationId and nothing else", async () => {
       const indexes = await CustomerModel.collection.indexes();
       const keys = indexes.map((index) => JSON.stringify(index.key)).sort();
 
-      expect(keys).toEqual(
-        [
-          JSON.stringify({ _id: 1 }),
-          JSON.stringify({ organizationId: 1 }),
-          JSON.stringify({ organizationId: 1, userId: 1 }),
-        ].sort(),
-      );
+      expect(keys).toEqual([JSON.stringify({ _id: 1 }), JSON.stringify({ organizationId: 1 })]);
     });
 
-    /* The lookup that must not exist, asserted directly. */
-    it("indexes nothing by email", async () => {
+    it("declares no unique constraint", async () => {
       const indexes = await CustomerModel.collection.indexes();
 
-      for (const index of indexes) {
-        expect(Object.keys(index.key)).not.toContain("email");
-      }
-    });
-
-    it("constrains only the account link, and only where one exists", async () => {
-      const indexes = await CustomerModel.collection.indexes();
-      const unique = indexes.filter((index) => index.unique === true);
-
-      expect(unique).toHaveLength(1);
-      expect(JSON.stringify(unique[0]!.key)).toBe(JSON.stringify({ organizationId: 1, userId: 1 }));
-      // Partial, which is what keeps it away from anonymous visitors.
-      expect(unique[0]!.partialFilterExpression).toBeDefined();
-    });
-
-    /*
-      The invariant the old "no unique constraint" assertion was protecting,
-      tested as behaviour rather than as schema: two anonymous visitors in one
-      tenant are two customers, and the new constraint must not merge them.
-    */
-    it("still lets one tenant hold many anonymous visitors", async () => {
-      const first = await customerRepository.create({ organizationId: ORGANIZATION_A });
-      const second = await customerRepository.create({ organizationId: ORGANIZATION_A });
-
-      expect(first._id.toString()).not.toBe(second._id.toString());
-    });
-
-    /* And the constraint does its job for accounts that DO exist. */
-    it("refuses a second customer for one account in one tenant", async () => {
-      const userId = new Types.ObjectId();
-      await customerRepository.create({ organizationId: ORGANIZATION_A, userId });
-
-      await expect(customerRepository.create({ organizationId: ORGANIZATION_A, userId })).rejects.toThrow();
+      expect(indexes.filter((index) => index.unique === true)).toHaveLength(0);
     });
   });
 });

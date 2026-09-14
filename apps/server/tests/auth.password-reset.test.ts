@@ -8,6 +8,7 @@ import { sha256 } from "../src/lib/crypto/tokens";
 import { createApp } from "../src/app";
 import { AccountTokenModel } from "../src/modules/accountTokens/accountToken.model";
 import { createFakeEmailProvider } from "../src/modules/auth/testing/fakeEmailProvider";
+import { createStaffAccount } from "../src/modules/auth/testing/staffAccounts";
 import { SessionModel } from "../src/modules/sessions/session.model";
 import { UserModel } from "../src/modules/users/user.model";
 
@@ -22,7 +23,6 @@ import { UserModel } from "../src/modules/users/user.model";
  * admin through their inbox, or a password oracle that works without a code.
  */
 
-const REGISTER_PATH = "/api/v1/auth/register";
 const VERIFY_PATH = "/api/v1/auth/verify-email";
 const LOGIN_PATH = "/api/v1/auth/login";
 const REFRESH_PATH = "/api/v1/auth/refresh";
@@ -41,7 +41,7 @@ function buildApp() {
 type Ctx = ReturnType<typeof buildApp>;
 
 async function register(ctx: Ctx, email = EMAIL) {
-  await request(ctx.app).post(REGISTER_PATH).send({ name: "Ada Lovelace", email, password: PASSWORD });
+  await createStaffAccount(ctx.fake.provider, { name: "Ada Lovelace", email, password: PASSWORD });
 }
 
 async function registerAndVerify(ctx: Ctx, email = EMAIL) {

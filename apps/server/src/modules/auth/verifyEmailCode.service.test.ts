@@ -6,8 +6,8 @@ import { EMAIL_VERIFICATION_CODE_LENGTH, EMAIL_VERIFICATION_MAX_ATTEMPTS } from 
 import { InvalidVerificationTokenError } from "../../lib/errors";
 import { AccountTokenModel } from "../accountTokens/accountToken.model";
 import { UserModel } from "../users/user.model";
-import { createRegistrationService } from "./registration.service";
 import { createFakeEmailProvider } from "./testing/fakeEmailProvider";
+import { createStaffAccount } from "./testing/staffAccounts";
 import { createVerificationService } from "./verification.service";
 
 import type { AuthLogger } from "./authLogging";
@@ -35,13 +35,12 @@ function buildServices() {
   const fake = createFakeEmailProvider();
   return {
     fake,
-    registration: createRegistrationService({ emailProvider: fake.provider }),
     verification: createVerificationService({ emailProvider: fake.provider }),
   };
 }
 
 async function registerAndGetCode(services: ReturnType<typeof buildServices>, email = EMAIL) {
-  const user = await services.registration.register({ name: "Ada Lovelace", email, password: PASSWORD });
+  const user = await createStaffAccount(services.fake.provider, { name: "Ada Lovelace", email, password: PASSWORD });
   return { user, code: services.fake.verifications.at(-1)!.code };
 }
 

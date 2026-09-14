@@ -2,6 +2,7 @@ import { InvalidAccessTokenError } from "../../lib/errors";
 import { logger } from "../../lib/logger";
 import { membershipRepository } from "../memberships/membership.repository";
 import { organizationRepository } from "../organizations/organization.repository";
+import { isStaffKind } from "../users/user.model";
 import { userRepository } from "../users/user.repository";
 
 import type { MembershipRole } from "../memberships/membership.model";
@@ -71,14 +72,13 @@ export interface CurrentUser {
    */
   platformRole: PlatformRole;
   /**
-   * Which product this account signed up for (ADR-034 §1).
+   * Which staff surface this account belongs on (ADR-034 §1, ADR-037).
    *
-   * Decides which surface the client renders — a customer's chat or an agent's
-   * inbox — and, like `platformRole` beside it, is an affordance rather than a
-   * boundary. A client that changed it would render the other shell and be
-   * refused by every request that shell makes: `requireCustomerAccount` turns
-   * away agents, and `requirePermission` turns away customers, both from the
-   * database on the request (SECURITY.md §4).
+   * Decides which shell the client renders — the agent workspace or the
+   * operations console — and, like `platformRole` beside it, is an affordance
+   * rather than a boundary. A client that changed it would render the other
+   * shell and be refused by every request that shell makes, from the database
+   * on the request (SECURITY.md §4).
    */
   kind: UserKind;
   createdAt: Date;
@@ -146,7 +146,7 @@ function toCurrentUser(user: UserDocument): CurrentUser {
     // `null` to a dashboard that renders it.
     emailVerifiedAt: user.emailVerifiedAt!,
     platformRole: user.platformRole,
-    kind: user.kind,
+    kind: user.kind as UserKind,
     createdAt: user.createdAt,
   };
 }
@@ -229,7 +229,7 @@ export function createCurrentUserService(): CurrentUserService {
         branching into two responses: distinguishing them would turn a bearer
         token into a probe for account state.
       */
-      if (user === null || user.status !== "active" || user.emailVerifiedAt === null) {
+      if (user === null || user.status !== "active" || user.emailVerifiedAt === null || !isStaffKind(user.kind)) {
         log.info(
           {
             event: "auth.me.failed",

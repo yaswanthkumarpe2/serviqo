@@ -44,47 +44,52 @@ const CONTROL_CHARACTERS = /\p{Cc}/u;
  * Shared by every schema that takes an address, so the length bound and the
  * no-canonicalization rule are stated once.
  */
-const emailField = z
+export const emailField = z
   .string()
   .trim()
   .max(EMAIL_MAX_LENGTH, `Email must be at most ${EMAIL_MAX_LENGTH} characters`)
   .pipe(z.email("Email must be a valid email address"));
 
-export const registerSchema = z.object({
-  name: z
-    .string()
-    .trim()
-    .min(1, "Name is required")
-    .max(NAME_MAX_LENGTH, `Name must be at most ${NAME_MAX_LENGTH} characters`)
-    .refine((value) => !CONTROL_CHARACTERS.test(value), "Name must not contain control characters"),
+/**
+ * A staff member's display name.
+ *
+ * Exported for the invitation flows, which are now the only way an account is
+ * created (ADR-037). It was registration's field until public registration was
+ * removed, and the rules travel with it unchanged.
+ */
+export const personNameField = z
+  .string()
+  .trim()
+  .min(1, "Name is required")
+  .max(NAME_MAX_LENGTH, `Name must be at most ${NAME_MAX_LENGTH} characters`)
+  .refine((value) => !CONTROL_CHARACTERS.test(value), "Name must not contain control characters");
 
-  email: emailField,
-
-  /**
-   * Returned raw — no trim, no case folding, no transformation of any kind.
-   * Leading and trailing whitespace can be intentional in a password.
-   *
-   * Length is checked with the same primitives `hashPassword` enforces,
-   * rather than Zod's `.min()`/`.max()`. Zod counts UTF-16 code units;
-   * `isPasswordLengthValid` counts code points after NFC. Left to diverge, a
-   * six-emoji password (6 code points, 12 code units) would pass this schema
-   * and then make `hashPassword` throw — a 500 on valid-looking input.
-   * Sharing the primitive is what makes that drift impossible.
-   *
-   * Measuring the normalized form does not normalize the returned value:
-   * NFC ownership stays inside the crypto boundary.
-   */
-  password: z.string().superRefine((value, ctx) => {
-    if (!isPasswordLengthValid(normalizePassword(value))) {
-      ctx.addIssue({
-        code: "custom",
-        message: `Password must be between ${PASSWORD_MIN_LENGTH} and ${PASSWORD_MAX_LENGTH} characters`,
-      });
-    }
-  }),
+/**
+ * Returned raw — no trim, no case folding, no transformation of any kind.
+ * Leading and trailing whitespace can be intentional in a password.
+ *
+ * Length is checked with the same primitives `hashPassword` enforces,
+ * rather than Zod's `.min()`/`.max()`. Zod counts UTF-16 code units;
+ * `isPasswordLengthValid` counts code points after NFC. Left to diverge, a
+ * six-emoji password (6 code points, 12 code units) would pass this schema
+ * and then make `hashPassword` throw — a 500 on valid-looking input.
+ * Sharing the primitive is what makes that drift impossible.
+ *
+ * Measuring the normalized form does not normalize the returned value:
+ * NFC ownership stays inside the crypto boundary.
+ *
+ * Used wherever a person CHOOSES a password — today that is password reset
+ * (ADR-036). It was registration's password field until ADR-037 removed public
+ * registration; the rule is unchanged.
+ */
+export const chosenPasswordField = z.string().superRefine((value, ctx) => {
+  if (!isPasswordLengthValid(normalizePassword(value))) {
+    ctx.addIssue({
+      code: "custom",
+      message: `Password must be between ${PASSWORD_MIN_LENGTH} and ${PASSWORD_MAX_LENGTH} characters`,
+    });
+  }
 });
-
-export type RegisterInput = z.infer<typeof registerSchema>;
 
 /**
  * Login takes an address and a password, and nothing else.
@@ -201,7 +206,7 @@ export const resetPasswordSchema = z
   .object({
     email: emailField,
     code: verifyEmailSchema.shape.code,
-    newPassword: registerSchema.shape.password,
+    newPassword: chosenPasswordField,
   })
   .strict();
 

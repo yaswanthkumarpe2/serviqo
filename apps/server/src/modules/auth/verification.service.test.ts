@@ -8,8 +8,8 @@ import { env } from "../../lib/env";
 import { AccountTokenModel } from "../accountTokens/accountToken.model";
 import { accountTokenRepository } from "../accountTokens/accountToken.repository";
 import { UserModel } from "../users/user.model";
-import { createRegistrationService } from "./registration.service";
 import { createFailingEmailProvider, createFakeEmailProvider } from "./testing/fakeEmailProvider";
+import { createStaffAccount } from "./testing/staffAccounts";
 import { createVerificationService } from "./verification.service";
 
 import type { AuthLogger } from "./authLogging";
@@ -42,18 +42,17 @@ function buildServices() {
   const fake = createFakeEmailProvider();
   return {
     fake,
-    registration: createRegistrationService({ emailProvider: fake.provider }),
     verification: createVerificationService({ emailProvider: fake.provider }),
   };
 }
 
-/** Registers a user through the real flow, then clears the captured email. */
+/** Creates an unverified staff account, then clears the captured email. */
 async function registerUser(
   services: ReturnType<typeof buildServices>,
   email = EMAIL,
   name = "Ada Lovelace",
 ) {
-  const user = await services.registration.register({ name, email, password: PASSWORD });
+  const user = await createStaffAccount(services.fake.provider, { name, email, password: PASSWORD });
   services.fake.verifications.length = 0;
   return user;
 }
@@ -397,8 +396,7 @@ describe("Resend verification service", () => {
   describe("email delivery failure", () => {
     it("resolves, and keeps the replacement token valid", async () => {
       const fake = createFakeEmailProvider();
-      const registration = createRegistrationService({ emailProvider: fake.provider });
-      const user = await registration.register({ name: "Ada Lovelace", email: EMAIL, password: PASSWORD });
+      const user = await createStaffAccount(fake.provider, { name: "Ada Lovelace", email: EMAIL, password: PASSWORD });
 
       const verification = createVerificationService({
         emailProvider: createFailingEmailProvider("smtp exploded"),

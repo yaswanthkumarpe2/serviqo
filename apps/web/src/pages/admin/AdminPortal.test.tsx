@@ -170,13 +170,12 @@ describe("the console guard", () => {
     something is behind this URL, which is the one thing an unlisted page must
     not do.
   */
-  it("sends an ordinary user to their dashboard without explaining why", async () => {
+  it("sends an agent to their workspace without explaining why", async () => {
     stubAuthFetch();
 
     renderAt("/control", session);
 
-    // A customer's dashboard is their chat (ADR-034 §6).
-    expect(await screen.findByRole("heading", { name: "Hi Ada" })).toBeDefined();
+    expect(await screen.findByRole("heading", { name: "Welcome back, Ada" })).toBeDefined();
     expect(screen.queryByRole("heading", { name: "Everything, everywhere" })).toBeNull();
     expect(document.body.textContent).not.toMatch(/permission|not allowed|admin only/i);
   });
@@ -353,16 +352,7 @@ describe("discoverability", () => {
     expect(container.textContent).not.toMatch(/operations console/i);
   });
 
-  it("is advertised nowhere on the customer dashboard", async () => {
-    stubAuthFetch();
-
-    const { container } = renderAt("/dashboard", session);
-    await screen.findByRole("heading", { name: "Hi Ada" });
-
-    expect(container.innerHTML).not.toContain("/control");
-  });
-
-  it("is advertised nowhere on the agent workspace either", async () => {
+  it("is advertised nowhere on the agent workspace", async () => {
     stubAuthFetch({ currentUser: { kind: "agent" } });
 
     const { container } = renderAt("/agent", session);

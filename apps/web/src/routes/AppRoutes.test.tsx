@@ -23,16 +23,13 @@ function renderAt(path: string, initialSession: Session | null = null) {
   );
 }
 
-/** The dashboard's welcome heading, once `/me` has answered (ADR-015). */
-/*
-  `/dashboard` is the CUSTOMER's chat as of ADR-034 §6 — the agent workspace
-  moved to `/agent`. The stubbed account is a customer, which is what public
-  registration creates, so this is the greeting these routes now produce.
-*/
-const welcome = () => screen.findByRole("heading", { name: "Hi Ada" });
-
-/** The agent workspace's greeting, for the routes that should reach it. */
-const workspaceWelcome = () => screen.findByRole("heading", { name: "Welcome back, Ada" });
+/**
+ * The agent workspace's greeting, once `/me` has answered (ADR-015). The
+ * stubbed account is an agent — every account is invited staff (ADR-037) — so
+ * this is where a signed-in visitor lands.
+ */
+const welcome = () => screen.findByRole("heading", { name: "Welcome back, Ada" });
+const workspaceWelcome = welcome;
 
 /**
  * Anonymous by default here, unlike ProtectedRoute's suite: most cases below
@@ -79,17 +76,22 @@ describe("AppRoutes", () => {
     expect(await screen.findByRole("heading", { name: /sign in to serviqo/i })).toBeDefined();
   });
 
-  it("serves the customer dashboard once a session exists", async () => {
-    stubAuthFetch();
+  it("has no sign-up page any more, and sends /signup to the landing page", async () => {
+    renderAt("/signup");
 
-    renderAt("/dashboard", session);
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toContain("Customer support");
+  });
 
-    expect(await welcome()).toBeDefined();
+  it("serves the same staff sign-in page at /agent/login", async () => {
+    renderAt("/agent/login");
+
+    expect(await screen.findByRole("heading", { name: /sign in to serviqo/i })).toBeDefined();
+    expect(screen.queryByRole("link", { name: /create one/i })).toBeNull();
   });
 
   /*
-    The two audiences land on different surfaces from the same session, decided
-    by the account's kind rather than by the address they typed (ADR-034 §9).
+    Staff land on different surfaces from the same door, decided by the
+    account's kind rather than by the address they typed (ADR-034 §9).
   */
   it("serves the agent workspace to an agent", async () => {
     stubAuthFetch({ currentUser: { kind: "agent" } });
@@ -99,13 +101,18 @@ describe("AppRoutes", () => {
     expect(await workspaceWelcome()).toBeDefined();
   });
 
-  it("sends a customer who reaches /agent back to their own dashboard", async () => {
-    stubAuthFetch();
+  /*
+    A legacy customer account (ADR-037) that still holds a session has no staff
+    surface. It must be signed out, not bounced between the two guards.
+  */
+  it("signs out a session that belongs on no staff surface", async () => {
+    const fetchMock = stubAuthFetch({ currentUser: { kind: "customer" } });
 
     renderAt("/agent", session);
 
-    expect(await welcome()).toBeDefined();
+    expect(await screen.findByRole("heading", { name: /sign in to serviqo/i })).toBeDefined();
     expect(screen.queryByRole("heading", { name: "Welcome back, Ada" })).toBeNull();
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/auth/logout"))).toBe(true);
   });
 
   it("sends an agent who reaches /dashboard to their workspace", async () => {
@@ -154,11 +161,11 @@ describe("AppRoutes", () => {
   });
 
   describe("when the refresh restores a session", () => {
-    // Reloading the dashboard is the case this whole slice exists for.
-    it("keeps a reloaded visitor on /dashboard", async () => {
+    // Reloading the workspace is the case this whole slice exists for.
+    it("keeps a reloaded agent in the workspace", async () => {
       stubAuthFetch();
 
-      renderAt("/dashboard");
+      renderAt("/agent");
 
       expect(await welcome()).toBeDefined();
     });

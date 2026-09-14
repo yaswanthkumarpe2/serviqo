@@ -16,6 +16,7 @@ import { OrganizationModel } from "../src/modules/organizations/organization.mod
 import { SessionModel } from "../src/modules/sessions/session.model";
 import { UserModel } from "../src/modules/users/user.model";
 import { createFakeEmailProvider } from "../src/modules/auth/testing/fakeEmailProvider";
+import { createStaffAccount } from "../src/modules/auth/testing/staffAccounts";
 import { createSocketServer } from "../src/realtime/createSocketServer";
 
 import type { Server as HttpServer } from "node:http";
@@ -42,7 +43,6 @@ import type { Socket as ClientSocket } from "socket.io-client";
  *   deliberately, and a test is what stops it appearing by accident.
  */
 
-const REGISTER_PATH = "/api/v1/auth/register";
 const VERIFY_PATH = "/api/v1/auth/verify-email";
 const LOGIN_PATH = "/api/v1/auth/login";
 const ORGANIZATIONS_PATH = "/api/v1/organizations";
@@ -106,7 +106,7 @@ describe("team management real-time delivery", () => {
     emailCounter += 1;
     const email = `memberlive${emailCounter}@example.com`;
 
-    await request(app).post(REGISTER_PATH).send({ name, email, password: PASSWORD });
+    await createStaffAccount(fake.provider, { name, email, password: PASSWORD });
     const code = fake.verifications.at(-1)!.code;
     await request(app).post(VERIFY_PATH).send({ email, code });
 

@@ -1,23 +1,20 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import { AuthRestoring } from "@/features/auth/AuthRestoring";
-import { homePathFor, isAgent, isPlatformAdmin } from "@/features/auth/authApi";
+import { homePathFor, isPlatformAdmin } from "@/features/auth/authApi";
 import { useAuth } from "@/features/auth/useAuth";
 import { useCurrentUser } from "@/features/auth/useCurrentUser";
 import { AdminLoginPage } from "@/pages/admin/AdminLoginPage";
-import { AgentLoginPage } from "@/pages/agent/AgentLoginPage";
 import { AdminPortalPage } from "@/pages/admin/AdminPortalPage";
 import { ForgotPasswordPage } from "@/pages/auth/ForgotPasswordPage";
 import { LoginPage } from "@/pages/auth/LoginPage";
 import { ResetPasswordPage } from "@/pages/auth/ResetPasswordPage";
-import { SignUpPage } from "@/pages/auth/SignUpPage";
 import { VerifyEmailPage } from "@/pages/auth/VerifyEmailPage";
-import { CustomerDashboardPage } from "@/pages/customer/CustomerDashboardPage";
 import { DashboardPage } from "@/pages/dashboard/DashboardPage";
 import { LandingPage } from "@/pages/marketing/LandingPage";
 
 import { AgentRoute } from "./AgentRoute";
-import { CustomerRoute } from "./CustomerRoute";
+import { NoStaffSurface } from "./NoStaffSurface";
 import { PlatformAdminRoute } from "./PlatformAdminRoute";
 
 /**
@@ -49,33 +46,13 @@ function SignInRoute() {
 }
 
 /**
- * The sign-up route, gated the same way `SignInRoute` is and for the same
- * reason: someone already signed in has no use for a registration form, and
- * rendering it for a frame during the restore is the flicker that gating
- * exists to remove.
- */
-function SignUpRoute() {
-  const { isAuthenticated, isRestoring } = useAuth();
-
-  if (isRestoring) {
-    return <AuthRestoring />;
-  }
-
-  if (isAuthenticated) {
-    return <Navigate to="/home" replace />;
-  }
-
-  return <SignUpPage />;
-}
-
-/**
  * Sends a signed-in person to the surface their account belongs to
  * (ADR-034 §9).
  *
  * A route rather than a helper, because the answer is not known synchronously:
  * it comes from `/me`, and every caller would otherwise need its own waiting
- * state. Rendering the restore placeholder while that settles is what stops a
- * customer seeing the agent workspace, or the reverse, for a frame.
+ * state. Rendering the restore placeholder while that settles is what stops
+ * the super admin seeing the agent workspace, or the reverse, for a frame.
  */
 function HomeRoute() {
   const { isAuthenticated, isRestoring } = useAuth();
@@ -89,40 +66,8 @@ function HomeRoute() {
     return <Navigate to="/login" replace />;
   }
 
-  return <Navigate to={homePathFor(user)} replace />;
-}
-
-/**
- * The agent sign-in route (ADR-034 §9).
- *
- * Gated like the other two sign-in routes: somebody who already holds an agent
- * session has no use for the form. A signed-in CUSTOMER is shown it, though,
- * because they may be about to sign in as the agent they also are — the same
- * reasoning `AdminSignInRoute` uses.
- */
-function AgentSignInRoute() {
-  const { isAuthenticated, isRestoring } = useAuth();
-  const { user, isLoading } = useCurrentUser();
-
-  if (isRestoring) {
-    return <AuthRestoring />;
-  }
-
-  // Not signed in is the ordinary case, and it must not wait on `/me`: there
-  // is no session for that request to use.
-  if (!isAuthenticated) {
-    return <AgentLoginPage />;
-  }
-
-  if (isLoading) {
-    return <AuthRestoring />;
-  }
-
-  if (isAgent(user)) {
-    return <Navigate to="/agent" replace />;
-  }
-
-  return <AgentLoginPage />;
+  const home = homePathFor(user);
+  return home === null ? <NoStaffSurface /> : <Navigate to={home} replace />;
 }
 
 /**
@@ -180,7 +125,8 @@ function AdminSignInRoute() {
  * around a single component buys a spinner and no bytes.
  *
  * Customer-facing surfaces are absent by design, not omission: customers
- * never authenticate and reach Serviqo through the widget (ADR-010).
+ * never authenticate and reach Serviqo through an organisation's widget
+ * (ADR-010, ADR-037).
  */
 export function AppRoutes() {
   return (
@@ -193,9 +139,12 @@ export function AppRoutes() {
       */}
       <Route path="/" element={<LandingPage />} />
 
+      {/*
+        The one staff sign-in page (ADR-037). `/agent/login` is kept as an alias
+        because invitation emails already sent point at it.
+      */}
       <Route path="/login" element={<SignInRoute />} />
-
-      <Route path="/signup" element={<SignUpRoute />} />
+      <Route path="/agent/login" element={<SignInRoute />} />
 
       {/*
         Deliberately NOT gated on the session, unlike the two routes above.
@@ -228,26 +177,14 @@ export function AppRoutes() {
       <Route path="/home" element={<HomeRoute />} />
 
       {/*
-        The CUSTOMER's dashboard: one chat with support, and nothing else
-        (ADR-034 §6). No organization picker, no inbox, no team — a customer is
-        not staff.
+        `/dashboard` was the customer's chat (ADR-034 §6) until ADR-037 removed
+        customer accounts, and the agent workspace before that. Anything still
+        pointing here is somebody who belongs on a staff surface, so it resolves
+        through `/home` rather than falling through to the landing page.
       */}
-      <Route
-        path="/dashboard"
-        element={
-          <CustomerRoute>
-            <CustomerDashboardPage />
-          </CustomerRoute>
-        }
-      />
+      <Route path="/dashboard" element={<Navigate to="/home" replace />} />
 
-      {/*
-        The AGENT workspace, which used to live at /dashboard (ADR-033). It
-        moved when customers got a dashboard of their own, and the guard is what
-        keeps the two audiences from landing on each other's surface.
-      */}
-      <Route path="/agent/login" element={<AgentSignInRoute />} />
-
+      {/* The agent workspace (ADR-033). */}
       <Route
         path="/agent"
         element={

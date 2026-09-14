@@ -3,7 +3,6 @@ import { Router } from "express";
 import { createAgentInboxRouter } from "../modules/agentInbox/agentInbox.routes";
 import { createAuthRouter } from "../modules/auth/auth.routes";
 import { createMemberRouter } from "../modules/members/member.routes";
-import { createCustomerPortalRouter } from "../modules/customerPortal/customerPortal.routes";
 import { createOrganizationRouter } from "../modules/organizations/organization.routes";
 import { createPlatformAdminRouter } from "../modules/platformAdmin/platformAdmin.routes";
 import { createWidgetRouter } from "../modules/widget/widget.routes";
@@ -81,16 +80,6 @@ export function createApiRouter({ emailProvider, rateLimiters }: ApiRouterDepend
     none shadows another.
   */
   router.use("/api/v1/organizations/:organizationId/members", createMemberRouter({ rateLimiters }));
-  /*
-    The signed-in customer's surface (ADR-034 §5).
-
-    The only prefix here that names neither a tenant nor a resource: a
-    customer's organization, conversations and messages are all derived from
-    their token, so there is nothing for them to address. That is what makes a
-    cross-tenant request unexpressible from this surface rather than merely
-    refused.
-  */
-  router.use("/api/v1/me", createCustomerPortalRouter({ rateLimiters }));
   /*
     The platform operations surface (ADR-032 §3).
 

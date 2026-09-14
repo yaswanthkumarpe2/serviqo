@@ -4,8 +4,10 @@ import request from "supertest";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { createApp } from "../src/app";
+import { REFRESH_COOKIE_NAME } from "../src/config/constants";
 import { AccountTokenModel } from "../src/modules/accountTokens/accountToken.model";
 import { createFakeEmailProvider } from "../src/modules/auth/testing/fakeEmailProvider";
+import { createStaffAccount } from "../src/modules/auth/testing/staffAccounts";
 import { ConversationModel } from "../src/modules/conversations/conversation.model";
 import { CustomerModel } from "../src/modules/customers/customer.model";
 import { MembershipModel } from "../src/modules/memberships/membership.model";
@@ -15,27 +17,26 @@ import { SessionModel } from "../src/modules/sessions/session.model";
 import { UserModel } from "../src/modules/users/user.model";
 
 /**
- * The three kinds of person (ADR-034).
+ * Who holds an account, and who does not (ADR-034, narrowed by ADR-037).
  *
- * A customer who registers at the front door and talks to support; an agent
- * an admin created, who must verify before the emailed password works; and the
- * admin who created them.
- *
- * The assertions that matter are the boundaries between them — what each one
- * is refused — because that is the whole security argument for letting
- * customers hold accounts at all.
+ * Staff hold accounts: an agent an admin invited, who must verify before the
+ * emailed password works, and the admin who invited them. Customers do not —
+ * they are anonymous visitors of one organisation's widget — so the first group
+ * of assertions pins that no route will create, admit or serve a customer
+ * account, including the ones ADR-034 wrote before ADR-037 removed them.
  */
 
-const REGISTER_PATH = "/api/v1/auth/register";
 const VERIFY_PATH = "/api/v1/auth/verify-email";
 const LOGIN_PATH = "/api/v1/auth/login";
 const ME_PATH = "/api/v1/auth/me";
 const CHANGE_PASSWORD_PATH = "/api/v1/auth/change-password";
 const MY_CONVERSATIONS_PATH = "/api/v1/me/conversations";
+const REFRESH_PATH = "/api/v1/auth/refresh";
+const FORGOT_PASSWORD_PATH = "/api/v1/auth/forgot-password";
 const AGENTS_PATH = "/api/v1/admin/agents";
 
 const PASSWORD = "DO_NOT_LEAK_THIS_PASSWORD";
-const CUSTOMER_EMAIL = "shopper@example.com";
+const LEGACY_CUSTOMER_EMAIL = "shopper@example.com";
 const ADMIN_EMAIL = "operator@example.com";
 const AGENT_EMAIL = "agent@example.com";
 
@@ -47,7 +48,7 @@ function buildApp() {
 type Ctx = ReturnType<typeof buildApp>;
 
 async function registerAndVerify(ctx: Ctx, email: string, name = "Ada Lovelace") {
-  await request(ctx.app).post(REGISTER_PATH).send({ name, email, password: PASSWORD });
+  await createStaffAccount(ctx.fake.provider, { name, email, password: PASSWORD });
   const code = ctx.fake.verifications.at(-1)!.code;
   await request(ctx.app).post(VERIFY_PATH).send({ email, code });
 }
@@ -57,7 +58,7 @@ async function signIn(ctx: Ctx, email: string, password = PASSWORD) {
   return { status: login.status, body: login.body, token: login.body?.data?.accessToken as string | undefined };
 }
 
-/** An organization for customers to talk to, plus an admin who can add agents. */
+/** An organization to add agents to, plus an admin who can add them. */
 async function seedPlatform(ctx: Ctx) {
   await OrganizationModel.create({ name: "Acme Corp", slug: "acme-corp", allowedOrigins: [] });
   await registerAndVerify(ctx, ADMIN_EMAIL, "Grace Hopper");
@@ -69,7 +70,7 @@ async function seedPlatform(ctx: Ctx) {
 const authed = (ctx: Ctx, method: "get" | "post", path: string, token: string) =>
   request(ctx.app)[method](path).set("Authorization", `Bearer ${token}`);
 
-describe("customers, agents and admins", () => {
+describe("staff accounts", () => {
   let mongoServer: MongoMemoryServer;
 
   beforeAll(async () => {
@@ -108,152 +109,85 @@ describe("customers, agents and admins", () => {
     await mongoServer.stop();
   });
 
-  // ---- who public registration creates ----
+  // ---- who does not hold an account ----
 
-  describe("public registration", () => {
-    it("creates a customer, never an agent", async () => {
-      const ctx = buildApp();
-      await registerAndVerify(ctx, CUSTOMER_EMAIL);
-
-      const user = await UserModel.findOne({ email: CUSTOMER_EMAIL });
-
-      expect(user!.kind).toBe("customer");
-    });
-
-    /*
-      The escalation that must not exist. `kind` is not in the registration
-      schema, so a body carrying it cannot reach the model — this asserts the
-      outcome rather than the schema, because the outcome is what matters.
-    */
-    it("ignores a kind sent by the client", async () => {
+  describe("customers never hold accounts", () => {
+    it("has no registration route", async () => {
       const ctx = buildApp();
 
-      await request(ctx.app)
-        .post(REGISTER_PATH)
-        .send({ name: "Sneaky", email: CUSTOMER_EMAIL, password: PASSWORD, kind: "agent", platformRole: "admin" });
-
-      const user = await UserModel.findOne({ email: CUSTOMER_EMAIL });
-      expect(user!.kind).toBe("customer");
-      expect(user!.platformRole).toBe("none");
-    });
-
-    it("reports the kind at login, so the client knows where to go", async () => {
-      const ctx = buildApp();
-      await registerAndVerify(ctx, CUSTOMER_EMAIL);
-
-      const login = await signIn(ctx, CUSTOMER_EMAIL);
-
-      expect(login.body.data.user.kind).toBe("customer");
-    });
-  });
-
-  // ---- the customer's own chat ----
-
-  describe("a signed-in customer", () => {
-    it("starts a conversation and sends a message", async () => {
-      const ctx = buildApp();
-      await OrganizationModel.create({ name: "Acme Corp", slug: "acme-corp", allowedOrigins: [] });
-      await registerAndVerify(ctx, CUSTOMER_EMAIL);
-      const token = (await signIn(ctx, CUSTOMER_EMAIL)).token!;
-
-      const started = await authed(ctx, "post", MY_CONVERSATIONS_PATH, token);
-      expect(started.status).toBe(201);
-
-      const conversationId = started.body.data.id as string;
-      const sent = await authed(ctx, "post", `${MY_CONVERSATIONS_PATH}/${conversationId}/messages`, token).send({
-        body: "My order never arrived.",
-      });
-
-      expect(sent.status).toBe(201);
-      expect(sent.body.data.senderType).toBe("customer");
-    });
-
-    /*
-      Idempotent by construction — a customer has at most one open conversation
-      per tenant. Pressing "start a chat" twice must continue one conversation
-      rather than opening a second.
-    */
-    it("continues the same conversation rather than opening a second", async () => {
-      const ctx = buildApp();
-      await OrganizationModel.create({ name: "Acme Corp", slug: "acme-corp", allowedOrigins: [] });
-      await registerAndVerify(ctx, CUSTOMER_EMAIL);
-      const token = (await signIn(ctx, CUSTOMER_EMAIL)).token!;
-
-      const first = await authed(ctx, "post", MY_CONVERSATIONS_PATH, token);
-      const second = await authed(ctx, "post", MY_CONVERSATIONS_PATH, token);
-
-      expect(second.body.data.id).toBe(first.body.data.id);
-      expect(await ConversationModel.countDocuments({})).toBe(1);
-    });
-
-    it("gets one customer record, reused across requests", async () => {
-      const ctx = buildApp();
-      await OrganizationModel.create({ name: "Acme Corp", slug: "acme-corp", allowedOrigins: [] });
-      await registerAndVerify(ctx, CUSTOMER_EMAIL);
-      const token = (await signIn(ctx, CUSTOMER_EMAIL)).token!;
-
-      await authed(ctx, "get", MY_CONVERSATIONS_PATH, token);
-      await authed(ctx, "get", MY_CONVERSATIONS_PATH, token);
-
-      expect(await CustomerModel.countDocuments({})).toBe(1);
-    });
-
-    /*
-      The isolation that matters most on this surface: one customer's URL is
-      not another customer's data. The refusal is the SAME opaque one a
-      non-existent conversation produces (ADR-022 §8).
-    */
-    it("cannot read another customer's conversation", async () => {
-      const ctx = buildApp();
-      await OrganizationModel.create({ name: "Acme Corp", slug: "acme-corp", allowedOrigins: [] });
-      await registerAndVerify(ctx, CUSTOMER_EMAIL, "First Person");
-      await registerAndVerify(ctx, "other@example.com", "Second Person");
-
-      const firstToken = (await signIn(ctx, CUSTOMER_EMAIL)).token!;
-      const theirs = await authed(ctx, "post", MY_CONVERSATIONS_PATH, firstToken);
-      const conversationId = theirs.body.data.id as string;
-
-      const secondToken = (await signIn(ctx, "other@example.com")).token!;
-      const stolen = await authed(ctx, "get", `${MY_CONVERSATIONS_PATH}/${conversationId}/messages`, secondToken);
-
-      expect(stolen.status).toBe(404);
-    });
-
-    it("sees only its own conversations in the list", async () => {
-      const ctx = buildApp();
-      await OrganizationModel.create({ name: "Acme Corp", slug: "acme-corp", allowedOrigins: [] });
-      await registerAndVerify(ctx, CUSTOMER_EMAIL, "First Person");
-      await registerAndVerify(ctx, "other@example.com", "Second Person");
-
-      const firstToken = (await signIn(ctx, CUSTOMER_EMAIL)).token!;
-      await authed(ctx, "post", MY_CONVERSATIONS_PATH, firstToken);
-      const secondToken = (await signIn(ctx, "other@example.com")).token!;
-      await authed(ctx, "post", MY_CONVERSATIONS_PATH, secondToken);
-
-      const mine = await authed(ctx, "get", MY_CONVERSATIONS_PATH, firstToken);
-
-      expect(await ConversationModel.countDocuments({})).toBe(2);
-      expect(mine.body.data.conversations).toHaveLength(1);
-    });
-
-    it("is told plainly when no organization exists yet", async () => {
-      const ctx = buildApp();
-      await registerAndVerify(ctx, CUSTOMER_EMAIL);
-      const token = (await signIn(ctx, CUSTOMER_EMAIL)).token!;
-
-      const response = await authed(ctx, "get", MY_CONVERSATIONS_PATH, token);
+      const response = await request(ctx.app)
+        .post("/api/v1/auth/register")
+        .send({ name: "Sneaky", email: LEGACY_CUSTOMER_EMAIL, password: PASSWORD });
 
       expect(response.status).toBe(404);
+      expect(await UserModel.countDocuments({})).toBe(0);
     });
 
-    it("is refused without a token", async () => {
+    it("has no signed-in customer surface", async () => {
       const ctx = buildApp();
 
-      expect((await request(ctx.app).get(MY_CONVERSATIONS_PATH)).status).toBe(401);
+      expect((await request(ctx.app).get(MY_CONVERSATIONS_PATH)).status).toBe(404);
+      expect((await request(ctx.app).post(MY_CONVERSATIONS_PATH)).status).toBe(404);
+    });
+
+    /*
+      ADR-034 wrote customer accounts, and ADR-037 removed them. The documents it
+      left behind must stay inert: loadable, but unable to sign in, refresh, read
+      /me, or be revived through a password reset.
+    */
+    describe("a legacy customer account", () => {
+      async function legacyCustomer(ctx: Ctx) {
+        await registerAndVerify(ctx, LEGACY_CUSTOMER_EMAIL);
+        // Signed in while still staff-shaped, so there is a session to revoke.
+        const before = await request(ctx.app).post(LOGIN_PATH).send({ email: LEGACY_CUSTOMER_EMAIL, password: PASSWORD });
+        await UserModel.updateOne({ email: LEGACY_CUSTOMER_EMAIL }, { $set: { kind: "customer" } });
+        const cookies = before.headers["set-cookie"] as unknown as string[];
+        return {
+          accessToken: before.body.data.accessToken as string,
+          cookie: cookies.find((c) => c.startsWith(`${REFRESH_COOKIE_NAME}=`))!.split(";")[0]!,
+        };
+      }
+
+      it("cannot sign in, and is refused exactly as a wrong password is", async () => {
+        const ctx = buildApp();
+        await legacyCustomer(ctx);
+
+        const login = await signIn(ctx, LEGACY_CUSTOMER_EMAIL);
+        const wrong = await signIn(ctx, LEGACY_CUSTOMER_EMAIL, "not-the-password");
+
+        expect(login.status).toBe(401);
+        expect(login.body.error.code).toBe(wrong.body.error.code);
+        expect(login.body.error.message).toBe(wrong.body.error.message);
+      });
+
+      it("loses its existing session on the next refresh", async () => {
+        const ctx = buildApp();
+        const { cookie } = await legacyCustomer(ctx);
+
+        expect((await request(ctx.app).post(REFRESH_PATH).set("Cookie", cookie)).status).toBe(401);
+        expect(await SessionModel.countDocuments({ revokedAt: null })).toBe(0);
+      });
+
+      it("is refused by /me with a token issued before the change", async () => {
+        const ctx = buildApp();
+        const { accessToken } = await legacyCustomer(ctx);
+
+        expect((await authed(ctx, "get", ME_PATH, accessToken)).status).toBe(401);
+      });
+
+      it("is sent no password reset code", async () => {
+        const ctx = buildApp();
+        await legacyCustomer(ctx);
+
+        const response = await request(ctx.app).post(FORGOT_PASSWORD_PATH).send({ email: LEGACY_CUSTOMER_EMAIL });
+
+        expect(response.status).toBe(204);
+        expect(ctx.fake.passwordResets).toHaveLength(0);
+      });
     });
   });
 
-  // ---- adding an agent ----
+  // ---- the admin's one write ----
 
   describe("an admin adding an agent", () => {
     it("creates an unverified agent and emails a password", async () => {
@@ -322,8 +256,8 @@ describe("customers, agents and admins", () => {
     it("refuses a caller who is not a platform admin", async () => {
       const ctx = buildApp();
       await OrganizationModel.create({ name: "Acme Corp", slug: "acme-corp", allowedOrigins: [] });
-      await registerAndVerify(ctx, CUSTOMER_EMAIL);
-      const token = (await signIn(ctx, CUSTOMER_EMAIL)).token!;
+      await registerAndVerify(ctx, "someone@example.com");
+      const token = (await signIn(ctx, "someone@example.com")).token!;
 
       const response = await authed(ctx, "post", AGENTS_PATH, token).send({
         name: "Alan Turing",
@@ -370,17 +304,6 @@ describe("customers, agents and admins", () => {
 
       expect(login.status).toBe(200);
       expect(login.body.data.user.kind).toBe("agent");
-    });
-
-    it("is refused the customer surface", async () => {
-      const ctx = buildApp();
-      const mail = await inviteAgent(ctx);
-      await request(ctx.app).post(VERIFY_PATH).send({ email: AGENT_EMAIL, code: mail.code });
-      const token = (await signIn(ctx, AGENT_EMAIL, mail.temporaryPassword)).token!;
-
-      // An agent has an inbox; this is the other side of it, and one account
-      // must not hold both roles.
-      expect((await authed(ctx, "get", MY_CONVERSATIONS_PATH, token)).status).toBe(403);
     });
 
     it("changes the emailed password, and the old one stops working", async () => {
@@ -437,12 +360,12 @@ describe("customers, agents and admins", () => {
   describe("GET /auth/me", () => {
     it("reports the kind so the client renders the right surface", async () => {
       const ctx = buildApp();
-      await registerAndVerify(ctx, CUSTOMER_EMAIL);
-      const token = (await signIn(ctx, CUSTOMER_EMAIL)).token!;
+      await registerAndVerify(ctx, "someone@example.com");
+      const token = (await signIn(ctx, "someone@example.com")).token!;
 
       const response = await authed(ctx, "get", ME_PATH, token);
 
-      expect(response.body.data.user.kind).toBe("customer");
+      expect(response.body.data.user.kind).toBe("agent");
     });
   });
 });
