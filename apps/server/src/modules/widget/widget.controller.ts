@@ -7,10 +7,12 @@ import type { ConversationService } from "../conversations/conversation.service"
 import type { MessageService } from "../messages/message.service";
 import type { CreateMessageInput } from "./widgetConversation.validation";
 import type { CreateWidgetSessionInput } from "./widget.validation";
+import type { WidgetDirectoryService } from "./widgetDirectory.service";
 import type { WidgetSessionService } from "./widgetSession.service";
 import type { RequestHandler } from "express";
 
 export interface WidgetControllerDependencies {
+  directoryService: WidgetDirectoryService;
   sessionService: WidgetSessionService;
   conversationService: ConversationService;
   messageService: MessageService;
@@ -42,10 +44,20 @@ function requireWellFormedConversationId(value: string | string[] | undefined): 
  * a response.
  */
 export function createWidgetController({
+  directoryService,
   sessionService,
   conversationService,
   messageService,
 }: WidgetControllerDependencies) {
+  /**
+   * The lookup behind an organisation's chat link (ADR-038 §2). Public, and
+   * answers one slug with a name and a widget key or with a single 404.
+   */
+  const readDirectoryEntry: RequestHandler = async (req, res) => {
+    const slug = typeof req.params.slug === "string" ? req.params.slug : "";
+    success(res, await directoryService.resolve(slug, req.log));
+  };
+
   /**
    * Opens a widget session for an anonymous website visitor (ADR-019 §6).
    *
@@ -144,5 +156,5 @@ export function createWidgetController({
     success(res, { messages: page.messages.map(toMessageResponse), nextCursor: page.nextCursor });
   };
 
-  return { createSession, resolveConversation, createMessage, listMessages };
+  return { readDirectoryEntry, createSession, resolveConversation, createMessage, listMessages };
 }

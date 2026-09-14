@@ -12,6 +12,7 @@ import { ResetPasswordPage } from "@/pages/auth/ResetPasswordPage";
 import { VerifyEmailPage } from "@/pages/auth/VerifyEmailPage";
 import { DashboardPage } from "@/pages/dashboard/DashboardPage";
 import { LandingPage } from "@/pages/marketing/LandingPage";
+import { HostedWidgetPage } from "@/pages/widget/HostedWidgetPage";
 
 import { AgentRoute } from "./AgentRoute";
 import { NoStaffSurface } from "./NoStaffSurface";
@@ -138,6 +139,14 @@ export function AppRoutes() {
         that cannot change what they see.
       */}
       <Route path="/" element={<LandingPage />} />
+
+      {/*
+        An organisation's customer chat link (ADR-038 §6) — the one customer
+        surface in Serviqo. Outside every guard and never waiting on the auth
+        restore: customers do not sign in (ADR-037), so there is no session
+        whose arrival could change what this page shows.
+      */}
+      <Route path="/widget/:slug" element={<HostedWidgetPage />} />
 
       {/*
         The one staff sign-in page (ADR-037). `/agent/login` is kept as an alias

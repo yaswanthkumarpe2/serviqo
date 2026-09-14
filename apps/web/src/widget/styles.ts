@@ -79,6 +79,26 @@ export const WIDGET_STYLES = `
     display: none;
   }
 
+  /*
+    The hosted chat page (ADR-038 §6). The panel fills the container its page
+    gives it instead of floating over somebody else's site, so nothing is fixed
+    and there is no shadow to lift it off a page it already owns.
+  */
+  .root--page {
+    position: static;
+    inset: auto;
+    z-index: auto;
+    align-items: stretch;
+    height: 100%;
+  }
+  .root--page .panel {
+    width: 100%;
+    max-width: 100%;
+    height: 100%;
+    max-height: 100%;
+    box-shadow: none;
+  }
+
   .panel__header {
     background: var(--sq-brand);
     color: #fff;

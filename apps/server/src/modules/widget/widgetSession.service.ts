@@ -1,7 +1,10 @@
+import { generateSecret, sha256 } from "../../lib/crypto/tokens";
+import { env } from "../../lib/env";
 import { WidgetSessionRefusedError } from "../../lib/errors";
 import { logger } from "../../lib/logger";
 import { customerRepository } from "../customers/customer.repository";
 import { organizationRepository } from "../organizations/organization.repository";
+import { normalizeOrigin } from "../organizations/widgetConfig";
 import { decideOrigin } from "./originPolicy";
 import { issueWidgetToken, verifyWidgetToken } from "./widgetToken";
 
@@ -30,6 +33,13 @@ import type { CreateWidgetSessionInput } from "./widget.validation";
 const GENERIC_FAILURE_MESSAGE = "This chat widget is not available.";
 
 /**
+ * Serviqo's own origin, where every organisation's hosted chat link is served
+ * (ADR-038 §2). Computed once: `CLIENT_URL` is read at boot and does not
+ * change underneath a running process.
+ */
+const FIRST_PARTY_ORIGIN = normalizeOrigin(env.CLIENT_URL);
+
+/**
  * Why a session was refused. Reaches the log and NEVER a response body
  * (ADR-019 §12) — `unknown_widget_key` in particular is the one that would
  * turn this endpoint into a tenant-enumeration oracle.
@@ -45,12 +55,20 @@ export interface WidgetSessionCustomer {
   id: string;
   name: string | null;
   email: string | null;
+  phone: string | null;
 }
 
 export interface WidgetSessionResult {
   token: string;
   expiresInSeconds: number;
   customer: WidgetSessionCustomer;
+  /**
+   * The visitor's long-lived key, present ONLY on the response that minted it
+   * (ADR-038 §3). The browser stores it; the server keeps only its hash, so it
+   * can never be sent again — a response that echoed it on every session would
+   * put a durable credential in every response a proxy might log.
+   */
+  visitorKey?: string;
 }
 
 /** What the request carried outside its body. The header is a claim, not an identity. */
@@ -85,6 +103,7 @@ function toSessionCustomer(customer: CustomerDocument): WidgetSessionCustomer {
     id: customer._id.toString(),
     name: customer.name,
     email: customer.email,
+    phone: customer.phone,
   };
 }
 
@@ -145,13 +164,13 @@ export function createWidgetSessionService(): WidgetSessionService {
         find it. Checked BEFORE any customer is created, so a disallowed
         origin cannot write a document.
       */
-      const originDecision = decideOrigin(context.origin, organization.allowedOrigins);
+      const originDecision = decideOrigin(context.origin, organization.allowedOrigins, FIRST_PARTY_ORIGIN);
       if (!originDecision.allowed) {
         return refuse(originDecision.reason, organization._id.toString());
       }
 
       const organizationId = organization._id.toString();
-      const details = { name: input.name, email: input.email };
+      const details = { name: input.name, email: input.email, phone: input.phone };
 
       /*
         Resume, or start fresh (ADR-019 §6).
@@ -185,14 +204,41 @@ export function createWidgetSessionService(): WidgetSessionService {
         }
       }
 
+      /*
+        The second way back (ADR-038 §3): the visitor key. Tried only when the
+        token did not resume, so a visitor with a live token never has their
+        key looked at. Scoped by `organizationId` inside the query, so a key
+        from another organisation matches nothing here and falls through to a
+        new customer, exactly as a foreign token does.
+      */
+      if (customer === null && input.visitorKey !== undefined) {
+        customer = await customerRepository.recordVisitByVisitorKey(sha256(input.visitorKey), organizationId, details);
+      }
+
       const resumed = customer !== null;
+      let visitorKey: string | undefined;
 
       if (customer === null) {
+        visitorKey = generateSecret();
         customer = await customerRepository.create({
           organizationId,
           name: input.name ?? null,
           email: input.email ?? null,
+          phone: input.phone ?? null,
+          visitorKeyHash: sha256(visitorKey),
         });
+      } else if (input.visitorKey === undefined) {
+        /*
+          Resumed by token, and the browser offered no key: most likely a
+          customer from before ADR-038. Give them one now, so next week works
+          too. `attachVisitorKey` is set-once, and a `false` (another tab won)
+          means the key is not handed out — a key the database did not store
+          would be a credential for nothing.
+        */
+        const candidate = generateSecret();
+        if (await customerRepository.attachVisitorKey(customer._id, organizationId, sha256(candidate))) {
+          visitorKey = candidate;
+        }
       }
 
       const customerId = customer._id.toString();
@@ -212,7 +258,12 @@ export function createWidgetSessionService(): WidgetSessionService {
         "Widget session issued",
       );
 
-      return { token, expiresInSeconds, customer: toSessionCustomer(customer) };
+      return {
+        token,
+        expiresInSeconds,
+        customer: toSessionCustomer(customer),
+        ...(visitorKey === undefined ? {} : { visitorKey }),
+      };
     },
   };
 }

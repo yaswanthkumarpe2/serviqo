@@ -5,6 +5,7 @@ import { validateBody } from "../../middleware/validate";
 import { createConversationService } from "../conversations/conversation.service";
 import { createMessageService } from "../messages/message.service";
 import { createWidgetController } from "./widget.controller";
+import { createWidgetDirectoryService } from "./widgetDirectory.service";
 import { createMessageSchema, resolveConversationSchema } from "./widgetConversation.validation";
 import { widgetCorsHeaders, widgetPreflight } from "./widgetCors";
 import { createWidgetSessionSchema } from "./widget.validation";
@@ -34,6 +35,7 @@ export function createWidgetRouter({ rateLimiters }: WidgetRouterDependencies): 
   const router = Router();
 
   const controller = createWidgetController({
+    directoryService: createWidgetDirectoryService(),
     sessionService: createWidgetSessionService(),
     conversationService: createConversationService(),
     messageService: createMessageService(),
@@ -47,6 +49,7 @@ export function createWidgetRouter({ rateLimiters }: WidgetRouterDependencies): 
     already sets.
   */
   router.use(widgetCorsHeaders);
+  router.options("/organizations/:slug", widgetPreflight("GET"));
   router.options("/session", widgetPreflight("POST"));
   router.options("/conversations", widgetPreflight("POST"));
   router.options("/conversations/:conversationId/messages", widgetPreflight("GET, POST"));
@@ -69,6 +72,14 @@ export function createWidgetRouter({ rateLimiters }: WidgetRouterDependencies): 
     this sits under `/api/v1`. The security gate is not bypassed.
   */
   router.post("/session", rateLimiters.widgetSession, validateBody(createWidgetSessionSchema), controller.createSession);
+
+  /*
+    The organisation behind a chat link (ADR-038 §2): `/widget/<slug>` is a
+    page, and this is how it learns which organisation it is. Public and
+    read-only, IP-keyed by its own class, and deliberately one slug at a time —
+    there is no route that lists organisations.
+  */
+  router.get("/organizations/:slug", rateLimiters.widgetDirectory, controller.readDirectoryEntry);
 
   /*
     Conversations and messages (ADR-022). `requireWidgetToken` mounts first

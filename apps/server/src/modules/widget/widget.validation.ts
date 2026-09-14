@@ -59,6 +59,22 @@ const COMPACT_JWT_PATTERN = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
 const TOKEN_MAX_LENGTH = 4096;
 
 /**
+ * A visitor key is exactly what `generateSecret` produces: 32 bytes as
+ * base64url, 43 characters (ADR-038 §3). Anything else cannot be one, so it is
+ * refused as a shape error before a hash is computed or a query runs.
+ */
+const VISITOR_KEY_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+
+/**
+ * Deliberately permissive: digits, spaces and the punctuation people type in
+ * phone numbers, with an optional leading plus. It is contact detail offered by
+ * the visitor, never dialled by Serviqo and never a lookup key, so the check
+ * exists to bound length and keep control characters out — not to decide what
+ * a valid number in some country looks like.
+ */
+const PHONE_PATTERN = /^\+?[0-9 ().-]{5,32}$/;
+
+/**
  * Opening a widget session takes a widget key, and optionally a previous
  * token and the details a visitor typed.
  *
@@ -96,6 +112,17 @@ export const createWidgetSessionSchema = z.object({
     .refine((value) => COMPACT_JWT_PATTERN.test(value), "visitorToken is not a well-formed token")
     .optional(),
 
+  /*
+    The visitor's long-lived key (ADR-038 §3), offered so a visitor whose
+    token has expired can still continue their conversation. Optional, and
+    handled like `visitorToken`: a key that matches nothing in this
+    organisation leads to a new anonymous customer, never to an error.
+  */
+  visitorKey: z
+    .string()
+    .refine((value) => VISITOR_KEY_PATTERN.test(value), "visitorKey is not a well-formed key")
+    .optional(),
+
   name: z
     .string()
     .trim()
@@ -116,6 +143,13 @@ export const createWidgetSessionSchema = z.object({
     .max(EMAIL_MAX_LENGTH, `email must be at most ${EMAIL_MAX_LENGTH} characters`)
     .pipe(z.email("email must be a valid email address"))
     .transform((value) => value.toLowerCase())
+    .optional(),
+
+  phone: z
+    .string()
+    .trim()
+    .refine((value) => value.length === 0 || PHONE_PATTERN.test(value), "phone must be a phone number")
+    .transform((value) => (value.length === 0 ? undefined : value))
     .optional(),
 });
 

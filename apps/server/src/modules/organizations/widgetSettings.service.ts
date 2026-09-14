@@ -1,6 +1,7 @@
 import { OrganizationNotAccessibleError } from "../../lib/errors";
 import { logger } from "../../lib/logger";
 import { organizationRepository } from "./organization.repository";
+import { buildWidgetUrl } from "./widgetLink";
 
 import type { AuthLogger } from "../auth/authLogging";
 import type { OrganizationDocument } from "./organization.model";
@@ -20,6 +21,8 @@ import type { OrganizationDocument } from "./organization.model";
 export interface WidgetSettings {
   widgetKey: string;
   allowedOrigins: string[];
+  /** The organisation's hosted chat link (ADR-038 §1), beside the embed settings. */
+  widgetUrl: string;
 }
 
 /** Who is acting. Comes from the verified access token, never from the body. */
@@ -46,7 +49,11 @@ export interface WidgetSettingsService {
  * invariant already holds.
  */
 function toWidgetSettings(organization: OrganizationDocument): WidgetSettings {
-  return { widgetKey: organization.widgetKey!, allowedOrigins: organization.allowedOrigins };
+  return {
+    widgetKey: organization.widgetKey!,
+    allowedOrigins: organization.allowedOrigins,
+    widgetUrl: buildWidgetUrl(organization.slug),
+  };
 }
 
 export function createWidgetSettingsService(): WidgetSettingsService {

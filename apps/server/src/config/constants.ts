@@ -481,6 +481,18 @@ export const WIDGET_SESSION_LIMIT = SESSION_LIMIT;
 export const WIDGET_SESSION_WINDOW_MS = SESSION_WINDOW_MS;
 
 /**
+ * The widget directory: `GET /widget/organizations/:slug` (ADR-038 §2).
+ *
+ * Public and IP-keyed like the session class, but a READ with no write behind
+ * it, so it is looser: one hundred and twenty per fifteen minutes lets a busy
+ * office reload an organisation's chat page freely. Its own class so that
+ * somebody walking slugs to see which organisations exist spends this budget
+ * and not the one visitors need to open a chat.
+ */
+export const WIDGET_DIRECTORY_LIMIT = 120;
+export const WIDGET_DIRECTORY_WINDOW_MS = 15 * 60 * 1000;
+
+/**
  * Every request under `/api/v1`, keyed by IP.
  *
  * A blunt volume bound covering what the specific classes cannot: requests

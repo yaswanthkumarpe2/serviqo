@@ -133,7 +133,7 @@ function submit(shadow: ShadowRoot, text: string) {
 
 afterEach(() => {
   findHost()?.remove();
-  window.sessionStorage.clear();
+  window.localStorage.clear();
   vi.unstubAllGlobals();
 });
 

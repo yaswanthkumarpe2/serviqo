@@ -139,7 +139,7 @@ describe("widget installation configuration", () => {
       expect(response.body.data.allowedOrigins).toEqual([]);
     });
 
-    it("answers in the approved envelope and exposes only the two owned fields", async () => {
+    it("answers in the approved envelope and exposes only the owned fields", async () => {
       const ctx = buildApp();
       const staff = await signedInStaff(ctx);
       const organization = await createOrganization(ctx, staff.accessToken, "Acme");
@@ -148,7 +148,8 @@ describe("widget installation configuration", () => {
 
       expect(response.body.success).toBe(true);
       expect(response.body.meta).toMatchObject({ version: "v1" });
-      expect(Object.keys(response.body.data).sort()).toEqual(["allowedOrigins", "widgetKey"]);
+      // `widgetUrl` since ADR-038 §4: the hosted chat link sits beside the embed settings.
+      expect(Object.keys(response.body.data).sort()).toEqual(["allowedOrigins", "widgetKey", "widgetUrl"]);
     });
 
     it("mints a key for an organization written before widget keys existed", async () => {

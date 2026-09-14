@@ -14,6 +14,9 @@ const CONFIG: WidgetConfig = {
 
 const CONVERSATION_ID = "6a8c0fbf909d5192a6bbd66f";
 const TOKEN_STORAGE_KEY = `serviqo_widget_token::${CONFIG.widgetKey}`;
+const VISITOR_KEY_STORAGE_KEY = `serviqo_widget_visitor::${CONFIG.widgetKey}`;
+/** 43 base64url characters — the shape the server issues (ADR-038 §3). */
+const VISITOR_KEY = "V".repeat(43);
 
 function jsonResponse(status: number, body: unknown): Response {
   return { ok: status >= 200 && status < 300, status, json: () => Promise.resolve(body) } as Response;
@@ -115,6 +118,7 @@ function bodies(shadow: ShadowRoot): string[] {
 
 afterEach(() => {
   findHost()?.remove();
+  window.localStorage.clear();
   window.sessionStorage.clear();
   vi.unstubAllGlobals();
 });
@@ -209,7 +213,7 @@ describe("initWidget", () => {
       await vi.waitFor(() => expect(harness.sockets).toHaveLength(1));
 
       expect(harness.last().options.auth).toEqual({ token: "TOKEN_FROM_SESSION" });
-      expect(window.sessionStorage.getItem(TOKEN_STORAGE_KEY)).toBe("TOKEN_FROM_SESSION");
+      expect(window.localStorage.getItem(TOKEN_STORAGE_KEY)).toBe("TOKEN_FROM_SESSION");
     });
 
     it("joins the conversation the REST call resolved", async () => {
@@ -560,28 +564,28 @@ describe("initWidget", () => {
       vi.stubGlobal("fetch", routedFetch());
       const harness = createFakeSocketHarness();
       await mountAndOpen(harness);
-      await vi.waitFor(() => expect(window.sessionStorage.getItem(TOKEN_STORAGE_KEY)).toBe("TOKEN_1"));
+      await vi.waitFor(() => expect(window.localStorage.getItem(TOKEN_STORAGE_KEY)).toBe("TOKEN_1"));
 
       harness.last().simulateConnectError("Authentication required");
 
       // Keeping a refused credential would make every retry and every reload
       // fail identically for the life of the tab (ADR-024 §8).
-      await vi.waitFor(() => expect(window.sessionStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull());
+      await vi.waitFor(() => expect(window.localStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull());
     });
 
     it("keeps the stored token when the failure is only a transport error", async () => {
       vi.stubGlobal("fetch", routedFetch());
       const harness = createFakeSocketHarness();
       await mountAndOpen(harness);
-      await vi.waitFor(() => expect(window.sessionStorage.getItem(TOKEN_STORAGE_KEY)).toBe("TOKEN_1"));
+      await vi.waitFor(() => expect(window.localStorage.getItem(TOKEN_STORAGE_KEY)).toBe("TOKEN_1"));
 
       harness.last().simulateConnectError("websocket error");
 
-      expect(window.sessionStorage.getItem(TOKEN_STORAGE_KEY)).toBe("TOKEN_1");
+      expect(window.localStorage.getItem(TOKEN_STORAGE_KEY)).toBe("TOKEN_1");
     });
 
     it("clears the stored token when a REST call rejects the credential", async () => {
-      window.sessionStorage.setItem(TOKEN_STORAGE_KEY, "STALE_TOKEN");
+      window.localStorage.setItem(TOKEN_STORAGE_KEY, "STALE_TOKEN");
       const fetchMock = vi.fn((url: string) => {
         if (url.endsWith("/session")) return Promise.resolve(jsonResponse(201, sessionBody("TOKEN_1")));
         // The conversation call refuses the credential.
@@ -594,7 +598,7 @@ describe("initWidget", () => {
       (shadow.querySelector(".launcher") as HTMLButtonElement).click();
 
       await vi.waitFor(() => expect(shadow.querySelector('[role="alert"]')).not.toBeNull());
-      expect(window.sessionStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull();
+      expect(window.localStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull();
     });
   });
 
@@ -804,6 +808,135 @@ describe("initWidget", () => {
       expect(harness.last().disconnectCalls).toBe(1);
       expect(harness.last().removeAllListenersCalls).toBe(1);
       expect(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }))).not.toThrow();
+    });
+  });
+
+  // ---- ADR-038: the hosted page, the visitor key, optional phone ----
+
+  describe("the hosted chat page presentation", () => {
+    function mountPage(harness: FakeSocketHarness, title = "CentralService") {
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      initWidget(CONFIG, { socketFactory: harness.factory, presentation: "page", container, title });
+      return { container, shadow: shadowOf(findHost()!) };
+    }
+
+    afterEach(() => {
+      document.body.replaceChildren();
+    });
+
+    it("mounts into the given container, open, with no launcher and no close button", async () => {
+      vi.stubGlobal("fetch", routedFetch());
+      const harness = createFakeSocketHarness();
+
+      const { container, shadow } = mountPage(harness);
+
+      expect(findHost()!.parentElement).toBe(container);
+      expect(shadow.querySelector(".launcher")).toBeNull();
+      expect((shadow.querySelector(".panel") as HTMLElement).hidden).toBe(false);
+      expect((shadow.querySelector(".panel__close") as HTMLElement).hidden).toBe(true);
+      // Opens the session without waiting for a click: the chat is the page.
+      await vi.waitFor(() => expect(shadow.querySelector(".chat")).not.toBeNull());
+    });
+
+    it("titles the chat with the organisation's name, as text", () => {
+      vi.stubGlobal("fetch", routedFetch());
+
+      const { shadow } = mountPage(createFakeSocketHarness(), "<b>Central</b>Service");
+
+      const title = shadow.querySelector(".panel__title")!;
+      expect(title.textContent).toBe("<b>Central</b>Service");
+      expect(title.querySelector("b")).toBeNull();
+    });
+
+    it("is not a modal dialog, and Escape does not close it", async () => {
+      vi.stubGlobal("fetch", routedFetch());
+      const { shadow } = mountPage(createFakeSocketHarness());
+      await vi.waitFor(() => expect(shadow.querySelector(".chat")).not.toBeNull());
+
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+
+      const panel = shadow.querySelector(".panel") as HTMLElement;
+      expect(panel.getAttribute("role")).toBeNull();
+      expect(panel.getAttribute("aria-modal")).toBeNull();
+      expect(panel.hidden).toBe(false);
+    });
+  });
+
+  describe("the visitor key", () => {
+    function sessionRequests(fetchMock: ReturnType<typeof vi.fn>): Record<string, unknown>[] {
+      return fetchMock.mock.calls
+        .filter(([url]) => String(url).endsWith("/session"))
+        .map(([, init]) => JSON.parse(String((init as RequestInit).body)) as Record<string, unknown>);
+    }
+
+    it("stores the key the server issues", async () => {
+      const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+        if (url.endsWith("/session")) {
+          return Promise.resolve(
+            jsonResponse(201, {
+              success: true,
+              data: { token: "TOKEN_1", expiresInSeconds: 86400, customer: ANONYMOUS_CUSTOMER, visitorKey: VISITOR_KEY },
+            }),
+          );
+        }
+        return routedFetch()(url, init);
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      await mountAndOpen(createFakeSocketHarness());
+
+      await vi.waitFor(() => expect(window.localStorage.getItem(VISITOR_KEY_STORAGE_KEY)).toBe(VISITOR_KEY));
+    });
+
+    it("offers a stored key with the stored token, so an expired token still finds the conversation", async () => {
+      window.localStorage.setItem(TOKEN_STORAGE_KEY, "OLD_TOKEN");
+      window.localStorage.setItem(VISITOR_KEY_STORAGE_KEY, VISITOR_KEY);
+      const fetchMock = routedFetch();
+      vi.stubGlobal("fetch", fetchMock);
+
+      await mountAndOpen(createFakeSocketHarness());
+
+      expect(sessionRequests(fetchMock)[0]).toEqual({
+        widgetKey: CONFIG.widgetKey,
+        visitorToken: "OLD_TOKEN",
+        visitorKey: VISITOR_KEY,
+      });
+    });
+
+    it("keeps the key when a refused token is cleared", async () => {
+      window.localStorage.setItem(VISITOR_KEY_STORAGE_KEY, VISITOR_KEY);
+      vi.stubGlobal("fetch", routedFetch());
+      const harness = createFakeSocketHarness();
+      await mountAndOpen(harness);
+      await vi.waitFor(() => expect(harness.sockets.length).toBeGreaterThan(0));
+
+      harness.last().simulateConnectError("Authentication required");
+
+      await vi.waitFor(() => expect(window.localStorage.getItem(TOKEN_STORAGE_KEY)).toBeNull());
+      expect(window.localStorage.getItem(VISITOR_KEY_STORAGE_KEY)).toBe(VISITOR_KEY);
+    });
+  });
+
+  describe("optional phone number", () => {
+    it("offers a phone field beside name and email, and sends it when given", async () => {
+      const fetchMock = routedFetch();
+      vi.stubGlobal("fetch", fetchMock);
+      const shadow = await mountAndOpen(createFakeSocketHarness());
+
+      const phone = shadow.querySelector("#serviqo-widget-phone") as HTMLInputElement;
+      expect(phone).not.toBeNull();
+      expect(phone.type).toBe("tel");
+
+      phone.value = "+44 20 7946 0958";
+      (shadow.querySelector(".details--chat form") as HTMLFormElement).requestSubmit();
+
+      await vi.waitFor(() => {
+        const bodies = fetchMock.mock.calls
+          .filter(([url]) => String(url).endsWith("/session"))
+          .map(([, init]) => JSON.parse(String((init as RequestInit).body)) as Record<string, unknown>);
+        expect(bodies.at(-1)).toMatchObject({ phone: "+44 20 7946 0958", visitorToken: "TOKEN_1" });
+      });
     });
   });
 });

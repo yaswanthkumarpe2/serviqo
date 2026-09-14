@@ -43,7 +43,7 @@ export interface PanelSkeleton {
  * — belt and braces against a host page's own `[hidden]` reset, which cannot
  * reach through the shadow boundary anyway (ADR-021 §3), but costs nothing.
  */
-export function createPanelSkeleton(titleId: string): PanelSkeleton {
+export function createPanelSkeleton(titleId: string, titleText = "Chat with us"): PanelSkeleton {
   const element = document.createElement("div");
   element.className = "panel";
   element.hidden = true;
@@ -58,7 +58,9 @@ export function createPanelSkeleton(titleId: string): PanelSkeleton {
   const title = document.createElement("h2");
   title.className = "panel__title";
   title.id = titleId;
-  title.textContent = "Chat with us";
+  // `textContent`, never markup: on the hosted page this is an organisation's
+  // name, which a person typed.
+  title.textContent = titleText;
   const subtitle = document.createElement("p");
   subtitle.className = "panel__subtitle";
   subtitle.textContent = "We usually reply within a few minutes.";

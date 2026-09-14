@@ -84,6 +84,13 @@ const organizationSchema = new Schema<OrganizationAttrs>(
       trim: true,
       lowercase: true,
       match: SLUG_PATTERN,
+      /*
+        Immutable (ADR-038 §1). The slug IS the organisation's customer chat
+        link — `/widget/<slug>` — and that link is printed, bookmarked and
+        pasted into places Serviqo never sees. Renaming an organisation changes
+        its `name`; it must never silently break every link to it.
+      */
+      immutable: true,
     },
     status: {
       type: String,

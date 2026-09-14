@@ -69,6 +69,43 @@ export function CogIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+/** A chain link: the organisation's customer chat link (ADR-038). */
+export function LinkIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="17" height="17" {...STROKE} {...props}>
+      <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" />
+      <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" />
+    </svg>
+  );
+}
+
+export function CopyIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="15" height="15" {...STROKE} {...props}>
+      <rect x="9" y="9" width="13" height="13" rx="2" />
+      <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+    </svg>
+  );
+}
+
+export function CheckIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="15" height="15" {...STROKE} {...props}>
+      <path d="M20 6L9 17l-5-5" />
+    </svg>
+  );
+}
+
+export function ExternalLinkIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="15" height="15" {...STROKE} {...props}>
+      <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" />
+      <path d="M15 3h6v6" />
+      <path d="M10 14L21 3" />
+    </svg>
+  );
+}
+
 export function CodeIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg width="17" height="17" {...STROKE} {...props}>

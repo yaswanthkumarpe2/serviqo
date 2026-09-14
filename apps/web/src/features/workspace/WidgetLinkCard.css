@@ -1,0 +1,102 @@
+/*
+  The customer chat link card (ADR-038 §4). Product surface: borders over
+  shadows, tokens only. Emerald marks the one action that matters — copying
+  the link a customer will open.
+*/
+
+.linkCard {
+  padding: 20px;
+}
+
+.linkCard__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.linkCard__icon {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--r-sm);
+  display: grid;
+  place-items: center;
+  background: var(--em-50);
+  color: var(--em-700);
+}
+
+.linkCard__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.linkCard__lede {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--text-2);
+  line-height: 1.5;
+}
+
+.linkCard__row {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.linkCard__url {
+  flex: 1 1 260px;
+  min-width: 0;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-sunk);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.linkCard__action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.linkCard__action:hover {
+  background: var(--surface-hover);
+}
+
+.linkCard__action--primary {
+  border-color: var(--em-600);
+  background: var(--em-600);
+  color: var(--text-inverse);
+}
+.linkCard__action--primary:hover {
+  background: var(--em-700);
+}
+
+/* Visually hidden, still announced. Scoped per feature, as elsewhere in the workspace. */
+.linkCard__srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

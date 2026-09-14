@@ -92,6 +92,8 @@ describe("createRateLimiters", () => {
       // principal already exists by the time these mount.
       "widgetConversationRead",
       "widgetConversationWrite",
+      // The public lookup behind an organisation's chat link (ADR-038 §2).
+      "widgetDirectory",
       // The sixth class, added for the public widget session endpoint
       // (ADR-019 §11). ADR-010 §9 ordered it in advance: customer endpoints
       // are high-volume, anonymous, and unauthenticated by design, so they

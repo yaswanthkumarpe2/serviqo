@@ -40,6 +40,8 @@ export function toInboxCustomerResponse(customer: CustomerDocument | null) {
     id: customer._id.toString(),
     name: customer.name,
     email: customer.email,
+    // Optional contact detail the visitor chose to give (ADR-038 §5).
+    phone: customer.phone,
   };
 }
 

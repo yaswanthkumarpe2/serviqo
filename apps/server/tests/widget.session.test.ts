@@ -478,8 +478,13 @@ describe("widget session", () => {
 
       const response = await openSession({ widgetKey: organization.widgetKey });
 
-      expect(Object.keys(response.body.data).sort()).toEqual(["customer", "expiresInSeconds", "token"]);
-      expect(Object.keys(response.body.data.customer).sort()).toEqual(["email", "id", "name"]);
+      /*
+        `visitorKey` appears because this is a NEW visitor: it is issued once,
+        on the response that minted it, and never again (ADR-038 §3).
+        `phone` is the third optional detail (ADR-038 §5).
+      */
+      expect(Object.keys(response.body.data).sort()).toEqual(["customer", "expiresInSeconds", "token", "visitorKey"]);
+      expect(Object.keys(response.body.data.customer).sort()).toEqual(["email", "id", "name", "phone"]);
     });
 
     it("leaks no tenant data", async () => {

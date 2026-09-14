@@ -8,9 +8,27 @@ type ObjectIdLike = Types.ObjectId | string;
 
 export interface CreateCustomerInput {
   organizationId: ObjectIdLike;
-  /** Optional. An anonymous visitor supplies neither of these (ADR-019 §7). */
+  /** Optional. An anonymous visitor supplies none of these (ADR-019 §7, ADR-038 §5). */
   name?: string | null;
   email?: string | null;
+  phone?: string | null;
+  /** SHA-256 of the visitor key minted for this customer (ADR-038 §3). Never the key itself. */
+  visitorKeyHash?: string | null;
+}
+
+/** Details a visitor may supply or update. `undefined` and `null` both mean "no change". */
+export interface VisitorDetails {
+  name?: string | null;
+  email?: string | null;
+  phone?: string | null;
+}
+
+function detailsUpdate(details: VisitorDetails): Record<string, unknown> {
+  const update: Record<string, unknown> = { lastSeenAt: new Date() };
+  if (typeof details.name === "string") update.name = details.name;
+  if (typeof details.email === "string") update.email = details.email;
+  if (typeof details.phone === "string") update.phone = details.phone;
+  return update;
 }
 
 /**
@@ -117,18 +135,55 @@ export const customerRepository = {
   async recordVisit(
     customerId: ObjectIdLike,
     organizationId: ObjectIdLike,
-    details: { name?: string | null; email?: string | null } = {},
+    details: VisitorDetails = {},
   ): Promise<CustomerDocument | null> {
-    const update: Record<string, unknown> = { lastSeenAt: new Date() };
-    if (typeof details.name === "string") update.name = details.name;
-    if (typeof details.email === "string") update.email = details.email;
-
     return CustomerModel.findOneAndUpdate(
       { _id: customerId, organizationId },
-      { $set: update },
+      { $set: detailsUpdate(details) },
       // The updated document, so the caller reports what was actually stored
       // rather than what it hoped was.
       { returnDocument: "after" },
     );
+  },
+
+  /**
+   * Resumes a visitor by the hash of their visitor key, recording the visit
+   * (ADR-038 §3).
+   *
+   * The key's owner AND the organisation are both in the predicate. A key from
+   * organisation A presented through organisation B's widget matches nothing,
+   * and the caller creates a new anonymous customer in B — never a refusal that
+   * would tell anybody the key was real somewhere.
+   */
+  async recordVisitByVisitorKey(
+    visitorKeyHash: string,
+    organizationId: ObjectIdLike,
+    details: VisitorDetails = {},
+  ): Promise<CustomerDocument | null> {
+    return CustomerModel.findOneAndUpdate(
+      { organizationId, visitorKeyHash },
+      { $set: detailsUpdate(details) },
+      { returnDocument: "after" },
+    );
+  },
+
+  /**
+   * Gives a customer created before ADR-038 its first visitor key.
+   *
+   * Set-once by predicate (`visitorKeyHash: null`), the same instrument
+   * `markEmailVerified` uses: of two tabs resuming the same old customer at
+   * once, one key wins, and the loser's `null` result tells the caller not to
+   * hand out a key the database never stored.
+   */
+  async attachVisitorKey(
+    customerId: ObjectIdLike,
+    organizationId: ObjectIdLike,
+    visitorKeyHash: string,
+  ): Promise<boolean> {
+    const result = await CustomerModel.updateOne(
+      { _id: customerId, organizationId, visitorKeyHash: null },
+      { $set: { visitorKeyHash } },
+    );
+    return result.modifiedCount === 1;
   },
 };
