@@ -29,6 +29,8 @@ import "./OrganizationSwitcher.css";
 export interface ActiveOrganizationContext {
   organizationId: string;
   role: string;
+  /** The organisation's customer chat link, as the server built it (ADR-038 §4). */
+  widgetUrl: string | null;
 }
 
 interface OrganizationSwitcherProps {
@@ -146,7 +148,13 @@ export function OrganizationSwitcher({
   // `context` already settled to, and must not itself trigger a fetch.
   useEffect(() => {
     onActiveOrganizationChange?.(
-      context !== null ? { organizationId: context.organization.id, role: context.role } : null,
+      context !== null
+        ? {
+            organizationId: context.organization.id,
+            role: context.role,
+            widgetUrl: context.organization.widgetUrl ?? null,
+          }
+        : null,
     );
   }, [context, onActiveOrganizationChange]);
 

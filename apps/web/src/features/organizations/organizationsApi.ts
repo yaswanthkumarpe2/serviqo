@@ -20,6 +20,11 @@ export interface CreatedOrganization {
   name: string;
   /** Derived server-side from the name; the client never chooses one. */
   slug: string;
+  /**
+   * The organisation's customer chat link, `…/widget/<slug>` (ADR-038 §4).
+   * Optional in the type because only the organisation READ carries it.
+   */
+  widgetUrl?: string;
   status: string;
   createdAt: string;
 }

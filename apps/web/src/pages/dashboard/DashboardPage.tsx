@@ -8,6 +8,7 @@ import { useCurrentUser } from "@/features/auth/useCurrentUser";
 import { AgentInbox } from "@/features/inbox/AgentInbox";
 import { OrganizationSwitcher } from "@/features/organizations/OrganizationSwitcher";
 import { WidgetInstallation } from "@/features/organizations/WidgetInstallation";
+import { WidgetLinkCard } from "@/features/workspace/WidgetLinkCard";
 import { TeamManagement } from "@/features/team/TeamManagement";
 import { ContactsPanel } from "@/features/workspace/ContactsPanel";
 import { WorkspaceOverview } from "@/features/workspace/WorkspaceOverview";
@@ -273,6 +274,7 @@ export function DashboardPage() {
                 view={view}
                 organizationId={activeOrganization.organizationId}
                 role={activeOrganization.role}
+                widgetUrl={activeOrganization.widgetUrl}
                 userId={user.id}
                 pendingConversationId={pendingConversationId}
                 onConversationHandled={() => setPendingConversationId(null)}
@@ -292,6 +294,7 @@ interface WorkspaceBodyProps {
   view: WorkspaceView;
   organizationId: string;
   role: string;
+  widgetUrl: string | null;
   userId: string;
   pendingConversationId: string | null;
   onConversationHandled: () => void;
@@ -316,6 +319,7 @@ function WorkspaceBody({
   view,
   organizationId,
   role,
+  widgetUrl,
   userId,
   pendingConversationId,
   onConversationHandled,
@@ -334,7 +338,15 @@ function WorkspaceBody({
         a component nobody is looking at.
       */}
       {view === "dashboard" && (
-        <WorkspaceOverview overview={overview} onNavigate={onNavigate} onOpenConversation={onOpenConversation} />
+        <div className="ws__stack">
+          <WorkspaceOverview overview={overview} onNavigate={onNavigate} onOpenConversation={onOpenConversation} />
+          {/*
+            On the first view, for every member (ADR-038 §4). Handing a customer
+            this link is the most common thing an agent does that is not
+            answering a chat, so it should not live behind Settings.
+          */}
+          {widgetUrl !== null && <WidgetLinkCard widgetUrl={widgetUrl} />}
+        </div>
       )}
 
       {view === "chats" && (
@@ -368,6 +380,12 @@ function WorkspaceBody({
 
       {view === "settings" && (
         <div className="ws__stack">
+          {widgetUrl !== null && <WidgetLinkCard widgetUrl={widgetUrl} />}
+          {/*
+            Embedding the chat on the organisation's own website. Its settings
+            are `organization.manage`, and the component renders the server's
+            refusal for a member who lacks it.
+          */}
           <WidgetInstallation organizationId={organizationId} />
         </div>
       )}

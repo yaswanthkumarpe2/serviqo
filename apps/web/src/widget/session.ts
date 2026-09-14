@@ -14,8 +14,11 @@ import type { WidgetSessionResult } from "./types";
 export interface OpenSessionInput {
   widgetKey: string;
   visitorToken?: string;
+  /** The long-lived key, offered so an expired token still resumes (ADR-038 §3). */
+  visitorKey?: string;
   name?: string;
   email?: string;
+  phone?: string;
 }
 
 /**
@@ -41,13 +44,16 @@ function isWidgetSessionResult(value: unknown): value is WidgetSessionResult {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Partial<WidgetSessionResult>;
   if (typeof candidate.token !== "string" || typeof candidate.expiresInSeconds !== "number") return false;
+  if (candidate.visitorKey !== undefined && typeof candidate.visitorKey !== "string") return false;
   const customer = candidate.customer;
   if (typeof customer !== "object" || customer === null) return false;
   const c = customer as Partial<WidgetSessionResult["customer"]>;
   return (
     typeof c.id === "string" &&
     (c.name === null || typeof c.name === "string") &&
-    (c.email === null || typeof c.email === "string")
+    (c.email === null || typeof c.email === "string") &&
+    // Tolerated as absent: a server from before ADR-038 does not send it.
+    (c.phone === undefined || c.phone === null || typeof c.phone === "string")
   );
 }
 
@@ -78,5 +84,6 @@ export async function openWidgetSession(apiBase: string, input: OpenSessionInput
     throw new WidgetSessionError(GENERIC_ERROR_MESSAGE);
   }
 
-  return body.data;
+  // Normalised so the rest of the widget can rely on the field existing.
+  return { ...body.data, customer: { ...body.data.customer, phone: body.data.customer.phone ?? null } };
 }

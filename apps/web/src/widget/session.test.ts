@@ -29,10 +29,27 @@ describe("openWidgetSession", () => {
   });
 
   it("resolves with the session data on success", async () => {
-    const data = { token: "TOKEN", expiresInSeconds: 86400, customer: { id: "c1", name: "Ada", email: null } };
+    const data = {
+      token: "TOKEN",
+      expiresInSeconds: 86400,
+      customer: { id: "c1", name: "Ada", email: null, phone: "+44 20 7946 0958" },
+      visitorKey: "V".repeat(43),
+    };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(201, { success: true, data })));
 
     await expect(openWidgetSession(API_BASE, { widgetKey: "wk_abc" })).resolves.toEqual(data);
+    vi.unstubAllGlobals();
+  });
+
+  // A server from before ADR-038 sends no phone; the widget still gets a complete customer.
+  it("fills in a missing phone as null", async () => {
+    const data = { token: "TOKEN", expiresInSeconds: 86400, customer: { id: "c1", name: "Ada", email: null } };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(201, { success: true, data })));
+
+    await expect(openWidgetSession(API_BASE, { widgetKey: "wk_abc" })).resolves.toEqual({
+      ...data,
+      customer: { ...data.customer, phone: null },
+    });
     vi.unstubAllGlobals();
   });
 

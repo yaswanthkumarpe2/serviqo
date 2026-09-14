@@ -1,6 +1,7 @@
 import { created, success } from "../../lib/response";
 import { OrganizationNotAccessibleError } from "../../lib/errors";
 import { organizationRepository } from "./organization.repository";
+import { buildWidgetUrl } from "./widgetLink";
 
 import type { CreateOrganizationInput, ReplaceAllowedOriginsInput } from "./organization.validation";
 import type { OrganizationOnboardingService } from "./organizationOnboarding.service";
@@ -91,6 +92,13 @@ export function createOrganizationController({
         id: organization._id.toString(),
         name: organization.name,
         slug: organization.slug,
+        /*
+          The customer chat link (ADR-038 §4). On the plain organisation read
+          rather than only on widget-config, because every member — agents
+          included, who hold `organization.read` but not `organization.manage`
+          — needs to see and copy it.
+        */
+        widgetUrl: buildWidgetUrl(organization.slug),
         status: organization.status,
         createdAt: organization.createdAt,
       },

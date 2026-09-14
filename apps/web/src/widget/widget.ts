@@ -1,7 +1,7 @@
 import { WidgetAuthError, loadHistory, resolveConversation } from "./conversation";
 import { RealtimeError, createRealtimeClient } from "./realtime";
 import { openWidgetSession, WidgetSessionError } from "./session";
-import { clearStoredToken, loadStoredToken, storeToken } from "./storage";
+import { clearStoredToken, loadStoredToken, loadVisitorKey, storeToken, storeVisitorKey } from "./storage";
 import { WIDGET_STYLES } from "./styles";
 import { createChatSurface, createLauncher, createMessageBubble, createPanelSkeleton } from "./ui";
 
@@ -62,6 +62,25 @@ const STATUS_TEXT: Record<RealtimeStatus, string> = {
 export interface InitWidgetOptions {
   /** Injected by tests so the socket layer runs against a fake (ADR-024 §2). */
   socketFactory?: SocketFactory;
+  /**
+   * How the chat is presented (ADR-038 §6).
+   *
+   * - `"launcher"` (default): the embed. A floating bubble on a page Serviqo
+   *   does not own, opening a panel on demand.
+   * - `"page"`: the organisation's hosted chat link, `/widget/<slug>`. The
+   *   chat IS the page, so it is open from the start, has no bubble and no
+   *   close button, and Escape does nothing — there is nowhere to close to.
+   *
+   * Everything behind the panel — session, visitor key, conversation,
+   * history, socket, de-duplication, closed-conversation recovery — is the
+   * same code in both. A second chat implementation for the hosted page would
+   * be a second place for any of those to be subtly wrong.
+   */
+  presentation?: "launcher" | "page";
+  /** Where to mount. Defaults to `document.body`; the hosted page passes its own container. */
+  container?: HTMLElement;
+  /** The panel title — the organisation's name on its hosted page. */
+  title?: string;
 }
 
 /**
@@ -76,6 +95,8 @@ export function initWidget(config: WidgetConfig, options: InitWidgetOptions = {}
     return null;
   }
 
+  const isPage = options.presentation === "page";
+
   const host = document.createElement("div");
   host.setAttribute("data-serviqo-widget-host", "true");
   const shadow = host.attachShadow({ mode: "open" });
@@ -85,12 +106,24 @@ export function initWidget(config: WidgetConfig, options: InitWidgetOptions = {}
   shadow.appendChild(styleEl);
 
   const root = document.createElement("div");
-  root.className = "root";
+  root.className = isPage ? "root root--page" : "root";
   shadow.appendChild(root);
 
   const launcher = createLauncher();
-  const panel = createPanelSkeleton("serviqo-widget-title");
-  root.append(panel.element, launcher);
+  const panel = createPanelSkeleton("serviqo-widget-title", options.title);
+  if (isPage) {
+    /*
+      Not a dialog on its own page: it is the page's main content, and
+      `aria-modal` would tell a screen reader everything else is inert when
+      there is nothing else.
+    */
+    panel.element.removeAttribute("role");
+    panel.element.removeAttribute("aria-modal");
+    panel.closeButton.hidden = true;
+    root.append(panel.element);
+  } else {
+    root.append(panel.element, launcher);
+  }
 
   let state: PanelState = { status: "idle" };
   let isOpen = false;
@@ -195,7 +228,12 @@ export function initWidget(config: WidgetConfig, options: InitWidgetOptions = {}
       as a RESUME of the same customer (ADR-019 §6), never a second one.
       Shown only while the server says it has neither value.
     */
-    if (state.status === "ready" && state.customer.name === null && state.customer.email === null) {
+    if (
+      state.status === "ready" &&
+      state.customer.name === null &&
+      state.customer.email === null &&
+      state.customer.phone === null
+    ) {
       surface.element.insertBefore(renderDetailsForm(), surface.list);
     }
 
@@ -243,7 +281,7 @@ export function initWidget(config: WidgetConfig, options: InitWidgetOptions = {}
     const details = document.createElement("details");
     details.className = "details details--chat";
     const summary = document.createElement("summary");
-    summary.textContent = "Share your name and email (optional)";
+    summary.textContent = "Share your contact details (optional)";
     details.appendChild(summary);
 
     const form = document.createElement("form");
@@ -251,7 +289,9 @@ export function initWidget(config: WidgetConfig, options: InitWidgetOptions = {}
 
     const nameField = createField("serviqo-widget-name", "Name", "text");
     const emailField = createField("serviqo-widget-email", "Email", "email");
-    form.append(nameField.wrap, emailField.wrap);
+    // Optional like the other two, and never required to chat (ADR-038 §5).
+    const phoneField = createField("serviqo-widget-phone", "Phone", "tel");
+    form.append(nameField.wrap, emailField.wrap, phoneField.wrap);
 
     const submit = document.createElement("button");
     submit.type = "submit";
@@ -263,10 +303,15 @@ export function initWidget(config: WidgetConfig, options: InitWidgetOptions = {}
       event.preventDefault();
       const name = nameField.input.value.trim();
       const email = emailField.input.value.trim();
-      if (name.length === 0 && email.length === 0) return;
+      const phone = phoneField.input.value.trim();
+      if (name.length === 0 && email.length === 0 && phone.length === 0) return;
 
       submit.disabled = true;
-      void submitDetails(name.length > 0 ? name : undefined, email.length > 0 ? email : undefined).finally(() => {
+      void submitDetails({
+        ...(name.length > 0 ? { name } : {}),
+        ...(email.length > 0 ? { email } : {}),
+        ...(phone.length > 0 ? { phone } : {}),
+      }).finally(() => {
         submit.disabled = false;
       });
     });
@@ -284,7 +329,7 @@ export function initWidget(config: WidgetConfig, options: InitWidgetOptions = {}
     const input = document.createElement("input");
     input.id = id;
     input.type = type;
-    input.autocomplete = type === "email" ? "email" : "name";
+    input.autocomplete = type === "email" ? "email" : type === "tel" ? "tel" : "name";
     wrap.append(label, input);
     return { wrap, input };
   }
@@ -298,7 +343,7 @@ export function initWidget(config: WidgetConfig, options: InitWidgetOptions = {}
    * chat surface rebuilds from `renderedMessages`, which is why that replay
    * exists (see `renderChat`).
    */
-  async function submitDetails(name: string | undefined, email: string | undefined) {
+  async function submitDetails(details: { name?: string; email?: string; phone?: string }) {
     if (state.status !== "ready") return;
     const { token, conversationId } = state;
 
@@ -306,10 +351,9 @@ export function initWidget(config: WidgetConfig, options: InitWidgetOptions = {}
       const result = await openWidgetSession(config.apiBase, {
         widgetKey: config.widgetKey,
         visitorToken: token,
-        ...(name !== undefined ? { name } : {}),
-        ...(email !== undefined ? { email } : {}),
+        ...details,
       });
-      storeToken(config.widgetKey, result.token);
+      rememberVisitor(result);
       setState({ status: "ready", customer: result.customer, token: result.token, conversationId });
     } catch {
       // The customer's existing session stays usable; only the detail
@@ -404,17 +448,34 @@ export function initWidget(config: WidgetConfig, options: InitWidgetOptions = {}
    * duplicate one — and duplication is eliminated completely by §4 while a
    * dropped message could only be papered over.
    */
+  /**
+   * Stores what the server just issued: always a token, and a visitor key
+   * only on the one response that minted it (ADR-038 §3).
+   */
+  function rememberVisitor(session: { token: string; visitorKey?: string }) {
+    storeToken(config.widgetKey, session.token);
+    if (session.visitorKey !== undefined) storeVisitorKey(config.widgetKey, session.visitorKey);
+  }
+
   async function openSession() {
     setState({ status: "loading" });
 
     const visitorToken = loadStoredToken(config.widgetKey) ?? undefined;
+    /*
+      Offered alongside the token; the server tries the token first. The key
+      is what finds this visitor's conversation again once the one-day token
+      has expired — a customer never signs in, so without it every return
+      visit after a day would start an empty thread (ADR-038 §3).
+    */
+    const visitorKey = loadVisitorKey(config.widgetKey) ?? undefined;
 
     try {
       const session = await openWidgetSession(config.apiBase, {
         widgetKey: config.widgetKey,
         ...(visitorToken !== undefined ? { visitorToken } : {}),
+        ...(visitorKey !== undefined ? { visitorKey } : {}),
       });
-      storeToken(config.widgetKey, session.token);
+      rememberVisitor(session);
 
       const conversation = await resolveConversation(config.apiBase, session.token);
       const history = await loadHistory(config.apiBase, session.token, conversation.id);
@@ -625,7 +686,7 @@ export function initWidget(config: WidgetConfig, options: InitWidgetOptions = {}
   // ---- open / close ----
 
   function onKeyDown(event: KeyboardEvent) {
-    if (event.key === "Escape" && isOpen) close();
+    if (event.key === "Escape" && isOpen && !isPage) close();
   }
 
   function open() {
@@ -653,7 +714,18 @@ export function initWidget(config: WidgetConfig, options: InitWidgetOptions = {}
   panel.closeButton.addEventListener("click", close);
 
   renderBody();
-  document.body.appendChild(host);
+  (options.container ?? document.body).appendChild(host);
+
+  /*
+    The hosted page opens straight into the conversation. `open()` is not used:
+    it moves focus to the close button, which this presentation hides, and
+    listens for Escape, which has nothing to close.
+  */
+  if (isPage) {
+    isOpen = true;
+    panel.element.hidden = false;
+    void openSession();
+  }
 
   function destroy() {
     document.removeEventListener("keydown", onKeyDown);

@@ -12,6 +12,8 @@ export interface WidgetSessionCustomer {
   id: string;
   name: string | null;
   email: string | null;
+  /** Optional, like the two above (ADR-038 §5). */
+  phone: string | null;
 }
 
 /** The full success payload of `POST /api/v1/widget/session`. */
@@ -19,6 +21,13 @@ export interface WidgetSessionResult {
   token: string;
   expiresInSeconds: number;
   customer: WidgetSessionCustomer;
+  /**
+   * The long-lived visitor key, present only on the response that minted it
+   * (ADR-038 §3). The widget stores it and offers it on every later session,
+   * which is how a returning visitor finds their conversation after the
+   * one-day token has expired.
+   */
+  visitorKey?: string;
 }
 
 /** Resolved once at startup from the `<script>` tag that loaded this file (ADR-021 §4). */

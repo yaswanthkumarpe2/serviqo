@@ -264,6 +264,9 @@ describe("customerRepository", () => {
         "lastSeenAt",
         "name",
         "organizationId",
+        // Optional detail (ADR-038 §5). `visitorKeyHash` is deliberately absent:
+        // it is stripped at serialization as well as unselected.
+        "phone",
         "updatedAt",
       ]);
     });
@@ -276,17 +279,32 @@ describe("customerRepository", () => {
       not exist, and a unique constraint of any kind would collapse two
       genuinely distinct visitors into one.
     */
-    it("indexes organizationId and nothing else", async () => {
+    it("indexes organizationId, and the visitor-key lookup within it", async () => {
       const indexes = await CustomerModel.collection.indexes();
       const keys = indexes.map((index) => JSON.stringify(index.key)).sort();
 
-      expect(keys).toEqual([JSON.stringify({ _id: 1 }), JSON.stringify({ organizationId: 1 })]);
+      expect(keys).toEqual(
+        [
+          JSON.stringify({ _id: 1 }),
+          JSON.stringify({ organizationId: 1 }),
+          JSON.stringify({ organizationId: 1, visitorKeyHash: 1 }),
+        ].sort(),
+      );
     });
 
-    it("declares no unique constraint", async () => {
+    /*
+      ADR-038 §3 added one uniqueness, and its shape is the point: compound with
+      the organisation, and partial so every customer without a key is exempt.
+      Nothing a visitor TYPES is unique or indexed — two visitors giving the same
+      email are still two customers.
+    */
+    it("declares uniqueness only on the per-organisation visitor key, and only where one exists", async () => {
       const indexes = await CustomerModel.collection.indexes();
+      const unique = indexes.filter((index) => index.unique === true);
 
-      expect(indexes.filter((index) => index.unique === true)).toHaveLength(0);
+      expect(unique).toHaveLength(1);
+      expect(unique[0]!.key).toEqual({ organizationId: 1, visitorKeyHash: 1 });
+      expect(unique[0]!.partialFilterExpression).toEqual({ visitorKeyHash: { $type: "string" } });
     });
   });
 });

@@ -31,6 +31,8 @@ import {
   WIDGET_CONVERSATION_READ_WINDOW_MS,
   WIDGET_CONVERSATION_WRITE_LIMIT,
   WIDGET_CONVERSATION_WRITE_WINDOW_MS,
+  WIDGET_DIRECTORY_LIMIT,
+  WIDGET_DIRECTORY_WINDOW_MS,
   WIDGET_SESSION_LIMIT,
   WIDGET_SESSION_WINDOW_MS,
 } from "../../config/constants";
@@ -73,6 +75,7 @@ export type RateLimitClass =
   | "memberInvite"
   | "ownershipTransfer"
   | "widgetSession"
+  | "widgetDirectory"
   | "widgetConversationWrite"
   | "widgetConversationRead"
   | "global";
@@ -288,6 +291,11 @@ export interface RateLimiters {
    */
   widgetSession: RequestHandler;
   /**
+   * The public directory lookup behind an organisation's chat link:
+   * `GET /widget/organizations/:slug` (ADR-038 §2). Keyed by IP.
+   */
+  widgetDirectory: RequestHandler;
+  /**
    * Conversation and message writes: `POST /widget/conversations`,
    * `POST /widget/conversations/:id/messages` (ADR-022 §12). Keyed by
    * customer — a verified principal already exists by the time this mounts.
@@ -368,6 +376,11 @@ export function createRateLimiters(): RateLimiters {
       windowMs: WIDGET_SESSION_WINDOW_MS,
       limit: WIDGET_SESSION_LIMIT,
     }),
+    widgetDirectory: createLimiter({
+      limitClass: "widgetDirectory",
+      windowMs: WIDGET_DIRECTORY_WINDOW_MS,
+      limit: WIDGET_DIRECTORY_LIMIT,
+    }),
     widgetConversationWrite: createLimiter({
       limitClass: "widgetConversationWrite",
       windowMs: WIDGET_CONVERSATION_WRITE_WINDOW_MS,
@@ -411,6 +424,7 @@ export function createDisabledRateLimiters(): RateLimiters {
     memberInvite: passthrough,
     ownershipTransfer: passthrough,
     widgetSession: passthrough,
+    widgetDirectory: passthrough,
     widgetConversationWrite: passthrough,
     widgetConversationRead: passthrough,
     global: passthrough,

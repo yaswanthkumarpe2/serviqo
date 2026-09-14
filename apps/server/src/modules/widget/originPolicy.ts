@@ -49,7 +49,11 @@ const ALLOWED: OriginDecision = { allowed: true };
  * meaning of "do not trust an Origin supplied by the customer": the value is
  * a claim to be checked, never an input to a lookup.
  */
-export function decideOrigin(header: string | undefined, allowedOrigins: string[]): OriginDecision {
+export function decideOrigin(
+  header: string | undefined,
+  allowedOrigins: string[],
+  firstPartyOrigin: string | null = null,
+): OriginDecision {
   if (header === undefined) return ALLOWED;
 
   /*
@@ -72,6 +76,19 @@ export function decideOrigin(header: string | undefined, allowedOrigins: string[
     A linear scan over an array a tenant maintains by hand. Fifty storefronts
     is fifty comparisons of short strings.
   */
+  /*
+    Serviqo's own origin is always allowed (ADR-038 §2). It is where every
+    organisation's hosted chat link is served from, so without this an
+    organisation could not use its own link until it added Serviqo to its
+    embed list — and every organisation would have to add the same entry.
+
+    It widens nothing an attacker can use. The Origin header is a claim, and a
+    non-browser caller can already send any value; the check exists to stop a
+    third-party PAGE embedding a tenant's widget, and Serviqo's own page is
+    not a third party.
+  */
+  if (firstPartyOrigin !== null && origin === firstPartyOrigin) return ALLOWED;
+
   const matches = allowedOrigins.some((allowed) => normalizeOrigin(allowed) === origin);
 
   return matches ? ALLOWED : { allowed: false, reason: "origin_not_allowed" };

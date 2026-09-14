@@ -1,65 +1,83 @@
 /**
- * Visitor token persistence (ADR-021 §6).
+ * What the widget remembers about a visitor between visits (ADR-021 §6,
+ * ADR-038 §3).
  *
- * `sessionStorage`, never `localStorage`: cleared when the tab closes, which
- * bounds the token's practical exposure tighter than its 24-hour `exp` claim
- * does on its own (ADR-019 §8's stated cost — "it cannot be revoked before
- * it expires" — is not widened here). A bare in-memory variable was
- * considered and rejected: it would not survive a reload, which is exactly
- * the case ADR-019 §6 built the resumable token for.
+ * Two values, both namespaced by widget key so one organisation's credential
+ * is never read as belonging to another, even on a page that embeds two:
  *
- * Namespaced by widget key so one tenant's stored token is never read as
- * belonging to another, even if a single tab's storage were ever shared
- * across embeds of two different tenants on one page.
+ * - The visitor TOKEN: a one-day signed credential that opens a session
+ *   without a database lookup of the key.
+ * - The visitor KEY: a 256-bit secret issued once, whose hash the server
+ *   stores. It is what lets somebody who comes back next week continue the
+ *   same conversation without ever holding an account.
+ *
+ * `localStorage`, not `sessionStorage`, since ADR-038. Customers never sign
+ * in, so this browser's memory IS their continuity: `sessionStorage` forgot
+ * them the moment the tab closed and turned every return visit into a new
+ * anonymous customer with an empty thread. The cost is that a shared computer
+ * keeps the conversation reachable for the next person at that browser, which
+ * is the same property every "remember me" chat has; clearing site data ends
+ * it.
+ *
+ * Every access is wrapped. Storage throws rather than returning null in
+ * private modes, sandboxed iframes and browsers that block site data, and none
+ * of that is a reason to break the chat — a visitor who cannot store anything
+ * simply never resumes (ADR-019 §7).
  */
 
-const STORAGE_PREFIX = "serviqo_widget_token::";
+const TOKEN_PREFIX = "serviqo_widget_token::";
+const VISITOR_KEY_PREFIX = "serviqo_widget_visitor::";
 
-/**
- * Reads a previously-stored visitor token for this widget key, or `null` if
- * none exists or storage is unavailable.
- *
- * `sessionStorage` access can throw — private-browsing modes in some
- * browsers, or a sandboxed iframe without `allow-storage-access-by-user-activation`
- * — and none of that is a reason to break the widget. A visitor who cannot
- * store a token simply never resumes; the anonymous default path still
- * works (ADR-019 §7).
- */
-export function loadStoredToken(widgetKey: string): string | null {
+function read(key: string): string | null {
   try {
-    return window.sessionStorage.getItem(STORAGE_PREFIX + widgetKey);
+    return window.localStorage.getItem(key);
   } catch {
     return null;
   }
 }
 
-/** Stores a freshly-issued visitor token, best-effort (see `loadStoredToken`). */
-export function storeToken(widgetKey: string, token: string): void {
+function write(key: string, value: string): void {
   try {
-    window.sessionStorage.setItem(STORAGE_PREFIX + widgetKey, token);
+    window.localStorage.setItem(key, value);
   } catch {
-    // Best-effort. A visitor loses resumability across a reload, not the
-    // ability to open a session right now.
+    // Best-effort: the visitor loses continuity, not the chat in front of them.
   }
 }
 
+function remove(key: string): void {
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    // Nothing to recover: a value that cannot be removed cannot be read either.
+  }
+}
+
+/** A previously stored visitor token for this widget key, or `null`. */
+export function loadStoredToken(widgetKey: string): string | null {
+  return read(TOKEN_PREFIX + widgetKey);
+}
+
+/** Stores a freshly-issued visitor token. */
+export function storeToken(widgetKey: string, token: string): void {
+  write(TOKEN_PREFIX + widgetKey, token);
+}
+
 /**
- * Discards a stored token the server has refused (ADR-024 §8).
- *
- * Keeping a rejected credential would make every retry — and every reload
- * for the rest of the tab's life — fail identically, with the widget
- * dutifully re-presenting something it has already been told is no good.
- * Clearing it means the next attempt takes ADR-019 §6's anonymous path,
- * which is also the correct outcome for the most likely cause: an expired
- * token.
- *
- * Best-effort for the same storage reasons as the two above.
+ * Discards a token the server has refused (ADR-024 §8), so every retry does
+ * not re-present a credential already rejected. The visitor KEY is kept: an
+ * expired token is the ordinary reason for a refusal, and the key is exactly
+ * what recovers from it.
  */
 export function clearStoredToken(widgetKey: string): void {
-  try {
-    window.sessionStorage.removeItem(STORAGE_PREFIX + widgetKey);
-  } catch {
-    // Nothing to recover from: a token that cannot be removed from storage
-    // that cannot be read is not a token that will be presented.
-  }
+  remove(TOKEN_PREFIX + widgetKey);
+}
+
+/** The visitor key this browser holds for this widget key, or `null` (ADR-038 §3). */
+export function loadVisitorKey(widgetKey: string): string | null {
+  return read(VISITOR_KEY_PREFIX + widgetKey);
+}
+
+/** Stores the visitor key the server issued. It is sent only once. */
+export function storeVisitorKey(widgetKey: string, visitorKey: string): void {
+  write(VISITOR_KEY_PREFIX + widgetKey, visitorKey);
 }
