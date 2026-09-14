@@ -2,6 +2,7 @@ import { customerRepository } from "../modules/customers/customer.repository";
 import { membershipRepository } from "../modules/memberships/membership.repository";
 import { can } from "../modules/memberships/permissions";
 import { organizationRepository } from "../modules/organizations/organization.repository";
+import { userRepository } from "../modules/users/user.repository";
 import { verifyAccessToken } from "../modules/auth/accessToken";
 import { verifyWidgetToken } from "../modules/widget/widgetToken";
 
@@ -176,6 +177,23 @@ async function authenticateAgent(token: string, organizationId: unknown): Promis
   */
   const membership = await membershipRepository.findByUserAndOrganization(userId, organizationId);
   if (membership === null) {
+    /*
+      The super admin's live inbox for any organisation (ADR-039 §5): the same
+      fallback `requireOrganization` makes, so a console that can read an
+      organisation's conversations also receives them as they arrive.
+    */
+    const user = await userRepository.findById(userId);
+    if (user !== null && user.platformRole === "admin" && user.status === "active" && user.emailVerifiedAt !== null) {
+      const organization = await organizationRepository.findById(organizationId);
+      if (organization === null) {
+        return { ok: false, kind: "session_refused", reason: "organization_not_found", organizationId };
+      }
+      if (organization.status !== "active") {
+        return { ok: false, kind: "session_refused", reason: "organization_not_active", organizationId };
+      }
+      return { ok: true, kind: "agent", principal: { userId, organizationId, role: "admin" } };
+    }
+
     return { ok: false, kind: "session_refused", reason: "not_a_member", organizationId };
   }
   if (membership.status !== "active") {

@@ -79,7 +79,7 @@ export function createApiRouter({ emailProvider, rateLimiters }: ApiRouterDepend
     Express matches in mount order and all three path sets are disjoint, so
     none shadows another.
   */
-  router.use("/api/v1/organizations/:organizationId/members", createMemberRouter({ rateLimiters }));
+  router.use("/api/v1/organizations/:organizationId/members", createMemberRouter({ rateLimiters, emailProvider }));
   /*
     The platform operations surface (ADR-032 §3).
 

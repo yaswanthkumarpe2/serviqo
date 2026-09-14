@@ -18,6 +18,7 @@ import { createFakeEmailProvider } from "../src/modules/auth/testing/fakeEmailPr
 import { createStaffAccount } from "../src/modules/auth/testing/staffAccounts";
 
 import type { MembershipRole, MembershipStatus } from "../src/modules/memberships/membership.model";
+import { createOrganizationAs } from "../src/modules/organizations/testing/organizations";
 
 /**
  * Integration coverage for team management (ADR-027): the four member routes,
@@ -88,12 +89,8 @@ async function unverifiedStaff(ctx: Ctx, name = "Unverified Person") {
   return { email, name };
 }
 
-async function createOrganization(ctx: Ctx, accessToken: string, name: string) {
-  const response = await request(ctx.app)
-    .post(ORGANIZATIONS_PATH)
-    .set("Authorization", `Bearer ${accessToken}`)
-    .send({ name });
-  return response.body.data.organization as { id: string };
+async function createOrganization(_ctx: Ctx, accessToken: string, name: string) {
+  return (await createOrganizationAs(accessToken, name)) as { id: string };
 }
 
 /** Opens a real customer conversation through the real widget surface. */

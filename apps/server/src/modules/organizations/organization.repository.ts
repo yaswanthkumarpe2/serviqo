@@ -1,7 +1,8 @@
+import { MembershipModel } from "../memberships/membership.model";
 import { OrganizationModel, normalizeSlug } from "./organization.model";
 import { generateWidgetKey } from "./widgetConfig";
 
-import type { OrganizationDocument } from "./organization.model";
+import type { OrganizationDocument, OrganizationStatus } from "./organization.model";
 import type { Types } from "mongoose";
 
 export interface CreateOrganizationInput {
@@ -155,6 +156,26 @@ export const organizationRepository = {
    * moment this `save()` commits, the same way a key-less organization is
    * simply not reachable through the widget (ADR-019 §9a).
    */
+  /**
+   * Suspends or reactivates an organisation (ADR-039 §2). Suspension is what
+   * every gate already checks: the widget refuses sessions and
+   * `requireOrganization` refuses staff, so nothing else needs to change.
+   */
+  async updateStatus(organizationId: string, status: OrganizationStatus): Promise<OrganizationDocument | null> {
+    return OrganizationModel.findByIdAndUpdate(organizationId, { $set: { status } }, { returnDocument: "after" });
+  },
+
+  /**
+   * Removes an organisation that nothing references yet (ADR-039 §1): the
+   * compensating step when its owner could not be invited. Refuses, by
+   * predicate, to touch one with any membership.
+   */
+  async deleteIfUnused(organizationId: string): Promise<boolean> {
+    if ((await MembershipModel.countDocuments({ organizationId })) > 0) return false;
+    const result = await OrganizationModel.deleteOne({ _id: organizationId });
+    return result.deletedCount === 1;
+  },
+
   async rotateWidgetKey(organizationId: string): Promise<OrganizationDocument | null> {
     const organization = await OrganizationModel.findById(organizationId);
     if (organization === null) return null;

@@ -167,7 +167,7 @@ export function OrganizationSwitcher({
           No organization yet
         </h2>
         <p className="orgSwitcher__hint">
-          You do not belong to an organization. Create one below to get a workspace.
+          You do not belong to an organisation yet. Ask your organisation&rsquo;s admin to invite you.
         </p>
       </section>
     );

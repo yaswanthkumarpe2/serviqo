@@ -133,7 +133,7 @@ export function stubAuthFetch({
   platformOrganizations = [],
   platformUsers = [],
 }: StubAuthFetchOptions = {}) {
-  const fetchMock = vi.fn().mockImplementation((url: string) => {
+  const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
     const path = String(url);
 
     /*
@@ -198,6 +198,53 @@ export function stubAuthFetch({
           jsonResponse(403, {
             success: false,
             error: { code: "INSUFFICIENT_PERMISSION", message: "You do not have permission to perform this action" },
+          }),
+        );
+      }
+
+      const method = init?.method ?? "GET";
+
+      // Console writes (ADR-039): answered with plausible results so a test can
+      // assert on the request it made and on what the page shows afterwards.
+      if (method === "POST" && path.endsWith("/admin/organizations")) {
+        const body = JSON.parse(String(init?.body)) as { name: string; owner: { name: string; email: string } };
+        const slug = body.name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+        return Promise.resolve(
+          jsonResponse(201, {
+            success: true,
+            data: {
+              organization: {
+                id: "org-new",
+                name: body.name,
+                slug,
+                status: "active",
+                widgetUrl: `http://localhost:5173/widget/${slug}`,
+                createdAt: "2026-09-14T10:00:00.000Z",
+              },
+              owner: {
+                membershipId: "m-new",
+                userId: "u-new",
+                name: body.owner.name,
+                email: body.owner.email,
+                role: "owner",
+                status: "active",
+                verified: false,
+                joinedAt: "2026-09-14T10:00:00.000Z",
+              },
+              accountCreated: true,
+            },
+          }),
+        );
+      }
+      if (method === "PATCH" && path.endsWith("/status")) {
+        return Promise.resolve(jsonResponse(200, { success: true, data: { organization: {} } }));
+      }
+      if (method === "POST" && path.endsWith("/members")) {
+        const body = JSON.parse(String(init?.body)) as { name: string; email: string; role: string };
+        return Promise.resolve(
+          jsonResponse(201, {
+            success: true,
+            data: { member: { ...body, membershipId: "m-x", userId: "u-x", status: "active", verified: false }, accountCreated: true },
           }),
         );
       }

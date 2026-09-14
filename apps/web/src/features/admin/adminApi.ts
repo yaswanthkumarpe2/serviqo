@@ -54,6 +54,8 @@ export interface PlatformOrganizationSummary {
   id: string;
   name: string;
   slug: string;
+  /** The organisation's customer chat link (ADR-038). */
+  widgetUrl: string;
   status: string;
   hasWidgetKey: boolean;
   allowedOriginCount: number;
@@ -184,16 +186,64 @@ export async function fetchPlatformUsers(
  * email, and echoing it back would put a working credential into every log and
  * proxy between here and the server.
  */
-export async function inviteAgent(
+export type InvitableRole = "owner" | "admin" | "supervisor" | "agent";
+
+export interface InvitedMember {
+  membershipId: string;
+  userId: string;
+  name: string;
+  email: string;
+  role: InvitableRole;
+  status: string;
+  verified: boolean;
+  joinedAt: string;
+}
+
+export interface CreatedOrganizationResult {
+  organization: { id: string; name: string; slug: string; status: string; widgetUrl: string; createdAt: string };
+  owner: InvitedMember;
+  /** False when the owner already had a staff account and was simply added. */
+  accountCreated: boolean;
+}
+
+/** Creates an organisation and invites its owner (ADR-039 §1). */
+export function createOrganizationWithOwner(
   authorizedFetch: AuthorizedFetch,
-  name: string,
-  email: string,
-): Promise<{ id: string; name: string; email: string; organizationName: string }> {
-  const result = await callAdmin<{ agent?: unknown }>(authorizedFetch, `${ADMIN_BASE}/agents`, {
+  input: { name: string; owner: { name: string; email: string } },
+): Promise<CreatedOrganizationResult> {
+  return callAdmin<CreatedOrganizationResult>(authorizedFetch, `${ADMIN_BASE}/organizations`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, email }),
+    body: JSON.stringify(input),
   });
+}
 
-  return result.agent as { id: string; name: string; email: string; organizationName: string };
+/** Suspends or reactivates an organisation (ADR-039 §2). */
+export async function updateOrganizationStatus(
+  authorizedFetch: AuthorizedFetch,
+  organizationId: string,
+  status: "active" | "suspended",
+): Promise<void> {
+  await callAdmin<unknown>(authorizedFetch, `${ADMIN_BASE}/organizations/${encodeURIComponent(organizationId)}/status`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status }),
+  });
+}
+
+/** Invites a person into an organisation in any role, including an owner where there is none (ADR-039 §3). */
+export function inviteOrganizationMember(
+  authorizedFetch: AuthorizedFetch,
+  organizationId: string,
+  input: { name: string; email: string; role: InvitableRole },
+): Promise<{ member: InvitedMember; accountCreated: boolean }> {
+  return callAdmin<{ member: InvitedMember; accountCreated: boolean }>(
+    authorizedFetch,
+    `${ADMIN_BASE}/organizations/${encodeURIComponent(organizationId)}/members`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    },
+  );
 }

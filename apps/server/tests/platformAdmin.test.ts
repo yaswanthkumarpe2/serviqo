@@ -13,12 +13,12 @@ import { MembershipModel } from "../src/modules/memberships/membership.model";
 import { MessageModel } from "../src/modules/messages/message.model";
 import { OrganizationModel } from "../src/modules/organizations/organization.model";
 import { SessionModel } from "../src/modules/sessions/session.model";
+import { createOrganizationAs } from "../src/modules/organizations/testing/organizations";
 import { UserModel } from "../src/modules/users/user.model";
 
 const VERIFY_PATH = "/api/v1/auth/verify-email";
 const LOGIN_PATH = "/api/v1/auth/login";
 const ME_PATH = "/api/v1/auth/me";
-const ORGANIZATIONS_PATH = "/api/v1/organizations";
 
 const OVERVIEW_PATH = "/api/v1/admin/overview";
 const ADMIN_ORGANIZATIONS_PATH = "/api/v1/admin/organizations";
@@ -128,11 +128,7 @@ describe("the platform admin API", () => {
       const ctx = buildApp();
       await registerAndVerify(ctx, TENANT_EMAIL);
       const accessToken = await signIn(ctx, TENANT_EMAIL);
-      const created = await request(ctx.app)
-        .post(ORGANIZATIONS_PATH)
-        .set("Authorization", `Bearer ${accessToken}`)
-        .send({ name: "Ada's Analytical Engines" });
-      expect(created.status).toBe(201);
+      await createOrganizationAs(accessToken, "Ada's Analytical Engines");
 
       const response = await get(ctx, OVERVIEW_PATH, accessToken);
 
@@ -208,10 +204,7 @@ describe("the platform admin API", () => {
       await createStaffAccount(ctx.fake.provider, { name: "Unverified Person", email: "pending@example.com", password: PASSWORD });
 
       const tenantToken = await signIn(ctx, TENANT_EMAIL);
-      await request(ctx.app)
-        .post(ORGANIZATIONS_PATH)
-        .set("Authorization", `Bearer ${tenantToken}`)
-        .send({ name: "Ada's Analytical Engines" });
+      await createOrganizationAs(tenantToken, "Ada's Analytical Engines");
 
       const accessToken = await signIn(ctx, ADMIN_EMAIL);
       const response = await get(ctx, OVERVIEW_PATH, accessToken);
@@ -234,10 +227,7 @@ describe("the platform admin API", () => {
       await registerAndVerify(ctx, TENANT_EMAIL);
 
       const tenantToken = await signIn(ctx, TENANT_EMAIL);
-      await request(ctx.app)
-        .post(ORGANIZATIONS_PATH)
-        .set("Authorization", `Bearer ${tenantToken}`)
-        .send({ name: "Ada's Analytical Engines" });
+      await createOrganizationAs(tenantToken, "Ada's Analytical Engines");
 
       const accessToken = await signIn(ctx, ADMIN_EMAIL);
       const response = await get(ctx, ADMIN_ORGANIZATIONS_PATH, accessToken);

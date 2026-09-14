@@ -14,6 +14,7 @@ import { UserModel } from "../src/modules/users/user.model";
 
 import type { MembershipRole, MembershipStatus } from "../src/modules/memberships/membership.model";
 import type { OrganizationStatus } from "../src/modules/organizations/organization.model";
+import { createOrganizationAs } from "../src/modules/organizations/testing/organizations";
 
 const VERIFY_PATH = "/api/v1/auth/verify-email";
 const LOGIN_PATH = "/api/v1/auth/login";
@@ -47,12 +48,8 @@ async function signedInStaff(ctx: Ctx, email = EMAIL) {
 }
 
 /** Creates an organization through the real endpoint, so the owner membership is real. */
-async function createOrganization(ctx: Ctx, accessToken: string, name: string) {
-  const response = await request(ctx.app)
-    .post(ORGANIZATIONS_PATH)
-    .set("Authorization", `Bearer ${accessToken}`)
-    .send({ name });
-  return response.body.data.organization as { id: string; name: string; slug: string };
+async function createOrganization(_ctx: Ctx, accessToken: string, name: string) {
+  return (await createOrganizationAs(accessToken, name)) as { id: string; name: string; slug: string };
 }
 
 const readOrganization = (ctx: Ctx, accessToken: string, organizationId: string) =>
@@ -452,7 +449,8 @@ describe("organization context and RBAC", () => {
   // ---- regression: the auth surface is unchanged ----
 
   describe("existing behaviour", () => {
-    it("leaves organization creation working", async () => {
+    /* ADR-039 §1: staff no longer create organisations; the super admin does. */
+    it("offers staff no way to create an organisation", async () => {
       const ctx = buildApp();
       const staff = await signedInStaff(ctx);
 
@@ -461,8 +459,7 @@ describe("organization context and RBAC", () => {
         .set("Authorization", `Bearer ${staff.accessToken}`)
         .send({ name: "Acme" });
 
-      expect(response.status).toBe(201);
-      expect(response.body.data.role).toBe("owner");
+      expect(response.status).toBe(404);
     });
 
     it("leaves login, refresh, logout and logout-all working", async () => {

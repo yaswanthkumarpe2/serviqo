@@ -14,7 +14,13 @@ import type { MembershipRole } from "../modules/memberships/membership.model";
 export interface OrganizationContext {
   organizationId: string;
   role: MembershipRole;
-  membershipId: string;
+  /**
+   * The caller's membership here, or `null` when a super admin is acting in an
+   * organisation they do not belong to (ADR-039 §5).
+   */
+  membershipId: string | null;
+  /** True when access comes from platform standing rather than a membership (ADR-039 §5). */
+  viaPlatformAdmin: boolean;
 }
 
 /**

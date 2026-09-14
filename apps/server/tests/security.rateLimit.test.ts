@@ -22,6 +22,7 @@ import { createStaffAccount } from "../src/modules/auth/testing/staffAccounts";
 import { MembershipModel } from "../src/modules/memberships/membership.model";
 import { OrganizationModel } from "../src/modules/organizations/organization.model";
 import { SessionModel } from "../src/modules/sessions/session.model";
+import { createOrganizationAs } from "../src/modules/organizations/testing/organizations";
 import { UserModel } from "../src/modules/users/user.model";
 
 const VERIFY_PATH = "/api/v1/auth/verify-email";
@@ -30,6 +31,18 @@ const REFRESH_PATH = "/api/v1/auth/refresh";
 const LOGOUT_PATH = "/api/v1/auth/logout";
 const ME_PATH = "/api/v1/auth/me";
 const ORGANIZATIONS_PATH = "/api/v1/organizations";
+
+/*
+  A user-keyed authenticated write to spend the budget on. Organisation
+  creation used to be that write; it is the super admin's now (ADR-039 §1), so
+  the widget-origins write an owner can make stands in.
+*/
+const originsPath = (organizationId: string) => `${ORGANIZATIONS_PATH}/${organizationId}/widget-config/origins`;
+const writeOrigins = (ctx: Ctx, accessToken: string, organizationId: string) =>
+  request(ctx.app)
+    .put(originsPath(organizationId))
+    .set("Authorization", `Bearer ${accessToken}`)
+    .send({ allowedOrigins: [] });
 const RESEND_PATH = "/api/v1/auth/resend-verification";
 
 /** Obvious sentinels — if either reaches a response or a log, the test fails. */
@@ -442,21 +455,13 @@ describe("rate limiting", () => {
       const ctx = buildApp();
       await registerAndVerify(ctx, EMAIL);
       const accessToken = (await attemptLogin(ctx)).body.data.accessToken as string;
+      const organization = await createOrganizationAs(accessToken, "Acme");
 
       for (let i = 0; i < AUTHENTICATED_WRITE_LIMIT; i += 1) {
-        const response = await request(ctx.app)
-          .post(ORGANIZATIONS_PATH)
-          .set("Authorization", `Bearer ${accessToken}`)
-          .send({ name: `Org ${i}` });
-        expect(response.status).toBe(201);
+        expect((await writeOrigins(ctx, accessToken, organization.id)).status).toBe(200);
       }
 
-      const overLimit = await request(ctx.app)
-        .post(ORGANIZATIONS_PATH)
-        .set("Authorization", `Bearer ${accessToken}`)
-        .send({ name: "One Too Many" });
-
-      expect(overLimit.status).toBe(429);
+      expect((await writeOrigins(ctx, accessToken, organization.id)).status).toBe(429);
     });
 
     /*
@@ -471,29 +476,15 @@ describe("rate limiting", () => {
       const ada = (await attemptLogin(ctx)).body.data.accessToken as string;
       const grace = (await attemptLogin(ctx, "grace@example.com")).body.data.accessToken as string;
 
+      const adaOrg = await createOrganizationAs(ada, "Ada Org");
+      const graceOrg = await createOrganizationAs(grace, "Grace Org");
+
       for (let i = 0; i < AUTHENTICATED_WRITE_LIMIT; i += 1) {
-        await request(ctx.app)
-          .post(ORGANIZATIONS_PATH)
-          .set("Authorization", `Bearer ${ada}`)
-          .send({ name: `Ada Org ${i}` });
+        await writeOrigins(ctx, ada, adaOrg.id);
       }
 
-      expect(
-        (
-          await request(ctx.app)
-            .post(ORGANIZATIONS_PATH)
-            .set("Authorization", `Bearer ${ada}`)
-            .send({ name: "Ada Over" })
-        ).status,
-      ).toBe(429);
-      expect(
-        (
-          await request(ctx.app)
-            .post(ORGANIZATIONS_PATH)
-            .set("Authorization", `Bearer ${grace}`)
-            .send({ name: "Grace First" })
-        ).status,
-      ).toBe(201);
+      expect((await writeOrigins(ctx, ada, adaOrg.id)).status).toBe(429);
+      expect((await writeOrigins(ctx, grace, graceOrg.id)).status).toBe(200);
     });
   });
 
@@ -548,19 +539,17 @@ describe("rate limiting", () => {
       const ctx = buildApp();
       await registerAndVerify(ctx, EMAIL);
       const accessToken = (await attemptLogin(ctx)).body.data.accessToken as string;
+      const organization = await createOrganizationAs(accessToken, "Acme");
 
       for (let i = 0; i < AUTHENTICATED_WRITE_LIMIT; i += 1) {
-        await request(ctx.app)
-          .post(ORGANIZATIONS_PATH)
-          .set("Authorization", `Bearer ${accessToken}`)
-          .send({ name: `Org ${i}` });
+        await writeOrigins(ctx, accessToken, organization.id);
       }
 
       const response = await request(ctx.app)
-        .post(ORGANIZATIONS_PATH)
+        .put(originsPath(organization.id))
         .set("Authorization", `Bearer ${accessToken}`)
         .set("X-User-Id", "507f1f77bcf86cd799439099")
-        .send({ name: "Forged", userId: "507f1f77bcf86cd799439099" });
+        .send({ allowedOrigins: [] });
 
       expect(response.status).toBe(429);
     });
@@ -686,14 +675,10 @@ describe("rate limiting", () => {
       expect(me.status).toBe(200);
       expect(me.body.data.user.email).toBe(EMAIL);
 
-      const created = await request(ctx.app)
-        .post(ORGANIZATIONS_PATH)
-        .set("Authorization", `Bearer ${accessToken}`)
-        .send({ name: "Acme Corp" });
-      expect(created.status).toBe(201);
+      const created = await createOrganizationAs(accessToken, "Acme Corp");
 
       const context = await request(ctx.app)
-        .get(`${ORGANIZATIONS_PATH}/${created.body.data.organization.id}`)
+        .get(`${ORGANIZATIONS_PATH}/${created.id}`)
         .set("Authorization", `Bearer ${accessToken}`);
       expect(context.status).toBe(200);
       expect(context.body.data.role).toBe("owner");
@@ -713,11 +698,7 @@ describe("rate limiting", () => {
       const accessToken = (await attemptLogin(ctx)).body.data.accessToken as string;
 
       // Twenty page loads: /me plus an organization context each time.
-      const created = await request(ctx.app)
-        .post(ORGANIZATIONS_PATH)
-        .set("Authorization", `Bearer ${accessToken}`)
-        .send({ name: "Acme" });
-      const organizationId = created.body.data.organization.id as string;
+      const organizationId = (await createOrganizationAs(accessToken, "Acme")).id;
 
       for (let i = 0; i < 20; i += 1) {
         expect((await request(ctx.app).get(ME_PATH).set("Authorization", `Bearer ${accessToken}`)).status).toBe(200);

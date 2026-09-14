@@ -3,8 +3,13 @@ import { Router } from "express";
 import { requireAccessToken } from "../../middleware/requireAccessToken";
 import { requirePlatformAdmin } from "../../middleware/requirePlatformAdmin";
 import { validateBody } from "../../middleware/validate";
-import { createAgentInvitationService } from "./agentInvitation.service";
-import { inviteAgentSchema } from "./agentInvitation.validation";
+import { createStaffInvitationService } from "../staffInvitations/staffInvitation.service";
+import { createOrganizationAdministrationService } from "./organizationAdministration.service";
+import {
+  createOrganizationWithOwnerSchema,
+  inviteOrganizationMemberSchema,
+  updateOrganizationStatusSchema,
+} from "./organizationAdministration.validation";
 import { createPlatformAdminController } from "./platformAdmin.controller";
 import { createPlatformAdminService } from "./platformAdmin.service";
 
@@ -44,7 +49,9 @@ export function createPlatformAdminRouter({
 }: PlatformAdminRouterDependencies): Router {
   const controller = createPlatformAdminController({
     platformAdminService: createPlatformAdminService(),
-    agentInvitationService: createAgentInvitationService({ emailProvider }),
+    organizationAdministrationService: createOrganizationAdministrationService({
+      staffInvitationService: createStaffInvitationService({ emailProvider }),
+    }),
   });
 
   const router = Router();
@@ -60,20 +67,33 @@ export function createPlatformAdminRouter({
   router.get("/users", requireAccessToken, requirePlatformAdmin, rateLimiters.authenticatedRead, controller.users);
 
   /*
-    The one write on this router (ADR-034 §7).
-
-    `memberInvite` rather than `authenticatedWrite`: this endpoint sends mail to
-    an address the caller names, which is the abuse shape ADR-027 §12 created
-    that class for, and it is the same shape whether the inviter is a tenant
-    admin or a platform one.
+    The organisation controls (ADR-039). Every write here sends mail to an
+    address the caller names or changes who can reach a tenant, so they use
+    `memberInvite` or `authenticatedWrite` like their tenant-side equivalents.
   */
   router.post(
-    "/agents",
+    "/organizations",
     requireAccessToken,
     requirePlatformAdmin,
     rateLimiters.memberInvite,
-    validateBody(inviteAgentSchema),
-    controller.inviteAgent,
+    validateBody(createOrganizationWithOwnerSchema),
+    controller.createOrganization,
+  );
+  router.patch(
+    "/organizations/:organizationId/status",
+    requireAccessToken,
+    requirePlatformAdmin,
+    rateLimiters.authenticatedWrite,
+    validateBody(updateOrganizationStatusSchema),
+    controller.updateOrganizationStatus,
+  );
+  router.post(
+    "/organizations/:organizationId/members",
+    requireAccessToken,
+    requirePlatformAdmin,
+    rateLimiters.memberInvite,
+    validateBody(inviteOrganizationMemberSchema),
+    controller.inviteOrganizationMember,
   );
 
   return router;

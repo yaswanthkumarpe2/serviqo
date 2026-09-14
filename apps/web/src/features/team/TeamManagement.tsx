@@ -74,6 +74,7 @@ export function TeamManagement({
   const mayTransferOwnership = canTransferOwnership(role);
 
   const [email, setEmail] = useState("");
+  const [inviteName, setInviteName] = useState("");
   const [newRole, setNewRole] = useState<AssignableRole>("agent");
 
   /**
@@ -116,9 +117,14 @@ export function TeamManagement({
     const trimmed = email.trim();
     if (trimmed.length === 0) return;
 
-    // The field is cleared only on success, so a refused address stays on
+    const trimmedName = inviteName.trim();
+
+    // The fields are cleared only on success, so a refused address stays on
     // screen for the manager to correct rather than having to be retyped.
-    if (await team.add(trimmed, newRole)) setEmail("");
+    if (await team.add(trimmed, newRole, trimmedName.length > 0 ? trimmedName : undefined)) {
+      setEmail("");
+      setInviteName("");
+    }
   }
 
   /**
@@ -421,11 +427,25 @@ export function TeamManagement({
               <form className="team__add" onSubmit={(event) => void handleAdd(event)}>
                 <h3 className="team__addHeading">Add a member</h3>
                 <p className="team__hint team__hint--tight">
-                  They need a verified Serviqo account already. Adding them gives them access to this
-                  organization immediately.
+                  Someone new gets an email with a temporary password and a code. Someone who already has a Serviqo
+                  account gets access straight away.
                 </p>
 
                 <div className="team__addRow">
+                  <label className="team__srOnly" htmlFor="team-add-name">
+                    Name (for someone new)
+                  </label>
+                  <input
+                    className="team__input"
+                    id="team-add-name"
+                    type="text"
+                    autoComplete="off"
+                    placeholder="Name (for someone new)"
+                    value={inviteName}
+                    disabled={isBusy}
+                    onChange={(event) => setInviteName(event.target.value)}
+                  />
+
                   <label className="team__srOnly" htmlFor="team-add-email">
                     Email address
                   </label>

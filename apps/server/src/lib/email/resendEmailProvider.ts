@@ -119,6 +119,7 @@ function verificationEmail(code: string, url: string): EmailContent {
  */
 function agentCredentialsEmail(
   organizationName: string,
+  roleLabel: string,
   temporaryPassword: string,
   code: string,
   verificationUrl: string,
@@ -127,7 +128,7 @@ function agentCredentialsEmail(
   return {
     subject: `You've been added to ${organizationName} on Serviqo`,
     text:
-      `You've been added to ${organizationName} as a support agent.
+      `You've been added to ${organizationName} as ${roleLabel}.
 
 ` +
       `Two steps, in this order.
@@ -158,7 +159,7 @@ function agentCredentialsEmail(
       `If you weren't expecting this, ignore it: the account cannot be used ` +
       `until the code above is entered.`,
     html:
-      `<p>You've been added to <strong>${escapeHtml(organizationName)}</strong> as a support agent.</p>` +
+      `<p>You've been added to <strong>${escapeHtml(organizationName)}</strong> as ${escapeHtml(roleLabel)}.</p>` +
       `<p>Two steps, in this order.</p>` +
       `<p><strong>1. Verify this address.</strong> Your ${EMAIL_VERIFICATION_CODE_LENGTH}-digit code is:</p>` +
       `<p style="font-size:28px;font-weight:700;letter-spacing:6px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace">` +
@@ -213,14 +214,23 @@ function passwordResetEmail(code: string, url: string): EmailContent {
   };
 }
 
-function invitationEmail(organizationName: string, url: string): EmailContent {
+/** An existing staff account added to another organisation (ADR-039 §3). No credential in it. */
+function invitationEmail(organizationName: string, roleLabel: string, url: string): EmailContent {
   return {
-    subject: `You've been invited to join ${organizationName} on Serviqo`,
-    text: `${organizationName} has invited you to join their team on Serviqo.\n\nAccept the invitation by opening this link:\n${url}\n\nIf you weren't expecting this invitation, you can ignore this email.`,
+    subject: `You've been added to ${organizationName} on Serviqo`,
+    text:
+      `You've been added to ${organizationName} as ${roleLabel}.
+
+` +
+      `Sign in with your existing Serviqo password:
+${url}
+
+` +
+      `If you weren't expecting this, you can ignore this email.`,
     html:
-      `<p>${escapeHtml(organizationName)} has invited you to join their team on Serviqo.</p>` +
-      `<p><a href="${escapeHtml(url)}">Accept invitation</a></p>` +
-      `<p>If you weren't expecting this invitation, you can ignore this email.</p>`,
+      `<p>You've been added to <strong>${escapeHtml(organizationName)}</strong> as ${escapeHtml(roleLabel)}.</p>` +
+      `<p><a href="${escapeHtml(url)}">Sign in</a> with your existing Serviqo password.</p>` +
+      `<p>If you weren't expecting this, you can ignore this email.</p>`,
   };
 }
 
@@ -319,7 +329,7 @@ export function createResendEmailProvider({
         "email.resend.invitation",
         input.to,
         input.invitationUrl,
-        invitationEmail(input.organizationName, input.invitationUrl),
+        invitationEmail(input.organizationName, input.roleLabel, input.invitationUrl),
       );
     },
 
@@ -333,6 +343,7 @@ export function createResendEmailProvider({
         input.verificationUrl,
         agentCredentialsEmail(
           input.organizationName,
+          input.roleLabel,
           input.temporaryPassword,
           input.code,
           input.verificationUrl,

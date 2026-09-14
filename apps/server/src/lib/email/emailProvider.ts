@@ -53,10 +53,17 @@ export interface PasswordResetEmailInput {
   resetUrl: string;
 }
 
+/**
+ * The mail an EXISTING staff account receives when it is added to another
+ * organisation (ADR-039 §3). No credential travels in it: the person already
+ * has a password, so the link is simply where they sign in.
+ */
 export interface InvitationEmailInput {
   to: string;
   organizationName: string;
-  /** Fully-formed link the recipient clicks; contains a secret token. */
+  /** How the role reads in a sentence: "a support agent", "an admin", "the owner". */
+  roleLabel: string;
+  /** Where they sign in. Holds no secret. */
   invitationUrl: string;
 }
 
@@ -85,6 +92,8 @@ export interface InvitationEmailInput {
 export interface AgentCredentialsEmailInput {
   to: string;
   organizationName: string;
+  /** How the role reads in a sentence: "a support agent", "an admin", "the owner" (ADR-039 §3). */
+  roleLabel: string;
   /** The generated first password. Shown once, stored never.  */
   temporaryPassword: string;
   /** The six-digit code that proves the address (ADR-030 §3). */

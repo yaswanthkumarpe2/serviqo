@@ -1,17 +1,15 @@
-import { created, success } from "../../lib/response";
-import { OrganizationNotAccessibleError } from "../../lib/errors";
+import { success } from "../../lib/response";
+import { InsufficientPermissionError, OrganizationNotAccessibleError } from "../../lib/errors";
 import { organizationRepository } from "./organization.repository";
 import { buildWidgetUrl } from "./widgetLink";
 
-import type { CreateOrganizationInput, ReplaceAllowedOriginsInput } from "./organization.validation";
-import type { OrganizationOnboardingService } from "./organizationOnboarding.service";
+import type { ReplaceAllowedOriginsInput } from "./organization.validation";
 import type { TransferOwnershipInput } from "./ownership.validation";
 import type { OwnershipTransferService } from "./ownershipTransfer.service";
 import type { WidgetSettingsService } from "./widgetSettings.service";
 import type { RequestHandler } from "express";
 
 export interface OrganizationControllerDependencies {
-  onboardingService: OrganizationOnboardingService;
   ownershipTransferService: OwnershipTransferService;
   widgetSettingsService: WidgetSettingsService;
 }
@@ -25,37 +23,9 @@ export interface OrganizationControllerDependencies {
  * a response.
  */
 export function createOrganizationController({
-  onboardingService,
   ownershipTransferService,
   widgetSettingsService,
 }: OrganizationControllerDependencies) {
-  /**
-   * Creates an organization owned by the caller (ADR-016 §1).
-   *
-   * The actor comes from `req.principal`, which `requireAccessToken` has
-   * already established, and never from the body. `principal` is asserted
-   * rather than guarded for the reason `auth.controller.ts`'s `me` asserts
-   * it: the route mounts the middleware that sets it, and a guard here would
-   * imply this handler is reachable without one.
-   *
-   * `req.body` is safe to assert — `validateBody` replaced it with the
-   * schema's output before this could run, which also means an `ownerUserId`
-   * or `slug` a client tried to send was stripped rather than rejected, and
-   * cannot reach the service at all.
-   *
-   * 201 rather than 200: this creates a resource, and `created()` is the
-   * envelope helper that exists for exactly that.
-   */
-  const create: RequestHandler = async (req, res) => {
-    const result = await onboardingService.createOrganization(
-      req.body as CreateOrganizationInput,
-      { userId: req.principal!.userId },
-      req.log,
-    );
-
-    created(res, result);
-  };
-
   /**
    * Reads the active organization and the caller's role in it (ADR-017 §8).
    *
@@ -104,6 +74,8 @@ export function createOrganizationController({
       },
       // From the database via the middleware, never from the client.
       role: context.role,
+      // True when a super admin is acting here without a membership (ADR-039 §5).
+      viaPlatformAdmin: context.viaPlatformAdmin,
     });
   };
 
@@ -184,6 +156,12 @@ export function createOrganizationController({
     const context = req.organizationContext!;
     const { membershipId } = req.body as TransferOwnershipInput;
 
+    // Only an owner transfers, and an owner is always a member. Unreachable
+    // behind `requirePermission`, and refused here too rather than asserted.
+    if (context.membershipId === null) {
+      throw new InsufficientPermissionError("Only the organisation's owner can transfer ownership");
+    }
+
     const result = await ownershipTransferService.transferOwnership(
       context.organizationId,
       membershipId,
@@ -194,5 +172,5 @@ export function createOrganizationController({
     success(res, result);
   };
 
-  return { create, read, getWidgetConfig, updateAllowedOrigins, rotateWidgetKey, transferOwnership };
+  return { read, getWidgetConfig, updateAllowedOrigins, rotateWidgetKey, transferOwnership };
 }

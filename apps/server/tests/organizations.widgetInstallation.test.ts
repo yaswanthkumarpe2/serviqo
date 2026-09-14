@@ -15,6 +15,7 @@ import { SessionModel } from "../src/modules/sessions/session.model";
 import { UserModel } from "../src/modules/users/user.model";
 
 import type { MembershipRole, MembershipStatus } from "../src/modules/memberships/membership.model";
+import { createOrganizationAs } from "../src/modules/organizations/testing/organizations";
 
 /**
  * Widget installation (ADR-020) — the staff surface ADR-019 §14 deferred.
@@ -56,12 +57,8 @@ async function signedInStaff(ctx: Ctx, email = EMAIL) {
 }
 
 /** Creates an organization through the real endpoint, so the owner membership is real. */
-async function createOrganization(ctx: Ctx, accessToken: string, name: string) {
-  const response = await request(ctx.app)
-    .post(ORGANIZATIONS_PATH)
-    .set("Authorization", `Bearer ${accessToken}`)
-    .send({ name });
-  return response.body.data.organization as { id: string; name: string; slug: string };
+async function createOrganization(_ctx: Ctx, accessToken: string, name: string) {
+  return (await createOrganizationAs(accessToken, name)) as { id: string; name: string; slug: string };
 }
 
 /** Puts an existing user into an existing organization with a chosen standing. */

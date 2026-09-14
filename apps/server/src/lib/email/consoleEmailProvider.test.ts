@@ -65,6 +65,7 @@ describe("ConsoleEmailProvider", () => {
         provider.sendInvitation({
           to: RECIPIENT,
           organizationName: "Acme Support",
+          roleLabel: "a support agent",
           invitationUrl: "http://localhost:5173/invitations?token=a",
         }),
       ).resolves.toBeUndefined();
@@ -100,6 +101,7 @@ describe("ConsoleEmailProvider", () => {
       await provider.sendInvitation({
         to: RECIPIENT,
         organizationName: "Acme Support",
+        roleLabel: "a support agent",
         invitationUrl: "http://localhost:5173/invitations?token=a",
       });
 
@@ -147,6 +149,7 @@ describe("ConsoleEmailProvider", () => {
       await provider.sendInvitation({
         to: RECIPIENT,
         organizationName: "Acme Support",
+        roleLabel: "a support agent",
         invitationUrl: `http://localhost:5173/invitations?token=${SECRET}`,
       });
 
@@ -217,6 +220,7 @@ describe("ConsoleEmailProvider", () => {
       await provider.sendInvitation({
         to: RECIPIENT,
         organizationName: "Acme Support",
+        roleLabel: "a support agent",
         invitationUrl: `https://app.example.com/accept-invitation/${SECRET}`,
       });
 
@@ -275,6 +279,7 @@ describe("ConsoleEmailProvider", () => {
       await provider.sendInvitation({
         to: RECIPIENT,
         organizationName: "Acme Support",
+        roleLabel: "a support agent",
         invitationUrl: "http://x.test/i?token=a",
       });
 
@@ -315,6 +320,7 @@ describe("ConsoleEmailProvider", () => {
       const input = {
         to: RECIPIENT,
         organizationName: "Acme Support",
+        roleLabel: "a support agent",
         invitationUrl: `http://localhost:5173/invitations?token=${SECRET}`,
       };
       const snapshot = { ...input };

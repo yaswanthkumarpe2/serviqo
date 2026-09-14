@@ -84,70 +84,70 @@ function toCreatedOrganization(organization: OrganizationDocument): CreatedOrgan
   };
 }
 
-export function createOrganizationOnboardingService(): OrganizationOnboardingService {
-  /**
-   * Writes the organization under the first slug the database accepts.
-   *
-   * The availability read is a fast pre-check and deliberately NOT the
-   * authority: two concurrent requests can both find `acme-2` free, and the
-   * unique index rejects one of them. That request advances to the next
-   * candidate rather than failing — the pattern `registration.service.ts`
-   * established for email, where "the unique index is the final authority"
-   * catches the race the pre-check cannot (ADR-016 §7).
-   */
-  async function createWithAvailableSlug(
-    organizationId: Types.ObjectId,
-    name: string,
-    log: AuthLogger,
-  ): Promise<OrganizationDocument> {
-    const base = slugifyOrganizationName(name);
+/**
+ * Writes the organization under the first slug the database accepts.
+ *
+ * The availability read is a fast pre-check and deliberately NOT the
+ * authority: two concurrent requests can both find `acme-2` free, and the
+ * unique index rejects one of them. That request advances to the next
+ * candidate rather than failing — the pattern `registration.service.ts`
+ * established for email, where "the unique index is the final authority"
+ * catches the race the pre-check cannot (ADR-016 §7).
+ */
+export async function createWithAvailableSlug(
+  organizationId: Types.ObjectId,
+  name: string,
+  log: AuthLogger,
+): Promise<OrganizationDocument> {
+  const base = slugifyOrganizationName(name);
 
-    for (let attempt = 0; attempt < MAX_SLUG_ATTEMPTS; attempt += 1) {
-      const slug = slugCandidate(base, attempt);
-
-      /*
-        Reserved and taken are one condition with one resolution (ADR-016 §6),
-        so an organization named "Admin" receives `admin-2` rather than an
-        error: the tenant's name is legitimate, only the URL segment is
-        spoken for.
-      */
-      if (isReservedSlug(slug)) continue;
-
-      /*
-        Guards the generator against its own output. The schema validates
-        `slug` with the same pattern, so a disagreement here would surface as
-        a Mongoose ValidationError from persistence — a 500 on a perfectly
-        valid name. Skipping rather than throwing keeps one malformed
-        candidate from ending an otherwise fine request.
-      */
-      if (!isWellFormedSlug(slug)) continue;
-
-      if (await organizationRepository.findBySlug(slug)) continue;
-
-      try {
-        return await organizationRepository.create({ _id: organizationId, name, slug });
-      } catch (err) {
-        // Lost the race to a concurrent request; the next candidate is free
-        // to try. Any other failure is not ours to reinterpret.
-        if (isDuplicateKeyError(err)) continue;
-        throw err;
-      }
-    }
+  for (let attempt = 0; attempt < MAX_SLUG_ATTEMPTS; attempt += 1) {
+    const slug = slugCandidate(base, attempt);
 
     /*
-      The base is logged and the name is not. A slugified base is already a
-      public URL segment; the name it came from is tenant content
-      (ADR-016 §9).
+      Reserved and taken are one condition with one resolution (ADR-016 §6),
+      so an organization named "Admin" receives `admin-2` rather than an
+      error: the tenant's name is legitimate, only the URL segment is
+      spoken for.
     */
-    log.info(
-      { event: "organization.slug_exhausted", organizationId: organizationId.toString(), base, attempts: MAX_SLUG_ATTEMPTS },
-      "Every candidate slug for this name was reserved or taken",
-    );
-    throw new OrganizationSlugUnavailableError(
-      "Could not derive an available address for that organization name. Try a different name.",
-    );
+    if (isReservedSlug(slug)) continue;
+
+    /*
+      Guards the generator against its own output. The schema validates
+      `slug` with the same pattern, so a disagreement here would surface as
+      a Mongoose ValidationError from persistence — a 500 on a perfectly
+      valid name. Skipping rather than throwing keeps one malformed
+      candidate from ending an otherwise fine request.
+    */
+    if (!isWellFormedSlug(slug)) continue;
+
+    if (await organizationRepository.findBySlug(slug)) continue;
+
+    try {
+      return await organizationRepository.create({ _id: organizationId, name, slug });
+    } catch (err) {
+      // Lost the race to a concurrent request; the next candidate is free
+      // to try. Any other failure is not ours to reinterpret.
+      if (isDuplicateKeyError(err)) continue;
+      throw err;
+    }
   }
 
+  /*
+    The base is logged and the name is not. A slugified base is already a
+    public URL segment; the name it came from is tenant content
+    (ADR-016 §9).
+  */
+  log.info(
+    { event: "organization.slug_exhausted", organizationId: organizationId.toString(), base, attempts: MAX_SLUG_ATTEMPTS },
+    "Every candidate slug for this name was reserved or taken",
+  );
+  throw new OrganizationSlugUnavailableError(
+    "Could not derive an available address for that organization name. Try a different name.",
+  );
+}
+
+export function createOrganizationOnboardingService(): OrganizationOnboardingService {
   return {
     async createOrganization(
       input: CreateOrganizationInput,

@@ -5,8 +5,7 @@ import { requireOrganization } from "../../middleware/requireOrganization";
 import { requirePermission } from "../../middleware/requirePermission";
 import { validateBody } from "../../middleware/validate";
 import { createOrganizationController } from "./organization.controller";
-import { createOrganizationSchema, replaceAllowedOriginsSchema } from "./organization.validation";
-import { createOrganizationOnboardingService } from "./organizationOnboarding.service";
+import { replaceAllowedOriginsSchema } from "./organization.validation";
 import { transferOwnershipSchema } from "./ownership.validation";
 import { createOwnershipTransferService } from "./ownershipTransfer.service";
 import { createWidgetSettingsService } from "./widgetSettings.service";
@@ -31,35 +30,14 @@ export function createOrganizationRouter({ rateLimiters }: OrganizationRouterDep
   const router = Router();
 
   const controller = createOrganizationController({
-    onboardingService: createOrganizationOnboardingService(),
     ownershipTransferService: createOwnershipTransferService(),
     widgetSettingsService: createWidgetSettingsService(),
   });
 
   /*
-    The second protected route in Serviqo, and the first that writes.
-
-    No `requirePermission`: creating an organization is not an action inside
-    an organization, so there is no tenant to be a member of and no role to
-    require. It is the one authenticated write RBAC cannot govern, because it
-    is what brings the first RBAC subject into existence (ADR-016 §1).
+    There is no `POST /` any more (ADR-039 §1). Organisations are created by
+    the super admin, together with their owner, at `POST /api/v1/admin/organizations`.
   */
-  /*
-    The write class, keyed by the verified user (ADR-018 §4). ADR-016 §2
-    named this vector exactly — "an authenticated user can create
-    organizations in a loop. That is a rate-limiting concern, and rate
-    limiting is the next slice." This is that slice.
-
-    Keyed by user rather than IP because the abuser here is authenticated:
-    rotating IP addresses is trivial and rotating verified accounts is not.
-  */
-  router.post(
-    "/",
-    requireAccessToken,
-    rateLimiters.authenticatedWrite,
-    validateBody(createOrganizationSchema),
-    controller.create,
-  );
 
   /*
     The first organization-scoped route, and the first consumer of both
