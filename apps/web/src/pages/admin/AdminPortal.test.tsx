@@ -1,4 +1,5 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -32,6 +33,7 @@ const ORGANIZATIONS = [
     id: "org-acme",
     name: "Acme Corp",
     slug: "acme-corp",
+    widgetUrl: "http://localhost:5173/widget/acme-corp",
     status: "active",
     hasWidgetKey: true,
     allowedOriginCount: 2,
@@ -45,7 +47,8 @@ const ORGANIZATIONS = [
     id: "org-orphan",
     name: "Orphan Ltd",
     slug: "orphan-ltd",
-    status: "active",
+    widgetUrl: "http://localhost:5173/widget/orphan-ltd",
+    status: "suspended",
     hasWidgetKey: false,
     allowedOriginCount: 0,
     memberCount: 1,
@@ -219,14 +222,19 @@ describe("the console", () => {
     expect(screen.getByText("3")).toBeDefined();
   });
 
-  it("lists every tenant with its owner", async () => {
+  it("lists every organisation with its owner and customer chat link", async () => {
     stubAdmin();
+    const user = userEvent.setup();
 
     renderAt("/control", session);
-    await screen.findByRole("heading", { name: "Everything, everywhere" });
+    await user.click(await screen.findByRole("tab", { name: "Organisations" }));
 
     expect(await screen.findByText("Acme Corp")).toBeDefined();
     expect(screen.getByText("grace@example.com")).toBeDefined();
+    expect(screen.getByText("/widget/acme-corp")).toBeDefined();
+    expect(screen.getByRole("link", { name: "Open Acme Corp chat link" }).getAttribute("href")).toBe(
+      "http://localhost:5173/widget/acme-corp",
+    );
   });
 
   /*
@@ -234,22 +242,93 @@ describe("the console", () => {
     console exists to surface exactly that rather than render it as an
     ordinary row.
   */
-  it("flags a tenant that nobody owns and nothing can reach", async () => {
+  it("flags an organisation that nobody owns, and one that is suspended", async () => {
     stubAdmin();
+    const user = userEvent.setup();
 
     renderAt("/control", session);
-    await screen.findByRole("heading", { name: "Everything, everywhere" });
+    await user.click(await screen.findByRole("tab", { name: "Organisations" }));
 
-    expect(await screen.findByText("Orphan Ltd")).toBeDefined();
-    expect(screen.getByText("No active owner")).toBeDefined();
-    expect(screen.getByText("No key")).toBeDefined();
+    const row = (await screen.findByText("Orphan Ltd")).closest("tr")!;
+    expect(within(row).getByText("No active owner")).toBeDefined();
+    expect(within(row).getByText("Suspended")).toBeDefined();
+    expect(within(row).getByRole("button", { name: "Reactivate Orphan Ltd" })).toBeDefined();
+  });
+
+  it("creates an organisation with its owner and shows the new chat link", async () => {
+    const fetchMock = stubAdmin();
+    const user = userEvent.setup();
+
+    renderAt("/control", session);
+    await user.click(await screen.findByRole("tab", { name: "Organisations" }));
+
+    await user.type(await screen.findByLabelText("Organisation name"), "CentralService");
+    await user.type(screen.getByLabelText("Owner’s name"), "Olivia Owner");
+    await user.type(screen.getByLabelText("Owner’s email"), "olivia@central.test");
+    await user.click(screen.getByRole("button", { name: "Create organisation" }));
+
+    const notice = await screen.findByRole("status");
+    expect(notice.textContent).toContain("CentralService");
+    expect(notice.textContent).toContain("http://localhost:5173/widget/centralservice");
+
+    const post = fetchMock.mock.calls.find(
+      ([url, init]) => String(url).endsWith("/admin/organizations") && (init as RequestInit | undefined)?.method === "POST",
+    )!;
+    expect(JSON.parse(String((post[1] as RequestInit).body))).toEqual({
+      name: "CentralService",
+      owner: { name: "Olivia Owner", email: "olivia@central.test" },
+    });
+  });
+
+  it("suspends an organisation from its row", async () => {
+    const fetchMock = stubAdmin();
+    const user = userEvent.setup();
+
+    renderAt("/control", session);
+    await user.click(await screen.findByRole("tab", { name: "Organisations" }));
+    await user.click(await screen.findByRole("button", { name: "Suspend Acme Corp" }));
+
+    await waitFor(() => {
+      const patch = fetchMock.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === "PATCH")!;
+      expect(String(patch[0])).toContain("/admin/organizations/org-acme/status");
+      expect(JSON.parse(String((patch[1] as RequestInit).body))).toEqual({ status: "suspended" });
+    });
+  });
+
+  it("opens an organisation and invites someone into it, owner included", async () => {
+    const fetchMock = stubAdmin();
+    const user = userEvent.setup();
+
+    renderAt("/control", session);
+    await user.click(await screen.findByRole("tab", { name: "Organisations" }));
+    await user.click(await screen.findByRole("button", { name: "Open Acme Corp" }));
+
+    expect(await screen.findByRole("heading", { name: "Acme Corp" })).toBeDefined();
+    await user.click(screen.getByRole("tab", { name: "Invite" }));
+
+    await user.type(screen.getByLabelText("Name"), "Alan Turing");
+    await user.type(screen.getByLabelText("Email"), "alan@acme.test");
+    await user.selectOptions(screen.getByLabelText("Role"), "admin");
+    await user.click(screen.getByRole("button", { name: "Send invitation" }));
+
+    expect((await screen.findByRole("status")).textContent).toContain("alan@acme.test");
+    const post = fetchMock.mock.calls.find(([url]) => String(url).endsWith("/admin/organizations/org-acme/members"))!;
+    expect(JSON.parse(String((post[1] as RequestInit).body))).toEqual({
+      name: "Alan Turing",
+      email: "alan@acme.test",
+      role: "admin",
+    });
+    expect([...(screen.getByLabelText("Role") as HTMLSelectElement).options].map((option) => option.value)).toContain(
+      "owner",
+    );
   });
 
   it("marks an account that never verified its address", async () => {
     stubAdmin();
+    const user = userEvent.setup();
 
     renderAt("/control", session);
-    await screen.findByRole("heading", { name: "Everything, everywhere" });
+    await user.click(await screen.findByRole("tab", { name: "Accounts" }));
 
     const row = (await screen.findByText("pending@example.com")).closest("tr");
 
@@ -325,8 +404,9 @@ describe("the console", () => {
       platformUsers: USERS,
     });
 
+    const user = userEvent.setup();
     renderAt("/control", session);
-    await screen.findByRole("heading", { name: "Everything, everywhere" });
+    await user.click(await screen.findByRole("tab", { name: "Accounts" }));
 
     // The overview could not be read, so the accounts it DID get still render.
     expect(await screen.findByText("pending@example.com")).toBeDefined();

@@ -22,6 +22,7 @@ import { verifyAccessToken } from "../src/modules/auth/accessToken";
 import type { OrganizationDocument, OrganizationStatus } from "../src/modules/organizations/organization.model";
 import { createStaffAccount } from "../src/modules/auth/testing/staffAccounts";
 import { createFakeEmailProvider } from "../src/modules/auth/testing/fakeEmailProvider";
+import { createOrganizationAs } from "../src/modules/organizations/testing/organizations";
 
 const SESSION_PATH = "/api/v1/widget/session";
 const CONVERSATIONS_PATH = "/api/v1/widget/conversations";
@@ -546,11 +547,11 @@ describe("widget conversations and messages", () => {
       const login = await request(app).post("/api/v1/auth/login").send({ email, password: "DO_NOT_LEAK_PASSWORD_1" });
       expect(login.status).toBe(200);
 
-      const created = await request(app)
-        .post("/api/v1/organizations")
-        .set("Authorization", `Bearer ${login.body.data.accessToken}`)
-        .send({ name: "Acme Corp" });
-      expect(created.status).toBe(201);
+      const created = await createOrganizationAs(login.body.data.accessToken as string, "Acme Corp");
+      const context = await request(app)
+        .get(`/api/v1/organizations/${created.id}`)
+        .set("Authorization", `Bearer ${login.body.data.accessToken}`);
+      expect(context.status).toBe(200);
     });
   });
 

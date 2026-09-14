@@ -1,6 +1,7 @@
 import { OrganizationNotAccessibleError } from "../lib/errors";
 import { membershipRepository } from "../modules/memberships/membership.repository";
 import { organizationRepository } from "../modules/organizations/organization.repository";
+import { userRepository } from "../modules/users/user.repository";
 
 import type { RequestHandler } from "express";
 
@@ -106,6 +107,35 @@ export const requireOrganization: RequestHandler = async (req, _res, next) => {
   const membership = await membershipRepository.findByUserAndOrganization(userId, organizationId);
 
   if (membership === null) {
+    /*
+      The super admin reaches every organisation without belonging to any
+      (ADR-039 §5). The grant is read from the database on this request, like
+      every role here, and the organisation must still exist and be active.
+
+      They act as an `admin`: read, reply, assign and manage the team, but not
+      transfer ownership, which only an owner holds. Every such request is
+      logged with who and where, because this is the one path into a tenant
+      that no tenant granted.
+    */
+    const user = await userRepository.findById(userId);
+    if (user !== null && user.platformRole === "admin" && user.status === "active" && user.emailVerifiedAt !== null) {
+      const organization = await organizationRepository.findById(organizationId);
+      if (organization === null) return refuse("unknown_organization", organizationId);
+      if (organization.status !== "active") return refuse("organization_not_active", organizationId);
+
+      req.log.info(
+        { event: "auth.organization.platform_admin_access", userId, organizationId, method: req.method, path: req.originalUrl },
+        "Super admin acting in an organisation",
+      );
+      req.organizationContext = {
+        organizationId: organization._id.toString(),
+        role: "admin",
+        membershipId: null,
+        viaPlatformAdmin: true,
+      };
+      return next();
+    }
+
     return refuse("not_a_member", organizationId);
   }
 
@@ -129,6 +159,7 @@ export const requireOrganization: RequestHandler = async (req, _res, next) => {
     // supplies this (ADR-017 §5).
     role: membership.role,
     membershipId: membership._id.toString(),
+    viaPlatformAdmin: false,
   };
 
   next();

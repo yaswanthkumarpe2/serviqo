@@ -126,11 +126,13 @@ export function addMember(
   organizationId: string,
   email: string,
   role: AssignableRole,
+  /** Given when inviting someone with no account: they are created and emailed credentials (ADR-039 §4). */
+  name?: string,
 ): Promise<OrganizationMember> {
   return callMembers<OrganizationMember>(authorizedFetch, membersPath(organizationId), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, role }),
+    body: JSON.stringify(name === undefined ? { email, role } : { email, role, name }),
   });
 }
 

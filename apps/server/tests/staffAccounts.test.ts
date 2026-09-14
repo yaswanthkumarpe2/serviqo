@@ -33,7 +33,7 @@ const CHANGE_PASSWORD_PATH = "/api/v1/auth/change-password";
 const MY_CONVERSATIONS_PATH = "/api/v1/me/conversations";
 const REFRESH_PATH = "/api/v1/auth/refresh";
 const FORGOT_PASSWORD_PATH = "/api/v1/auth/forgot-password";
-const AGENTS_PATH = "/api/v1/admin/agents";
+const adminMembersPath = (organizationId: string) => `/api/v1/admin/organizations/${organizationId}/members`;
 
 const PASSWORD = "DO_NOT_LEAK_THIS_PASSWORD";
 const LEGACY_CUSTOMER_EMAIL = "shopper@example.com";
@@ -58,13 +58,13 @@ async function signIn(ctx: Ctx, email: string, password = PASSWORD) {
   return { status: login.status, body: login.body, token: login.body?.data?.accessToken as string | undefined };
 }
 
-/** An organization to add agents to, plus an admin who can add them. */
+/** An organisation to add agents to, plus a super admin who can add them (ADR-039 §3). */
 async function seedPlatform(ctx: Ctx) {
-  await OrganizationModel.create({ name: "Acme Corp", slug: "acme-corp", allowedOrigins: [] });
+  const organization = await OrganizationModel.create({ name: "Acme Corp", slug: "acme-corp", allowedOrigins: [] });
   await registerAndVerify(ctx, ADMIN_EMAIL, "Grace Hopper");
-  await UserModel.updateOne({ email: ADMIN_EMAIL }, { $set: { platformRole: "admin" } });
+  await UserModel.updateOne({ email: ADMIN_EMAIL }, { $set: { platformRole: "admin", kind: "admin" } });
   const admin = await signIn(ctx, ADMIN_EMAIL);
-  return admin.token!;
+  return { adminToken: admin.token!, agentsPath: adminMembersPath(organization._id.toString()) };
 }
 
 const authed = (ctx: Ctx, method: "get" | "post", path: string, token: string) =>
@@ -187,16 +187,17 @@ describe("staff accounts", () => {
     });
   });
 
-  // ---- the admin's one write ----
+  // ---- the super admin adding an agent ----
 
-  describe("an admin adding an agent", () => {
+  describe("a super admin adding an agent", () => {
     it("creates an unverified agent and emails a password", async () => {
       const ctx = buildApp();
-      const adminToken = await seedPlatform(ctx);
+      const { adminToken, agentsPath } = await seedPlatform(ctx);
 
-      const response = await authed(ctx, "post", AGENTS_PATH, adminToken).send({
+      const response = await authed(ctx, "post", agentsPath, adminToken).send({
         name: "Alan Turing",
         email: AGENT_EMAIL,
+        role: "agent",
       });
 
       expect(response.status).toBe(201);
@@ -213,9 +214,9 @@ describe("staff accounts", () => {
 
     it("gives the agent a membership in the organization", async () => {
       const ctx = buildApp();
-      const adminToken = await seedPlatform(ctx);
+      const { adminToken, agentsPath } = await seedPlatform(ctx);
 
-      await authed(ctx, "post", AGENTS_PATH, adminToken).send({ name: "Alan Turing", email: AGENT_EMAIL });
+      await authed(ctx, "post", agentsPath, adminToken).send({ name: "Alan Turing", email: AGENT_EMAIL, role: "agent" });
 
       const agent = await UserModel.findOne({ email: AGENT_EMAIL });
       const membership = await MembershipModel.findOne({ userId: agent!._id });
@@ -227,11 +228,12 @@ describe("staff accounts", () => {
     /* The password never leaves the email. */
     it("never returns the password in the response", async () => {
       const ctx = buildApp();
-      const adminToken = await seedPlatform(ctx);
+      const { adminToken, agentsPath } = await seedPlatform(ctx);
 
-      const response = await authed(ctx, "post", AGENTS_PATH, adminToken).send({
+      const response = await authed(ctx, "post", agentsPath, adminToken).send({
         name: "Alan Turing",
         email: AGENT_EMAIL,
+        role: "agent",
       });
 
       const password = ctx.fake.agentCredentials.at(-1)!.temporaryPassword;
@@ -240,12 +242,12 @@ describe("staff accounts", () => {
 
     it("refuses a body that tries to set anything else", async () => {
       const ctx = buildApp();
-      const adminToken = await seedPlatform(ctx);
+      const { adminToken, agentsPath } = await seedPlatform(ctx);
 
-      const response = await authed(ctx, "post", AGENTS_PATH, adminToken).send({
+      const response = await authed(ctx, "post", agentsPath, adminToken).send({
         name: "Alan Turing",
         email: AGENT_EMAIL,
-        role: "owner",
+        role: "agent",
         platformRole: "admin",
       });
 
@@ -255,13 +257,14 @@ describe("staff accounts", () => {
 
     it("refuses a caller who is not a platform admin", async () => {
       const ctx = buildApp();
-      await OrganizationModel.create({ name: "Acme Corp", slug: "acme-corp", allowedOrigins: [] });
+      const organization = await OrganizationModel.create({ name: "Acme Corp", slug: "acme-corp", allowedOrigins: [] });
       await registerAndVerify(ctx, "someone@example.com");
       const token = (await signIn(ctx, "someone@example.com")).token!;
 
-      const response = await authed(ctx, "post", AGENTS_PATH, token).send({
+      const response = await authed(ctx, "post", adminMembersPath(organization._id.toString()), token).send({
         name: "Alan Turing",
         email: AGENT_EMAIL,
+        role: "agent",
       });
 
       expect(response.status).toBe(403);
@@ -273,8 +276,8 @@ describe("staff accounts", () => {
 
   describe("an invited agent", () => {
     async function inviteAgent(ctx: Ctx) {
-      const adminToken = await seedPlatform(ctx);
-      await authed(ctx, "post", AGENTS_PATH, adminToken).send({ name: "Alan Turing", email: AGENT_EMAIL });
+      const { adminToken, agentsPath } = await seedPlatform(ctx);
+      await authed(ctx, "post", agentsPath, adminToken).send({ name: "Alan Turing", email: AGENT_EMAIL, role: "agent" });
       return ctx.fake.agentCredentials.at(-1)!;
     }
 

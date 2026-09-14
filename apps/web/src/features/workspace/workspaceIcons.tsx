@@ -114,3 +114,80 @@ export function CodeIcon(props: SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
+
+/** An organisation: a building (ADR-039). */
+export function OrganisationIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="17" height="17" {...STROKE} {...props}>
+      <path d="M3 21h18" />
+      <path d="M5 21V5a2 2 0 012-2h6a2 2 0 012 2v16" />
+      <path d="M15 9h2a2 2 0 012 2v10" />
+      <path d="M9 7h2M9 11h2M9 15h2" />
+    </svg>
+  );
+}
+
+/** Super admin / platform standing: a shield. */
+export function ShieldIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="17" height="17" {...STROKE} {...props}>
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+      <path d="M9 12l2 2 4-4" />
+    </svg>
+  );
+}
+
+/** A support agent: a headset. */
+export function HeadsetIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="17" height="17" {...STROKE} {...props}>
+      <path d="M3 14v-2a9 9 0 0118 0v2" />
+      <path d="M21 15a2 2 0 01-2 2h-1v-5h1a2 2 0 012 2z" />
+      <path d="M3 15a2 2 0 002 2h1v-5H5a2 2 0 00-2 2z" />
+      <path d="M18 17v1a3 3 0 01-3 3h-2" />
+    </svg>
+  );
+}
+
+/** The customer chat widget: a chat window with a message line. */
+export function WidgetIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="17" height="17" {...STROKE} {...props}>
+      <rect x="3" y="4" width="18" height="14" rx="2" />
+      <path d="M7 9h10M7 13h6" />
+      <path d="M8 18l-2 3" />
+    </svg>
+  );
+}
+
+export function PlusIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="15" height="15" {...STROKE} {...props}>
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+
+export function ArrowLeftIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="15" height="15" {...STROKE} {...props}>
+      <path d="M19 12H5M12 19l-7-7 7-7" />
+    </svg>
+  );
+}
+
+export function PauseIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="15" height="15" {...STROKE} {...props}>
+      <path d="M10 4H6v16h4zM18 4h-4v16h4z" />
+    </svg>
+  );
+}
+
+export function PlayIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="15" height="15" {...STROKE} {...props}>
+      <path d="M6 4l14 8-14 8z" />
+    </svg>
+  );
+}

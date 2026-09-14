@@ -3,12 +3,25 @@ import { useNavigate } from "react-router-dom";
 
 import { Button } from "@/components/ui/Button";
 import { BrandMark } from "@/components/ui/icons";
-import { AddAgentForm } from "@/features/admin/AddAgentForm";
-import { AgentInbox } from "@/features/inbox/AgentInbox";
-import { TeamManagement } from "@/features/team/TeamManagement";
-import { useCurrentUser } from "@/features/auth/useCurrentUser";
+import { updateOrganizationStatus } from "@/features/admin/adminApi";
+import { ChatLinkActions } from "@/features/admin/CopyLinkButton";
+import { CreateOrganizationPanel } from "@/features/admin/CreateOrganizationPanel";
+import { InviteMemberPanel } from "@/features/admin/InviteMemberPanel";
+import { consoleWriteError } from "@/features/admin/consoleErrors";
 import { usePlatformConsole } from "@/features/admin/usePlatformConsole";
 import { useAuth } from "@/features/auth/useAuth";
+import { AgentInbox } from "@/features/inbox/AgentInbox";
+import { TeamManagement } from "@/features/team/TeamManagement";
+import {
+  ArrowLeftIcon,
+  ChatIcon,
+  HeadsetIcon,
+  OrganisationIcon,
+  PauseIcon,
+  PeopleIcon,
+  PlayIcon,
+  ShieldIcon,
+} from "@/features/workspace/workspaceIcons";
 
 import type { CurrentUser } from "@/features/auth/authApi";
 import type { PlatformOrganizationSummary, PlatformUserSummary } from "@/features/admin/adminApi";
@@ -16,57 +29,34 @@ import type { PlatformOrganizationSummary, PlatformUserSummary } from "@/feature
 import "./AdminPortalPage.css";
 
 /**
- * The operations console (ADR-032 §12).
+ * The operations console: the super admin's surface (ADR-032, ADR-039).
  *
- * Read-only, and that is the whole slice rather than a stage of it. It answers
- * the questions an operator actually has on a live platform — how many tenants
- * exist, which of them can receive widget traffic, which accounts are stuck
- * unverified, how much conversation volume is flowing — and it cannot change
- * any of them. Disabling an account and deleting a tenant each deserve their
- * own audit trail and their own argument; shipping them beside a dashboard
- * would smuggle them in without either.
+ * Super admin → organisations → their admins and agents → anonymous customers.
+ * This page is the top of that hierarchy. It creates organisations (each with
+ * an owner and a customer chat link), suspends and reactivates them, and opens
+ * any organisation's chats and team.
  *
- * The PLATFORM API it reads (`/api/v1/admin`) still carries no conversation
- * content — that line is drawn in the payload and is unchanged. What ADR-035
- * §5 adds is a second source: the console also reads the TENANT endpoints for
- * an organization this admin OWNS, which is how the Chats and Team views work.
- *
- * That distinction is the whole justification. An admin does not see a
- * tenant's conversations because they are a platform admin; they see them
- * because they hold an `owner` membership in that organization, and the server
- * authorizes those reads through `requireOrganization` and `requirePermission`
- * exactly as it would for any other owner. A platform admin with no membership
- * in a tenant still sees nothing but counts.
+ * Opening an organisation reads the TENANT endpoints — the same inbox and
+ * roster its own staff use — authorised by the platform grant rather than a
+ * membership (ADR-039 §5). The server logs every such request.
  */
 
-/** The console's sections. `overview` is what ADR-032 shipped; the rest are ADR-035 §5. */
 const CONSOLE_VIEWS = [
   { id: "overview", label: "Overview" },
-  { id: "chats", label: "Chats" },
-  { id: "team", label: "Team" },
+  { id: "organisations", label: "Organisations" },
   { id: "accounts", label: "Accounts" },
 ] as const;
 
 type ConsoleView = (typeof CONSOLE_VIEWS)[number]["id"];
 
-/**
- * What each section actually shows.
- *
- * Per-view rather than one sentence for the page, because the page's original
- * line — "counts only, no conversation content reaches this page" — stopped
- * being true the moment ADR-035 §5 added the Chats view. A standing claim about
- * what a page does not contain has to be withdrawn when it starts containing
- * it; leaving it up would have been a false statement about privacy, which is
- * the worst kind to leave lying around.
- */
 const LEDE: Record<ConsoleView, string> = {
-  overview:
-    "Every tenant and every account on this deployment. Counts only — no conversation content reaches this view.",
-  chats:
-    "Conversations in the organization you own, read through the same tenant API an agent uses — not through the platform API, which carries no message content.",
-  team: "The roster of the organization you own.",
-  accounts: "Every account on this deployment, and the one control that creates an agent.",
+  overview: "Every organisation and account on this deployment, in figures.",
+  organisations:
+    "Create organisations, hand out their customer chat links, and step into any organisation's chats and team.",
+  accounts: "Every staff account on this deployment, and whether it can sign in.",
 };
+
+type OrganisationTab = "chats" | "team" | "invite";
 
 interface AdminPortalPageProps {
   /** The account the route guard confirmed holds the grant. */
@@ -74,21 +64,15 @@ interface AdminPortalPageProps {
 }
 
 export function AdminPortalPage({ user }: AdminPortalPageProps) {
-  const { signOut } = useAuth();
+  const { signOut, authorizedFetch } = useAuth();
   const navigate = useNavigate();
   const platform = usePlatformConsole();
 
-  /*
-    The organizations this admin actually belongs to. The Chats and Team views
-    read TENANT endpoints, which are authorized by membership — so the tenant
-    they operate on is the one `/me` says they own, never one picked out of the
-    platform-wide list. An admin with no membership anywhere sees the counts and
-    is told why the rest is empty.
-  */
-  const { memberships } = useCurrentUser();
-  const ownedOrganization = memberships[0] ?? null;
-
   const [view, setView] = useState<ConsoleView>("overview");
+  const [openOrganizationId, setOpenOrganizationId] = useState<string | null>(null);
+  const [organisationTab, setOrganisationTab] = useState<OrganisationTab>("chats");
+  const [statusPendingId, setStatusPendingId] = useState<string | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
   const navRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   /* Unlisted pages stay out of the index. Same reasoning as the sign-in page. */
@@ -116,26 +100,40 @@ export function AdminPortalPage({ user }: AdminPortalPageProps) {
     if (next === null) return;
 
     event.preventDefault();
-    setView(CONSOLE_VIEWS[next]!.id);
+    selectView(CONSOLE_VIEWS[next]!.id);
     navRefs.current[next]?.focus();
   }
 
-  /**
-   * Not awaited, and that is the point (ADR-013): `signOut` clears the session
-   * before it returns, so leaving is immediate and the revocation settles on
-   * its own.
-   *
-   * Lands on the PRIVATE sign-in page rather than the public one. An operator
-   * signing out of the console is between two console sessions, and sending
-   * them to `/login` would make getting back in a matter of remembering an
-   * unlisted address.
-   */
+  function selectView(next: ConsoleView) {
+    setView(next);
+    setOpenOrganizationId(null);
+  }
+
+  /** Lands on the private sign-in page, so getting back in is not a matter of memory. */
   function handleSignOut() {
     void signOut();
     navigate("/control/login", { replace: true });
   }
 
+  function openOrganisation(organizationId: string, tab: OrganisationTab = "chats") {
+    setOpenOrganizationId(organizationId);
+    setOrganisationTab(tab);
+  }
+
+  function toggleStatus(organization: PlatformOrganizationSummary) {
+    const next = organization.status === "active" ? "suspended" : "active";
+    setStatusPendingId(organization.id);
+    setStatusError(null);
+
+    updateOrganizationStatus(authorizedFetch, organization.id, next)
+      .then(() => platform.refresh())
+      .catch((caught: unknown) => setStatusError(consoleWriteError(caught, "Could not change that organisation.")))
+      .finally(() => setStatusPendingId(null));
+  }
+
   const { overview } = platform;
+  const openOrganization =
+    openOrganizationId === null ? null : (platform.organizations.find((entry) => entry.id === openOrganizationId) ?? null);
 
   return (
     <div className="console">
@@ -145,7 +143,10 @@ export function AdminPortalPage({ user }: AdminPortalPageProps) {
             <BrandMark />
           </span>
           <span className="console__brandName">Serviqo</span>
-          <span className="console__tag">Operations</span>
+          <span className="console__tag">
+            <ShieldIcon aria-hidden="true" width={13} height={13} />
+            Super admin
+          </span>
         </div>
 
         <nav className="console__nav" role="tablist" aria-label="Console">
@@ -158,10 +159,9 @@ export function AdminPortalPage({ user }: AdminPortalPageProps) {
               type="button"
               role="tab"
               aria-selected={view === entry.id}
-              /* Only the selected item takes Tab; the arrows move within the bar. */
               tabIndex={view === entry.id ? 0 : -1}
               className={view === entry.id ? "console__navLink console__navLink--active" : "console__navLink"}
-              onClick={() => setView(entry.id)}
+              onClick={() => selectView(entry.id)}
               onKeyDown={(event) => handleNavKeyDown(event, index)}
             >
               {entry.label}
@@ -186,12 +186,6 @@ export function AdminPortalPage({ user }: AdminPortalPageProps) {
           </div>
 
           <div className="console__headActions">
-            {/*
-              The timestamp matters more here than on most pages: an
-              operations console is the kind of thing left open on a second
-              monitor, and figures with no read time are figures nobody can
-              trust during an incident.
-            */}
             {platform.loadedAt !== null && (
               <span className="console__stamp">
                 Read at{" "}
@@ -216,173 +210,152 @@ export function AdminPortalPage({ user }: AdminPortalPageProps) {
           </p>
         ) : (
           <>
-            {view === "overview" && <>
-            <section aria-labelledby="console-totals-heading">
-              <h2 className="console__sectionTitle" id="console-totals-heading">
-                Totals
-              </h2>
-              <div className="console__stats">
-                <StatCard label="Organizations" value={overview?.totals.organizations} />
-                <StatCard label="Staff accounts" value={overview?.totals.users} />
-                <StatCard label="Customers" value={overview?.totals.customers} />
-                <StatCard label="Conversations" value={overview?.totals.conversations} />
-                <StatCard label="Messages" value={overview?.totals.messages} />
-              </div>
-            </section>
+            {view === "overview" && (
+              <>
+                <section aria-labelledby="console-totals-heading">
+                  <h2 className="console__sectionTitle" id="console-totals-heading">
+                    Totals
+                  </h2>
+                  <div className="console__stats">
+                    <StatCard label="Organisations" value={overview?.totals.organizations} />
+                    <StatCard label="Staff accounts" value={overview?.totals.users} />
+                    <StatCard label="Customers" value={overview?.totals.customers} />
+                    <StatCard label="Conversations" value={overview?.totals.conversations} />
+                    <StatCard label="Messages" value={overview?.totals.messages} />
+                  </div>
+                </section>
 
-            <div className="console__split">
-              <section aria-labelledby="console-accounts-heading">
-                <h2 className="console__sectionTitle" id="console-accounts-heading">
-                  Account health
-                </h2>
-                <div className="console__stats console__stats--compact">
-                  <StatCard label="Verified" value={overview?.users.verified} />
-                  {/*
-                    The number an operator is usually here for. An unverified
-                    account cannot sign in at all (ADR-030), so this is the
-                    count of people who tried to join and could not.
-                  */}
-                  <StatCard label="Unverified" value={overview?.users.unverified} tone="warning" />
-                  <StatCard label="Disabled" value={overview?.users.disabled} />
-                  <StatCard label="Platform admins" value={overview?.users.platformAdmins} />
+                <div className="console__split">
+                  <section aria-labelledby="console-accounts-heading">
+                    <h2 className="console__sectionTitle" id="console-accounts-heading">
+                      Account health
+                    </h2>
+                    <div className="console__stats console__stats--compact">
+                      <StatCard label="Verified" value={overview?.users.verified} />
+                      <StatCard label="Unverified" value={overview?.users.unverified} tone="warning" />
+                      <StatCard label="Disabled" value={overview?.users.disabled} />
+                      <StatCard label="Super admins" value={overview?.users.platformAdmins} />
+                    </div>
+                  </section>
+
+                  <section aria-labelledby="console-conversations-heading">
+                    <h2 className="console__sectionTitle" id="console-conversations-heading">
+                      Conversation volume
+                    </h2>
+                    <div className="console__stats console__stats--compact">
+                      <StatCard label="Open" value={overview?.conversations.open} />
+                      <StatCard label="Closed" value={overview?.conversations.closed} />
+                      <StatCard label="Unassigned" value={overview?.conversations.unassigned} tone="warning" />
+                    </div>
+                  </section>
                 </div>
-              </section>
+              </>
+            )}
 
-              <section aria-labelledby="console-conversations-heading">
-                <h2 className="console__sectionTitle" id="console-conversations-heading">
-                  Conversation volume
-                </h2>
-                <div className="console__stats console__stats--compact">
-                  <StatCard label="Open" value={overview?.conversations.open} />
-                  <StatCard label="Closed" value={overview?.conversations.closed} />
-                  <StatCard label="Unassigned" value={overview?.conversations.unassigned} tone="warning" />
-                </div>
-              </section>
-            </div>
+            {view === "organisations" && openOrganization === null && (
+              <>
+                <CreateOrganizationPanel onCreated={platform.refresh} />
 
-            <section aria-labelledby="console-tenants-heading">
-              <div className="console__sectionHead">
-                <h2 className="console__sectionTitle" id="console-tenants-heading">
-                  Tenants
-                </h2>
-                <TruncationNote shown={platform.organizations.length} total={platform.organizationTotal} />
-              </div>
+                <section aria-labelledby="console-tenants-heading">
+                  <div className="console__sectionHead">
+                    <h2 className="console__sectionTitle" id="console-tenants-heading">
+                      Organisations
+                    </h2>
+                    <TruncationNote shown={platform.organizations.length} total={platform.organizationTotal} />
+                  </div>
 
-              {platform.organizations.length === 0 ? (
-                <p className="console__empty">No organizations exist on this deployment yet.</p>
-              ) : (
-                <div className="console__tableWrap">
-                  <table className="console__table">
-                    <thead>
-                      <tr>
-                        <th scope="col">Organization</th>
-                        <th scope="col">Owner</th>
-                        <th scope="col">Widget</th>
-                        <th scope="col" className="console__num">
-                          Members
-                        </th>
-                        <th scope="col" className="console__num">
-                          Conversations
-                        </th>
-                        <th scope="col">Created</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {platform.organizations.map((organization) => (
-                        <OrganizationRow key={organization.id} organization={organization} />
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </section>
-
-            {/*
-              The console's one write (ADR-034 §7), placed directly above the
-            </>}
-
-            {view === "accounts" && <>
-              account list it changes so the result of using it is visible
-              without scrolling.
-            */}
-            <AddAgentForm onAgentAdded={platform.refresh} />
-
-            <section aria-labelledby="console-users-heading">
-              <div className="console__sectionHead">
-                <h2 className="console__sectionTitle" id="console-users-heading">
-                  Accounts
-                </h2>
-                <TruncationNote shown={platform.users.length} total={platform.userTotal} />
-              </div>
-
-              {platform.users.length === 0 ? (
-                <p className="console__empty">No accounts exist on this deployment yet.</p>
-              ) : (
-                <div className="console__tableWrap">
-                  <table className="console__table">
-                    <thead>
-                      <tr>
-                        <th scope="col">Name</th>
-                        <th scope="col">Email</th>
-                        <th scope="col">Kind</th>
-                        <th scope="col">State</th>
-                        <th scope="col" className="console__num">
-                          Organizations
-                        </th>
-                        <th scope="col">Joined</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {platform.users.map((account) => (
-                        <UserRow key={account.id} account={account} isSelf={account.id === user.id} />
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </section>
-            </>}
-
-            {/*
-              The two views that read TENANT endpoints rather than the platform
-              API (ADR-035 §5).
-
-              Both are the SAME components the agent workspace uses, given the
-              organization this admin owns. Reusing them rather than building
-              console-flavoured copies is what keeps one implementation of the
-              inbox and one of the roster — a second inbox would be a second
-              place for message handling to drift.
-
-              Wrapped in a light surface because they were drawn for the
-              workspace's canvas and this console is dark. The alternative,
-              re-theming two large components, would be a lot of CSS to make
-              them look like something they are not.
-            */}
-            {(view === "chats" || view === "team") &&
-              (ownedOrganization === null ? (
-                <p className="console__notice" role="status">
-                  This admin account holds no membership in any organization, so there is no roster or conversation
-                  list to show. The counts above still cover the whole platform.
-                </p>
-              ) : (
-                <div className="console__embed">
-                  {view === "chats" && (
-                    <AgentInbox
-                      key={`console-inbox-${ownedOrganization.organization.id}`}
-                      organizationId={ownedOrganization.organization.id}
-                    />
+                  {statusError !== null && (
+                    <p className="console__alert" role="alert">
+                      {statusError}
+                    </p>
                   )}
-                  {view === "team" && (
-                    <TeamManagement
-                      key={`console-team-${ownedOrganization.organization.id}`}
-                      organizationId={ownedOrganization.organization.id}
-                      role={ownedOrganization.role}
-                      currentUserId={user.id}
-                      onOrganizationContextStale={platform.refresh}
-                    />
+
+                  {platform.organizations.length === 0 ? (
+                    <p className="console__empty">No organisations yet. Create the first one above.</p>
+                  ) : (
+                    <div className="console__tableWrap">
+                      <table className="console__table">
+                        <thead>
+                          <tr>
+                            <th scope="col">Organisation</th>
+                            <th scope="col">Customer chat link</th>
+                            <th scope="col">Owner</th>
+                            <th scope="col" className="console__num">
+                              Staff
+                            </th>
+                            <th scope="col" className="console__num">
+                              Chats
+                            </th>
+                            <th scope="col">
+                              <span className="console__srOnly">Actions</span>
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {platform.organizations.map((organization) => (
+                            <OrganizationRow
+                              key={organization.id}
+                              organization={organization}
+                              isStatusPending={statusPendingId === organization.id}
+                              onOpen={(tab) => openOrganisation(organization.id, tab)}
+                              onToggleStatus={() => toggleStatus(organization)}
+                            />
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   )}
+                </section>
+              </>
+            )}
+
+            {view === "organisations" && openOrganization !== null && (
+              <OrganisationDetail
+                organization={openOrganization}
+                currentUserId={user.id}
+                tab={organisationTab}
+                onTab={setOrganisationTab}
+                onBack={() => setOpenOrganizationId(null)}
+                onChanged={platform.refresh}
+              />
+            )}
+
+            {view === "accounts" && (
+              <section aria-labelledby="console-users-heading">
+                <div className="console__sectionHead">
+                  <h2 className="console__sectionTitle" id="console-users-heading">
+                    Accounts
+                  </h2>
+                  <TruncationNote shown={platform.users.length} total={platform.userTotal} />
                 </div>
-              ))}
+
+                {platform.users.length === 0 ? (
+                  <p className="console__empty">No accounts exist on this deployment yet.</p>
+                ) : (
+                  <div className="console__tableWrap">
+                    <table className="console__table">
+                      <thead>
+                        <tr>
+                          <th scope="col">Name</th>
+                          <th scope="col">Email</th>
+                          <th scope="col">Kind</th>
+                          <th scope="col">State</th>
+                          <th scope="col" className="console__num">
+                            Organisations
+                          </th>
+                          <th scope="col">Joined</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {platform.users.map((account) => (
+                          <UserRow key={account.id} account={account} isSelf={account.id === user.id} />
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </section>
+            )}
           </>
         )}
       </main>
@@ -391,13 +364,109 @@ export function AdminPortalPage({ user }: AdminPortalPageProps) {
 }
 
 /**
- * One figure.
- *
- * `value` is optional because the overview request can fail on its own while
- * the two lists succeed — the partial-failure case `usePlatformConsole`
- * preserves. An em dash says "not known", which is honest; a zero would be a
- * fabricated fact, and on this page a fabricated zero is the difference
- * between "nothing is wrong" and "we could not tell".
+ * One organisation, opened: its chats, its team, and inviting people into it
+ * (ADR-039 §5). Keyed by organisation so switching tears the inbox's socket
+ * down rather than re-pointing it.
+ */
+function OrganisationDetail({
+  organization,
+  currentUserId,
+  tab,
+  onTab,
+  onBack,
+  onChanged,
+}: {
+  organization: PlatformOrganizationSummary;
+  currentUserId: string;
+  tab: OrganisationTab;
+  onTab: (tab: OrganisationTab) => void;
+  onBack: () => void;
+  onChanged: () => void;
+}) {
+  const tabs: { id: OrganisationTab; label: string; icon: React.ReactNode }[] = [
+    { id: "chats", label: "Chats", icon: <ChatIcon aria-hidden="true" width={15} height={15} /> },
+    { id: "team", label: "Team", icon: <PeopleIcon aria-hidden="true" width={15} height={15} /> },
+    { id: "invite", label: "Invite", icon: <HeadsetIcon aria-hidden="true" width={15} height={15} /> },
+  ];
+
+  return (
+    <section className="console__detail" aria-labelledby="console-detail-heading">
+      <button type="button" className="console__back" onClick={onBack}>
+        <ArrowLeftIcon aria-hidden="true" />
+        All organisations
+      </button>
+
+      <div className="console__detailHead">
+        <span className="console__orgMark" aria-hidden="true">
+          <OrganisationIcon />
+        </span>
+        <div className="console__detailTitle">
+          <h2 className="console__title console__title--sm" id="console-detail-heading">
+            {organization.name}
+          </h2>
+          <span className="console__linkRow">
+            <span className="console__mono">{organization.widgetUrl}</span>
+            <ChatLinkActions url={organization.widgetUrl} label={organization.name} />
+          </span>
+        </div>
+        <StatusPill status={organization.status} />
+      </div>
+
+      {organization.status !== "active" ? (
+        <p className="console__notice" role="status">
+          This organisation is suspended. Its chat link and workspace are closed until you reactivate it.
+        </p>
+      ) : (
+        <>
+          <div className="console__subnav" role="tablist" aria-label={`${organization.name} sections`}>
+            {tabs.map((entry) => (
+              <button
+                key={entry.id}
+                type="button"
+                role="tab"
+                aria-selected={tab === entry.id}
+                className={tab === entry.id ? "console__navLink console__navLink--active" : "console__navLink"}
+                onClick={() => onTab(entry.id)}
+              >
+                {entry.icon}
+                {entry.label}
+              </button>
+            ))}
+          </div>
+
+          {tab === "invite" ? (
+            <InviteMemberPanel organizationId={organization.id} organizationName={organization.name} onInvited={onChanged} />
+          ) : (
+            <div className="console__embed">
+              {tab === "chats" && <AgentInbox key={`console-inbox-${organization.id}`} organizationId={organization.id} />}
+              {tab === "team" && (
+                <TeamManagement
+                  key={`console-team-${organization.id}`}
+                  organizationId={organization.id}
+                  role="admin"
+                  currentUserId={currentUserId}
+                  onOrganizationContextStale={onChanged}
+                />
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+function StatusPill({ status }: { status: string }) {
+  return status === "active" ? (
+    <span className="console__pill">Active</span>
+  ) : (
+    <span className="console__pill console__pill--warn">Suspended</span>
+  );
+}
+
+/**
+ * One figure. An em dash says "not known" when the overview failed on its own,
+ * which is honest where a zero would be a fabricated fact.
  */
 function StatCard({ label, value, tone }: { label: string; value?: number; tone?: "warning" }) {
   return (
@@ -423,33 +492,36 @@ function TruncationNote({ shown, total }: { shown: number; total: number }) {
   );
 }
 
-function OrganizationRow({ organization }: { organization: PlatformOrganizationSummary }) {
-  /*
-    Two independent facts about reachability, not one. A tenant with no key
-    cannot be embedded at all; a tenant with a key and no allowed origins is
-    embeddable by nobody — the safe-by-default empty state (ADR-019 §10) — and
-    those are different repairs.
-  */
-  const widget = !organization.hasWidgetKey
-    ? { label: "No key", tone: "warn" as const }
-    : organization.allowedOriginCount === 0
-      ? { label: "No origins", tone: "warn" as const }
-      : { label: `${organization.allowedOriginCount} origin${organization.allowedOriginCount === 1 ? "" : "s"}`, tone: "ok" as const };
+function OrganizationRow({
+  organization,
+  isStatusPending,
+  onOpen,
+  onToggleStatus,
+}: {
+  organization: PlatformOrganizationSummary;
+  isStatusPending: boolean;
+  onOpen: (tab: OrganisationTab) => void;
+  onToggleStatus: () => void;
+}) {
+  const isActive = organization.status === "active";
 
   return (
     <tr>
       <td>
         <span className="console__strong">{organization.name}</span>
-        <span className="console__sub">/{organization.slug}</span>
+        <span className="console__sub">
+          <StatusPill status={organization.status} />
+        </span>
+      </td>
+      <td>
+        <span className="console__linkRow">
+          <span className="console__mono console__truncate">/widget/{organization.slug}</span>
+          <ChatLinkActions url={organization.widgetUrl} label={organization.name} />
+        </span>
       </td>
       <td>
         {organization.owner === null ? (
-          /*
-            A real state and not an error: ADR-016 §3 accepts an organization
-            whose owning membership write failed. Flagged rather than left
-            blank, because a tenant nobody owns is precisely what an operator
-            is here to find.
-          */
+          // Repairable from Open → Invite, which can name an owner.
           <span className="console__flag">No active owner</span>
         ) : (
           <>
@@ -458,16 +530,39 @@ function OrganizationRow({ organization }: { organization: PlatformOrganizationS
           </>
         )}
       </td>
-      <td>
-        <span className={widget.tone === "warn" ? "console__pill console__pill--warn" : "console__pill"}>
-          {widget.label}
-        </span>
-      </td>
       <td className="console__num">{organization.memberCount}</td>
       <td className="console__num">{organization.conversationCount}</td>
-      <td className="console__sub">{formatDate(organization.createdAt)}</td>
+      <td>
+        <span className="console__rowActions">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => onOpen("chats")}
+            disabled={!isActive}
+            aria-label={`Open ${organization.name}`}
+          >
+            Open
+          </Button>
+          <button
+            type="button"
+            className="console__iconButton"
+            onClick={onToggleStatus}
+            disabled={isStatusPending}
+            aria-label={isActive ? `Suspend ${organization.name}` : `Reactivate ${organization.name}`}
+            title={isActive ? "Suspend" : "Reactivate"}
+          >
+            {isActive ? <PauseIcon aria-hidden="true" /> : <PlayIcon aria-hidden="true" />}
+          </button>
+        </span>
+      </td>
     </tr>
   );
+}
+
+function kindLabel(account: PlatformUserSummary): string {
+  if (account.platformRole === "admin" || account.kind === "admin") return "Super admin";
+  if (account.kind === "agent") return "Staff";
+  return "Legacy customer";
 }
 
 function UserRow({ account, isSelf }: { account: PlatformUserSummary; isSelf: boolean }) {
@@ -475,12 +570,13 @@ function UserRow({ account, isSelf }: { account: PlatformUserSummary; isSelf: bo
     <tr>
       <td>
         <span className="console__strong">{account.name}</span>
-        {/* Marks the reader's own row, so an operator can see themselves in the list. */}
         {isSelf && <span className="console__sub">you</span>}
       </td>
       <td className="console__mono">{account.email}</td>
       <td>
-        <span className="console__pill">{account.kind === "agent" ? "Agent" : "Customer"}</span>
+        <span className={account.platformRole === "admin" ? "console__pill console__pill--admin" : "console__pill"}>
+          {kindLabel(account)}
+        </span>
       </td>
       <td>
         {account.status === "disabled" ? (
@@ -490,7 +586,6 @@ function UserRow({ account, isSelf }: { account: PlatformUserSummary; isSelf: bo
         ) : (
           <span className="console__pill">Active</span>
         )}
-        {account.platformRole === "admin" && <span className="console__pill console__pill--admin">Admin</span>}
       </td>
       <td className="console__num">{account.membershipCount}</td>
       <td className="console__sub">{formatDate(account.createdAt)}</td>
@@ -498,14 +593,7 @@ function UserRow({ account, isSelf }: { account: PlatformUserSummary; isSelf: bo
   );
 }
 
-/**
- * Dates as the reader's locale writes them.
- *
- * Guarded rather than trusted: these strings come off the wire, and
- * `toLocaleDateString` on an invalid date renders the literal text "Invalid
- * Date" into the table. Falling back to the raw value at least shows an
- * operator what the server actually sent.
- */
+/** Dates as the reader's locale writes them, falling back to the raw value. */
 function formatDate(value: string): string {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString();

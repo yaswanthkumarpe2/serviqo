@@ -16,6 +16,7 @@ import { UserModel } from "../src/modules/users/user.model";
 import { verifyWidgetToken } from "../src/modules/widget/widgetToken";
 
 import type { OrganizationDocument } from "../src/modules/organizations/organization.model";
+import { createOrganizationAs } from "../src/modules/organizations/testing/organizations";
 
 const SESSION_PATH = "/api/v1/widget/session";
 const ME_PATH = "/api/v1/auth/me";
@@ -264,14 +265,14 @@ describe("widget tenant and credential isolation", () => {
       expect(response.body.error.code).toBe("INVALID_ACCESS_TOKEN");
     });
 
-    it("refuses a widget token at POST /organizations", async () => {
+    it("refuses a widget token at the super admin's organisation creation", async () => {
       const organization = await createOrganization();
       const session = await openSession({ widgetKey: organization.widgetKey });
 
       const response = await request(app)
-        .post(ORGANIZATIONS_PATH)
+        .post("/api/v1/admin/organizations")
         .set("Authorization", `Bearer ${session.body.data.token}`)
-        .send({ name: "Hostile Takeover" });
+        .send({ name: "Hostile Takeover", owner: { name: "Mallory", email: "mallory@example.com" } });
 
       expect(response.status).toBe(401);
       expect(await OrganizationModel.countDocuments({})).toBe(1);
@@ -344,14 +345,10 @@ describe("widget tenant and credential isolation", () => {
       expect(me.status).toBe(200);
       expect(me.body.data.user.email).toBe(email);
 
-      const created = await request(app)
-        .post(ORGANIZATIONS_PATH)
-        .set("Authorization", `Bearer ${accessToken}`)
-        .send({ name: "Acme Corp" });
-      expect(created.status).toBe(201);
+      const created = await createOrganizationAs(accessToken, "Acme Corp");
 
       const context = await request(app)
-        .get(`${ORGANIZATIONS_PATH}/${created.body.data.organization.id}`)
+        .get(`${ORGANIZATIONS_PATH}/${created.id}`)
         .set("Authorization", `Bearer ${accessToken}`);
       expect(context.status).toBe(200);
       expect(context.body.data.role).toBe("owner");
@@ -380,15 +377,12 @@ describe("widget tenant and credential isolation", () => {
       A staff organization created through the API gets a widget key like any
       other, so the two flows meet correctly rather than only in tests.
     */
-    it("gives an organization created through the staff API a working widget key", async () => {
+    it("gives an organization created for staff a working widget key", async () => {
       const accessToken = await staffAccessToken("onboarding@example.com");
 
-      const created = await request(app)
-        .post(ORGANIZATIONS_PATH)
-        .set("Authorization", `Bearer ${accessToken}`)
-        .send({ name: "Acme Corp" });
+      const created = await createOrganizationAs(accessToken, "Acme Corp");
 
-      const organization = await OrganizationModel.findById(created.body.data.organization.id);
+      const organization = await OrganizationModel.findById(created.id);
       expect(organization!.widgetKey).not.toBeNull();
 
       const session = await openSession({ widgetKey: organization!.widgetKey });
@@ -399,17 +393,13 @@ describe("widget tenant and credential isolation", () => {
     // response that was not designed to carry it (ADR-019 §14).
     it("does not leak the widget key through the organization endpoints", async () => {
       const accessToken = await staffAccessToken("no-leak@example.com");
-      const created = await request(app)
-        .post(ORGANIZATIONS_PATH)
-        .set("Authorization", `Bearer ${accessToken}`)
-        .send({ name: "Acme Corp" });
-      const organization = await OrganizationModel.findById(created.body.data.organization.id);
+      const created = await createOrganizationAs(accessToken, "Acme Corp");
+      const organization = await OrganizationModel.findById(created.id);
 
       const context = await request(app)
         .get(`${ORGANIZATIONS_PATH}/${organization!._id.toString()}`)
         .set("Authorization", `Bearer ${accessToken}`);
 
-      expect(created.text).not.toContain(organization!.widgetKey!);
       expect(context.text).not.toContain(organization!.widgetKey!);
     });
   });

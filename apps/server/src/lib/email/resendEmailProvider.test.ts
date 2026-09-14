@@ -118,6 +118,7 @@ describe("ResendEmailProvider", () => {
       await provider.sendInvitation({
         to: RECIPIENT,
         organizationName: "Acme Support",
+        roleLabel: "a support agent",
         invitationUrl: "http://localhost:5173/invitations?token=a",
       });
 
@@ -134,6 +135,7 @@ describe("ResendEmailProvider", () => {
       await provider.sendInvitation({
         to: RECIPIENT,
         organizationName: '<script>alert("x")</script>',
+        roleLabel: "a support agent",
         invitationUrl: "http://localhost:5173/invitations?token=a",
       });
 
@@ -234,6 +236,7 @@ describe("ResendEmailProvider", () => {
         provider.sendInvitation({
           to: RECIPIENT,
           organizationName: "Acme Support",
+          roleLabel: "a support agent",
           invitationUrl: "http://localhost:5173/invitations?token=a",
         }),
       ).rejects.toThrow();

@@ -131,6 +131,7 @@ describe("requireOrganization", () => {
         organizationId: organization._id.toString(),
         role: "admin",
         membershipId: membership._id.toString(),
+        viaPlatformAdmin: false,
       });
     });
 

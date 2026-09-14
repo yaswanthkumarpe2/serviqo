@@ -8,6 +8,9 @@ import { createMemberController } from "./member.controller";
 import { createMemberService } from "./member.service";
 import { addMemberSchema, updateMemberRoleSchema, updateMemberStatusSchema } from "./member.validation";
 
+import { createStaffInvitationService } from "../staffInvitations/staffInvitation.service";
+
+import type { EmailProvider } from "../../lib/email/emailProvider";
 import type { RateLimiters } from "../../lib/rateLimit";
 
 /**
@@ -31,9 +34,11 @@ import type { RateLimiters } from "../../lib/rateLimit";
  */
 export interface MemberRouterDependencies {
   rateLimiters: RateLimiters;
+  /** Sends a new person their credentials when an admin invites them (ADR-039 §4). */
+  emailProvider?: EmailProvider;
 }
 
-export function createMemberRouter({ rateLimiters }: MemberRouterDependencies): Router {
+export function createMemberRouter({ rateLimiters, emailProvider }: MemberRouterDependencies): Router {
   /*
     `mergeParams` so `:organizationId` — a segment of the MOUNT path, not of
     any route below — reaches `requireOrganization`, which reads it from
@@ -42,7 +47,11 @@ export function createMemberRouter({ rateLimiters }: MemberRouterDependencies): 
   */
   const router = Router({ mergeParams: true });
 
-  const controller = createMemberController({ memberService: createMemberService() });
+  const controller = createMemberController({
+    memberService: createMemberService({
+      staffInvitationService: emailProvider === undefined ? undefined : createStaffInvitationService({ emailProvider }),
+    }),
+  });
 
   /*
     The roster. `member.read`, which `owner`, `admin`, and `supervisor` hold

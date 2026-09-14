@@ -122,18 +122,29 @@ function passwordResetEmail(code: string, url: string): EmailContent {
   };
 }
 
-function invitationEmail(organizationName: string, url: string): EmailContent {
+/** An existing staff account added to another organisation (ADR-039 §3). No credential in it. */
+function invitationEmail(organizationName: string, roleLabel: string, url: string): EmailContent {
   return {
-    subject: `You've been invited to ${organizationName} on Serviqo`,
-    text: `You've been invited to join ${organizationName} on Serviqo.\n\nAccept it here:\n${url}`,
+    subject: `You've been added to ${organizationName} on Serviqo`,
+    text:
+      `You've been added to ${organizationName} as ${roleLabel}.
+
+` +
+      `Sign in with your existing Serviqo password:
+${url}
+
+` +
+      `If you weren't expecting this, you can ignore this email.`,
     html:
-      `<p>You've been invited to join <strong>${escapeHtml(organizationName)}</strong> on Serviqo.</p>` +
-      `<p><a href="${escapeHtml(url)}">Accept invitation</a></p>`,
+      `<p>You've been added to <strong>${escapeHtml(organizationName)}</strong> as ${escapeHtml(roleLabel)}.</p>` +
+      `<p><a href="${escapeHtml(url)}">Sign in</a> with your existing Serviqo password.</p>` +
+      `<p>If you weren't expecting this, you can ignore this email.</p>`,
   };
 }
 
 function agentCredentialsEmail(
   organizationName: string,
+  roleLabel: string,
   temporaryPassword: string,
   code: string,
   verificationUrl: string,
@@ -142,7 +153,7 @@ function agentCredentialsEmail(
   return {
     subject: `You've been added to ${organizationName} on Serviqo`,
     text:
-      `You've been added to ${organizationName} as a support agent.\n\n` +
+      `You've been added to ${organizationName} as ${roleLabel}.\n\n` +
       `Two steps, in this order.\n\n` +
       `1. Verify this address. Your ${EMAIL_VERIFICATION_CODE_LENGTH}-digit code is:\n\n` +
       `   ${code}\n\n` +
@@ -153,7 +164,7 @@ function agentCredentialsEmail(
       `Change it once you are in. This password is not stored anywhere and ` +
       `cannot be sent again — if you lose this email, ask your admin to add you again.`,
     html:
-      `<p>You've been added to <strong>${escapeHtml(organizationName)}</strong> as a support agent.</p>` +
+      `<p>You've been added to <strong>${escapeHtml(organizationName)}</strong> as ${escapeHtml(roleLabel)}.</p>` +
       `<p><strong>1. Verify this address.</strong> Your ${EMAIL_VERIFICATION_CODE_LENGTH}-digit code is:</p>` +
       `<p style="font-size:28px;font-weight:700;letter-spacing:6px;font-family:ui-monospace,monospace">` +
       `${escapeHtml(code)}</p>` +
@@ -252,7 +263,7 @@ export function createSmtpEmailProvider(config: SmtpEmailProviderConfig): EmailP
         "email.smtp.invitation",
         input.to,
         input.invitationUrl,
-        invitationEmail(input.organizationName, input.invitationUrl),
+        invitationEmail(input.organizationName, input.roleLabel, input.invitationUrl),
       );
     },
 
@@ -263,6 +274,7 @@ export function createSmtpEmailProvider(config: SmtpEmailProviderConfig): EmailP
         input.verificationUrl,
         agentCredentialsEmail(
           input.organizationName,
+          input.roleLabel,
           input.temporaryPassword,
           input.code,
           input.verificationUrl,

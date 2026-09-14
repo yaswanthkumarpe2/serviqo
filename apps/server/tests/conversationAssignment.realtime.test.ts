@@ -23,6 +23,7 @@ import { createSocketServer } from "../src/realtime/createSocketServer";
 import type { Server as HttpServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { Socket as ClientSocket } from "socket.io-client";
+import { createOrganizationAs } from "../src/modules/organizations/testing/organizations";
 
 /**
  * End-to-end coverage for live assignment and status changes (ADR-026 §9,
@@ -115,11 +116,7 @@ describe("conversation assignment real-time delivery", () => {
   }
 
   async function createOrganization(accessToken: string, name: string) {
-    const response = await request(app)
-      .post(ORGANIZATIONS_PATH)
-      .set("Authorization", `Bearer ${accessToken}`)
-      .send({ name });
-    return response.body.data.organization as { id: string };
+    return (await createOrganizationAs(accessToken, name)) as { id: string };
   }
 
   async function customerConversation(organizationId: string) {

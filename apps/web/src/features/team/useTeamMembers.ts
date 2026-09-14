@@ -43,7 +43,8 @@ export interface TeamMembers {
   /** A short confirmation of the last successful mutation, or `null`. */
   actionNotice: string | null;
 
-  add: (email: string, role: AssignableRole) => Promise<boolean>;
+  /** `name` invites someone who has no account yet (ADR-039 §4). */
+  add: (email: string, role: AssignableRole, name?: string) => Promise<boolean>;
   changeRole: (membershipId: string, role: AssignableRole) => Promise<boolean>;
   /** Suspends or reactivates one member (ADR-029 §1). */
   changeStatus: (membershipId: string, status: SettableStatus) => Promise<boolean>;
@@ -64,7 +65,7 @@ const GENERIC_LIST_ERROR = "Could not load the team. Please try again.";
 const GENERIC_ACTION_ERROR = "That did not work. Please try again.";
 const ALREADY_MEMBER_ERROR = "That person is already a member of this organization.";
 const NOT_INVITABLE_ERROR =
-  "That email cannot be added. The person needs a verified Serviqo account before they can join.";
+  "That email cannot be added. The person needs a verified Serviqo account — to invite someone new, enter their name as well.";
 const OWNER_PROTECTED_ERROR = "The organization owner cannot be changed or removed.";
 const SELF_MODIFICATION_ERROR = "You cannot change or remove your own membership.";
 /*
@@ -239,9 +240,9 @@ export function useTeamMembers({ organizationId }: UseTeamMembersOptions): TeamM
   );
 
   const add = useCallback(
-    (email: string, role: AssignableRole) =>
+    (email: string, role: AssignableRole, name?: string) =>
       run("add", null, async () => {
-        const member = await addMember(authorizedFetch, organizationId, email, role);
+        const member = await addMember(authorizedFetch, organizationId, email, role, name);
         /*
           The NAME the server resolved, not the email the manager typed. The
           server proved which account that address belongs to; echoing the

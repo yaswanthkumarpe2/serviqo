@@ -1,13 +1,17 @@
 import { created, success } from "../../lib/response";
 
-import type { AgentInvitationService } from "./agentInvitation.service";
-import type { InviteAgentInput } from "./agentInvitation.validation";
+import type { OrganizationAdministrationService } from "./organizationAdministration.service";
+import type {
+  CreateOrganizationWithOwnerInput,
+  InviteOrganizationMemberInput,
+  UpdateOrganizationStatusInput,
+} from "./organizationAdministration.validation";
 import type { PlatformAdminService } from "./platformAdmin.service";
 import type { RequestHandler } from "express";
 
 export interface PlatformAdminControllerDependencies {
   platformAdminService: PlatformAdminService;
-  agentInvitationService: AgentInvitationService;
+  organizationAdministrationService: OrganizationAdministrationService;
 }
 
 /**
@@ -27,7 +31,7 @@ export interface PlatformAdminControllerDependencies {
  */
 export function createPlatformAdminController({
   platformAdminService,
-  agentInvitationService,
+  organizationAdministrationService,
 }: PlatformAdminControllerDependencies) {
   const overview: RequestHandler = async (req, res) => {
     success(res, await platformAdminService.getOverview(req.log));
@@ -65,12 +69,38 @@ export function createPlatformAdminController({
    * echoing it into an API response would put a working credential into
    * whatever logs or proxies sit between here and the console.
    */
-  const inviteAgent: RequestHandler = async (req, res) => {
-    const agent = await agentInvitationService.invite(req.body as InviteAgentInput, req.log);
-    created(res, { agent });
+  /** Creates an organisation and invites its owner (ADR-039 §1). */
+  const createOrganization: RequestHandler = async (req, res) => {
+    const result = await organizationAdministrationService.createOrganization(
+      req.body as CreateOrganizationWithOwnerInput,
+      req.platformContext!.userId,
+      req.log,
+    );
+    created(res, result);
   };
 
-  return { overview, organizations, users, inviteAgent };
+  /** Suspends or reactivates an organisation (ADR-039 §2). */
+  const updateOrganizationStatus: RequestHandler = async (req, res) => {
+    const organization = await organizationAdministrationService.updateStatus(
+      String(req.params.organizationId),
+      (req.body as UpdateOrganizationStatusInput).status,
+      req.log,
+    );
+    success(res, { organization });
+  };
+
+  /** Invites a person into any organisation, in any role (ADR-039 §3). */
+  const inviteOrganizationMember: RequestHandler = async (req, res) => {
+    const result = await organizationAdministrationService.inviteMember(
+      String(req.params.organizationId),
+      req.body as InviteOrganizationMemberInput,
+      req.platformContext!.userId,
+      req.log,
+    );
+    created(res, result);
+  };
+
+  return { overview, organizations, users, createOrganization, updateOrganizationStatus, inviteOrganizationMember };
 }
 
 /**

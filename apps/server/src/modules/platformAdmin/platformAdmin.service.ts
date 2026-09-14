@@ -1,4 +1,5 @@
 import { logger } from "../../lib/logger";
+import { buildWidgetUrl } from "../organizations/widgetLink";
 import { userRepository } from "../users/user.repository";
 import { platformAdminRepository } from "./platformAdmin.repository";
 
@@ -41,6 +42,8 @@ export interface PlatformOrganizationSummary {
   id: string;
   name: string;
   slug: string;
+  /** The organisation's customer chat link (ADR-038, ADR-039 §2). */
+  widgetUrl: string;
   status: OrganizationStatus;
   /**
    * Whether this tenant can actually receive widget traffic.
@@ -159,6 +162,7 @@ export function createPlatformAdminService(): PlatformAdminService {
           id,
           name: organization.name,
           slug: organization.slug,
+          widgetUrl: buildWidgetUrl(organization.slug),
           status: organization.status,
           hasWidgetKey: organization.widgetKey !== null,
           allowedOriginCount: organization.allowedOrigins.length,

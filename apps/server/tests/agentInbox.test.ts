@@ -17,6 +17,7 @@ import { createFakeEmailProvider } from "../src/modules/auth/testing/fakeEmailPr
 import { createStaffAccount } from "../src/modules/auth/testing/staffAccounts";
 
 import type { MembershipRole, MembershipStatus } from "../src/modules/memberships/membership.model";
+import { createOrganizationAs } from "../src/modules/organizations/testing/organizations";
 
 /**
  * Integration coverage for the agent inbox (ADR-025): the four staff routes,
@@ -67,12 +68,8 @@ async function signedInStaff(ctx: Ctx) {
 }
 
 /** Creates an organization through the real endpoint, so the owner membership is real. */
-async function createOrganization(ctx: Ctx, accessToken: string, name: string) {
-  const response = await request(ctx.app)
-    .post(ORGANIZATIONS_PATH)
-    .set("Authorization", `Bearer ${accessToken}`)
-    .send({ name });
-  return response.body.data.organization as { id: string; name: string; slug: string };
+async function createOrganization(_ctx: Ctx, accessToken: string, name: string) {
+  return (await createOrganizationAs(accessToken, name)) as { id: string; name: string; slug: string };
 }
 
 /**

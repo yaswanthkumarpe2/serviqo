@@ -18,6 +18,7 @@ import { userRepository } from "../users/user.repository";
 import { sortMembers, toMemberResponse } from "./member.responses";
 
 import type { AuthLogger } from "../auth/authLogging";
+import type { StaffInvitationService } from "../staffInvitations/staffInvitation.service";
 import type { MembershipDocument, MembershipRole, MembershipStatus } from "../memberships/membership.model";
 import type { MemberResponse } from "./member.responses";
 import type { AddMemberInput } from "./member.validation";
@@ -168,7 +169,16 @@ export interface MemberService {
   ): Promise<{ removed: MemberResponse; releasedConversations: number }>;
 }
 
-export function createMemberService(): MemberService {
+export interface MemberServiceDependencies {
+  /**
+   * Creates an account for someone who has none (ADR-039 §4). Optional so a
+   * test of the roster rules can build the service without an email provider;
+   * without it, an unknown address is refused exactly as before.
+   */
+  staffInvitationService?: StaffInvitationService;
+}
+
+export function createMemberService({ staffInvitationService }: MemberServiceDependencies = {}): MemberService {
   /**
    * Records a refusal and returns the error to throw.
    *
@@ -395,6 +405,26 @@ export function createMemberService(): MemberService {
       const email = normalizeEmail(input.email);
 
       const user = await userRepository.findByEmail(email);
+
+      /*
+        Nobody by that address, and the admin gave a name: this is an
+        invitation of a new person (ADR-039 §4). The account is created and
+        emailed its credentials. Without a name it is refused as before, so the
+        older "add an existing account" request keeps its meaning.
+      */
+      if (user === null && input.name !== undefined && staffInvitationService !== undefined) {
+        const invited = await staffInvitationService.invite(
+          { organizationId, name: input.name, email, role: input.role, invitedByUserId: actor.userId },
+          log,
+        );
+        return {
+          id: invited.member.membershipId,
+          role: invited.member.role,
+          status: invited.member.status,
+          createdAt: invited.member.joinedAt,
+          user: { id: invited.member.userId, name: invited.member.name, email: invited.member.email },
+        };
+      }
 
       /*
         The identical three-part gate `currentUser.service.ts`,

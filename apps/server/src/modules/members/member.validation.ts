@@ -98,6 +98,17 @@ const emailSchema = z.string().trim().min(3).max(254).email("email must be a val
 export const addMemberSchema = z.object({
   email: emailSchema,
   role: roleSchema,
+  /**
+   * Present when inviting someone who has no account yet (ADR-039 §4): the
+   * account is created under this name and emailed its credentials.
+   */
+  name: z
+    .string()
+    .trim()
+    .min(1, "Name is required")
+    .max(120, "Name is too long")
+    .refine((value) => !/\p{Cc}/u.test(value), "Name must not contain control characters")
+    .optional(),
 });
 
 export type AddMemberInput = z.infer<typeof addMemberSchema>;
