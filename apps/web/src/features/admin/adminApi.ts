@@ -72,7 +72,10 @@ export interface PlatformUserSummary {
   /** Null means the address was never confirmed — the state that blocks sign-in. */
   emailVerifiedAt: string | null;
   platformRole: string;
-  /** `"customer"` or `"agent"` (ADR-034 §1) — the console's most useful column. */
+  /**
+   * `"agent"` or `"admin"` — or `"customer"` for an account ADR-034 created
+   * before ADR-037 removed customer accounts. Shown as stored.
+   */
   kind: string;
   membershipCount: number;
   createdAt: string;

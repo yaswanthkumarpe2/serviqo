@@ -1,6 +1,6 @@
 # ADR-034: Customer Accounts, Agent Invitations, and Three Front Doors
 
-**Status:** Accepted
+**Status:** Partly superseded by [ADR-037](./037-customers-never-authenticate.md): customer accounts (§1–6, §9) are removed; agent invitations (§7), change-password (§8) and the rest stand.
 **Date:** 2026-09-12
 **Phase:** 3 (User / Team / Role management) and 4 (Customer chat experience)
 **Amends:** [ADR-010](./010-principal-types-organization-users-and-customers.md) §5, which stated that customers never authenticate. They now may. Everything else ADR-010 decided is unchanged and is restated in §2 below.

@@ -7,6 +7,7 @@ import { createApp } from "../src/app";
 import { AccountTokenModel } from "../src/modules/accountTokens/accountToken.model";
 import { verifyAccessToken } from "../src/modules/auth/accessToken";
 import { createFakeEmailProvider } from "../src/modules/auth/testing/fakeEmailProvider";
+import { createStaffAccount } from "../src/modules/auth/testing/staffAccounts";
 import { CustomerModel } from "../src/modules/customers/customer.model";
 import { MembershipModel } from "../src/modules/memberships/membership.model";
 import { OrganizationModel } from "../src/modules/organizations/organization.model";
@@ -20,7 +21,6 @@ const SESSION_PATH = "/api/v1/widget/session";
 const ME_PATH = "/api/v1/auth/me";
 const ORGANIZATIONS_PATH = "/api/v1/organizations";
 const LOGIN_PATH = "/api/v1/auth/login";
-const REGISTER_PATH = "/api/v1/auth/register";
 const VERIFY_PATH = "/api/v1/auth/verify-email";
 const REFRESH_PATH = "/api/v1/auth/refresh";
 const LOGOUT_PATH = "/api/v1/auth/logout";
@@ -76,7 +76,7 @@ describe("widget tenant and credential isolation", () => {
   const openSession = (body: Record<string, unknown>) => request(app).post(SESSION_PATH).send(body);
 
   async function staffAccessToken(email: string): Promise<string> {
-    await request(app).post(REGISTER_PATH).send({ name: "Ada Lovelace", email, password: PASSWORD });
+    await createStaffAccount(fake.provider, { name: "Ada Lovelace", email, password: PASSWORD });
     const code = fake.verifications.at(-1)!.code;
     await request(app).post(VERIFY_PATH).send({ email, code });
     const login = await request(app).post(LOGIN_PATH).send({ email, password: PASSWORD });
@@ -330,7 +330,7 @@ describe("widget tenant and credential isolation", () => {
   describe("existing staff authentication", () => {
     it("still completes register, verify, login, me, organization, refresh, logout", async () => {
       const email = "regression@example.com";
-      await request(app).post(REGISTER_PATH).send({ name: "Ada Lovelace", email, password: PASSWORD });
+      await createStaffAccount(fake.provider, { name: "Ada Lovelace", email, password: PASSWORD });
       const verificationCode = fake.verifications.at(-1)!.code;
       // 204 with no body — the deliberate exception to the envelope (ADR-008 §1).
       expect((await request(app).post(VERIFY_PATH).send({ email, code: verificationCode })).status).toBe(204);

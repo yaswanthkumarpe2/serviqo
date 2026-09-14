@@ -17,10 +17,9 @@ import type { MembershipRole } from "../memberships/membership.model";
 /**
  * Adding an agent (ADR-034 §7).
  *
- * The ONLY way an account with `kind: "agent"` comes into existence. Public
- * registration cannot produce one — it writes `"customer"` and has no
- * parameter for anything else — so the set of people who can answer a tenant's
- * conversations is exactly the set an admin put there.
+ * The ONLY way an account with `kind: "agent"` comes into existence. There is
+ * no public registration (ADR-037), so the set of people who can answer a
+ * tenant's conversations is exactly the set an admin put there.
  *
  * Three documents and one email, in a deliberate order:
  *
@@ -90,7 +89,7 @@ export function createAgentInvitationService({
         editing a body — and on a single-tenant deployment there is exactly one
         right answer anyway (ADR-034 §4).
       */
-      const organization = await organizationRepository.findDefaultForCustomers();
+      const organization = await organizationRepository.findDefaultOrganization();
       if (organization === null) {
         throw new NotFoundError("No organization exists yet. Create one before adding agents.");
       }

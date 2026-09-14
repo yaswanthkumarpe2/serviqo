@@ -3,7 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 
 import { Button } from "@/components/ui/Button";
 import { BrandMark } from "@/components/ui/icons";
-import { VERIFICATION_CODE_LENGTH } from "@/features/auth/signUpValidation";
+import { VERIFICATION_CODE_LENGTH } from "@/features/auth/credentialValidation";
 import { useVerifyEmailForm } from "@/features/auth/useVerifyEmailForm";
 import { cn } from "@/utils/cn";
 

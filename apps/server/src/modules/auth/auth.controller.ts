@@ -1,7 +1,7 @@
 import { REFRESH_COOKIE_NAME } from "../../config/constants";
 import { readCookie } from "../../lib/http/cookies";
 import { normalizeUserAgent } from "../../lib/http/userAgent";
-import { created, noContent, success } from "../../lib/response";
+import { noContent, success } from "../../lib/response";
 import { RefreshRejectedError } from "./refresh.service";
 import { clearRefreshCookieOptions, refreshCookieOptions } from "./refreshToken";
 
@@ -9,7 +9,6 @@ import type {
   ChangePasswordInput,
   ForgotPasswordInput,
   LoginInput,
-  RegisterInput,
   ResendVerificationInput,
   ResetPasswordInput,
   VerifyEmailInput,
@@ -21,12 +20,10 @@ import type { LogoutService } from "./logout.service";
 import type { LogoutAllService } from "./logoutAll.service";
 import type { PasswordResetService } from "./passwordReset.service";
 import type { RefreshService } from "./refresh.service";
-import type { RegistrationService } from "./registration.service";
 import type { VerificationService } from "./verification.service";
 import type { RequestHandler } from "express";
 
 export interface AuthControllerDependencies {
-  registrationService: RegistrationService;
   verificationService: VerificationService;
   loginService: LoginService;
   refreshService: RefreshService;
@@ -46,7 +43,6 @@ export interface AuthControllerDependencies {
  * into a response.
  */
 export function createAuthController({
-  registrationService,
   verificationService,
   loginService,
   refreshService,
@@ -58,11 +54,6 @@ export function createAuthController({
 }: AuthControllerDependencies) {
   // Safe to assert in both handlers: validateBody replaced req.body with the
   // route's schema output before either could run.
-
-  const register: RequestHandler = async (req, res) => {
-    const user = await registrationService.register(req.body as RegisterInput, req.log);
-    created(res, { user });
-  };
 
   /**
    * Always 204, and the service is built so there is nothing else it could
@@ -263,7 +254,6 @@ export function createAuthController({
   };
 
   return {
-    register,
     resendVerification,
     verifyEmail,
     forgotPassword,

@@ -3,7 +3,7 @@ import { userRepository } from "../users/user.repository";
 import { platformAdminRepository } from "./platformAdmin.repository";
 
 import type { OrganizationStatus } from "../organizations/organization.model";
-import type { PlatformRole, UserKind, UserStatus } from "../users/user.model";
+import type { PlatformRole, StoredUserKind, UserStatus } from "../users/user.model";
 import type { AuthLogger } from "../auth/authLogging";
 import type {
   PlatformConversationBreakdown,
@@ -69,8 +69,9 @@ export interface PlatformUserSummary {
   /** Null means the address was never confirmed — the state that blocks sign-in. */
   emailVerifiedAt: Date | null;
   platformRole: PlatformRole;
-  /** Customer or agent (ADR-034 §1) — the console's main filter in practice. */
-  kind: UserKind;
+  // Stored, not staff-only: the console lists every account, including any legacy
+  // customer accounts ADR-034 created before ADR-037 removed them.
+  kind: StoredUserKind;
   membershipCount: number;
   createdAt: Date;
 }

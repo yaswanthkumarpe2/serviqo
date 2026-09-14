@@ -20,6 +20,8 @@ import { UserModel } from "../src/modules/users/user.model";
 import { verifyAccessToken } from "../src/modules/auth/accessToken";
 
 import type { OrganizationDocument, OrganizationStatus } from "../src/modules/organizations/organization.model";
+import { createStaffAccount } from "../src/modules/auth/testing/staffAccounts";
+import { createFakeEmailProvider } from "../src/modules/auth/testing/fakeEmailProvider";
 
 const SESSION_PATH = "/api/v1/widget/session";
 const CONVERSATIONS_PATH = "/api/v1/widget/conversations";
@@ -457,9 +459,7 @@ describe("widget conversations and messages", () => {
     });
 
     it("rejects a staff access token presented as a widget token", async () => {
-      await request(app)
-        .post("/api/v1/auth/register")
-        .send({ name: "Ada Lovelace", email: "staff@example.com", password: "DO_NOT_LEAK_PASSWORD_1" });
+      await createStaffAccount(createFakeEmailProvider().provider, { name: "Ada Lovelace", email: "staff@example.com", password: "DO_NOT_LEAK_PASSWORD_1" });
       // A staff token fails verifyWidgetToken at the signature (different
       // key) before any claim is read — it never becomes a widgetPrincipal.
       const registered = await UserModel.findOne({ email: "staff@example.com" });
@@ -537,11 +537,9 @@ describe("widget conversations and messages", () => {
   // ---- existing staff authentication is unaffected ----
 
   describe("existing staff authentication", () => {
-    it("still completes register, login, and organization access", async () => {
+    it("still completes sign-in and organization access", async () => {
       const email = "regression@example.com";
-      await request(app)
-        .post("/api/v1/auth/register")
-        .send({ name: "Ada Lovelace", email, password: "DO_NOT_LEAK_PASSWORD_1" });
+      await createStaffAccount(createFakeEmailProvider().provider, { name: "Ada Lovelace", email, password: "DO_NOT_LEAK_PASSWORD_1" });
       const user = await UserModel.findOne({ email });
       await UserModel.updateOne({ _id: user!._id }, { $set: { emailVerifiedAt: new Date() } });
 

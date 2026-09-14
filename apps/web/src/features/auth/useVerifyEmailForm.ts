@@ -2,9 +2,9 @@ import { useCallback, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { AuthApiError, resendVerification, verifyEmail } from "./authApi";
-import { hasSignUpErrors, validateVerification } from "./signUpValidation";
+import { hasFieldErrors, validateVerification } from "./credentialValidation";
 
-import type { VerifyFieldErrors } from "./signUpValidation";
+import type { VerifyFieldErrors } from "./credentialValidation";
 import type { FormEvent } from "react";
 
 /**
@@ -79,7 +79,7 @@ export function useVerifyEmailForm({ initialEmail, signInPath }: UseVerifyEmailF
       setFieldErrors(errors);
       setFormError(null);
       setNotice(null);
-      if (hasSignUpErrors(errors)) return;
+      if (hasFieldErrors(errors)) return;
 
       setIsSubmitting(true);
 

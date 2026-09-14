@@ -9,8 +9,8 @@ import { AccountTokenModel } from "../accountTokens/accountToken.model";
 import { accountTokenRepository } from "../accountTokens/accountToken.repository";
 import { UserModel } from "../users/user.model";
 import { userRepository } from "../users/user.repository";
-import { createRegistrationService } from "./registration.service";
 import { createFakeEmailProvider } from "./testing/fakeEmailProvider";
+import { createStaffAccount } from "./testing/staffAccounts";
 import { createVerificationService } from "./verification.service";
 
 import type { AuthLogger } from "./authLogging";
@@ -39,14 +39,13 @@ function buildServices() {
   const fake = createFakeEmailProvider();
   return {
     fake,
-    registration: createRegistrationService({ emailProvider: fake.provider }),
     verification: createVerificationService({ emailProvider: fake.provider }),
   };
 }
 
-/** Registers a user and returns the six-digit code from the captured email. */
+/** Creates an unverified staff account and returns the six-digit code from the captured email. */
 async function registerAndGetCode(services: ReturnType<typeof buildServices>, email = EMAIL) {
-  const user = await services.registration.register({ name: "Ada Lovelace", email, password: PASSWORD });
+  const user = await createStaffAccount(services.fake.provider, { name: "Ada Lovelace", email, password: PASSWORD });
   const code = services.fake.verifications.at(-1)!.code;
   return { user, code };
 }

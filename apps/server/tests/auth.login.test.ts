@@ -14,10 +14,10 @@ import {
 import { env } from "../src/lib/env";
 import { AccountTokenModel } from "../src/modules/accountTokens/accountToken.model";
 import { createFakeEmailProvider } from "../src/modules/auth/testing/fakeEmailProvider";
+import { createStaffAccount } from "../src/modules/auth/testing/staffAccounts";
 import { SessionModel } from "../src/modules/sessions/session.model";
 import { UserModel } from "../src/modules/users/user.model";
 
-const REGISTER_PATH = "/api/v1/auth/register";
 const VERIFY_PATH = "/api/v1/auth/verify-email";
 const LOGIN_PATH = "/api/v1/auth/login";
 
@@ -32,7 +32,7 @@ function buildApp() {
 
 /** Registers and verifies through the real endpoints — the full slice-9-to-12 path. */
 async function registeredAndVerifiedUser(ctx: ReturnType<typeof buildApp>) {
-  await request(ctx.app).post(REGISTER_PATH).send({ name: "Ada Lovelace", email: EMAIL, password: PASSWORD });
+  await createStaffAccount(ctx.fake.provider, { name: "Ada Lovelace", email: EMAIL, password: PASSWORD });
   const code = ctx.fake.verifications.at(-1)!.code;
   await request(ctx.app).post(VERIFY_PATH).send({ email: EMAIL, code });
 }
@@ -91,9 +91,9 @@ describe("POST /api/v1/auth/login", () => {
         id: expect.any(String),
         name: "Ada Lovelace",
         email: EMAIL,
-        // Which product this account signed up for (ADR-034 §1) — reported by
+        // Which staff surface this account belongs on (ADR-037) — reported by
         // login so the browser knows where to go without a second request.
-        kind: "customer",
+        kind: "agent",
       });
       expect(response.body.data.accessToken).toEqual(expect.any(String));
       expect(response.body.data.expiresIn).toBeGreaterThan(0);
@@ -264,7 +264,7 @@ describe("POST /api/v1/auth/login", () => {
   describe("unverified account", () => {
     it("answers 403 EMAIL_NOT_VERIFIED with correct credentials", async () => {
       const ctx = buildApp();
-      await request(ctx.app).post(REGISTER_PATH).send({ name: "Ada Lovelace", email: EMAIL, password: PASSWORD });
+      await createStaffAccount(ctx.fake.provider, { name: "Ada Lovelace", email: EMAIL, password: PASSWORD });
 
       const response = await request(ctx.app).post(LOGIN_PATH).send({ email: EMAIL, password: PASSWORD });
 
@@ -275,7 +275,7 @@ describe("POST /api/v1/auth/login", () => {
     // Unreachable without the password, so it is never an enumeration oracle.
     it("stays generic when the password is wrong", async () => {
       const ctx = buildApp();
-      await request(ctx.app).post(REGISTER_PATH).send({ name: "Ada Lovelace", email: EMAIL, password: PASSWORD });
+      await createStaffAccount(ctx.fake.provider, { name: "Ada Lovelace", email: EMAIL, password: PASSWORD });
 
       const response = await request(ctx.app).post(LOGIN_PATH).send({ email: EMAIL, password: "wrong-password" });
 
@@ -285,7 +285,7 @@ describe("POST /api/v1/auth/login", () => {
 
     it("issues nothing", async () => {
       const ctx = buildApp();
-      await request(ctx.app).post(REGISTER_PATH).send({ name: "Ada Lovelace", email: EMAIL, password: PASSWORD });
+      await createStaffAccount(ctx.fake.provider, { name: "Ada Lovelace", email: EMAIL, password: PASSWORD });
 
       const response = await request(ctx.app).post(LOGIN_PATH).send({ email: EMAIL, password: PASSWORD });
 
@@ -348,7 +348,7 @@ describe("POST /api/v1/auth/login", () => {
 
     it("strips unrecognized keys rather than trusting them", async () => {
       const ctx = buildApp();
-      await request(ctx.app).post(REGISTER_PATH).send({ name: "Ada Lovelace", email: EMAIL, password: PASSWORD });
+      await createStaffAccount(ctx.fake.provider, { name: "Ada Lovelace", email: EMAIL, password: PASSWORD });
 
       // A client attempting to declare itself verified must not be believed.
       const response = await request(ctx.app)

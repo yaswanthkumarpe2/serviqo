@@ -5,6 +5,8 @@ import { homePathFor, isPlatformAdmin } from "@/features/auth/authApi";
 import { useAuth } from "@/features/auth/useAuth";
 import { useCurrentUser } from "@/features/auth/useCurrentUser";
 
+import { NoStaffSurface } from "./NoStaffSurface";
+
 import type { CurrentUser } from "@/features/auth/authApi";
 import type { ReactNode } from "react";
 
@@ -67,8 +69,8 @@ export function PlatformAdminRoute({ children }: PlatformAdminRouteProps) {
 
   /*
     Reached by an ordinary signed-in user who typed the address, and by an
-    admin whose grant was revoked between loads. Both go to the dashboard,
-    which is the surface they are entitled to — silently, because a message
+    admin whose grant was revoked between loads. Each goes to the surface
+    they are entitled to, or is signed out if there is none — silently, because a message
     explaining why would confirm that a console exists here.
 
     `user === null` lands here too. It means `/me` failed for a reason that
@@ -76,7 +78,13 @@ export function PlatformAdminRoute({ children }: PlatformAdminRouteProps) {
     correct reading of "we could not confirm the grant" is "no grant".
   */
   if (!isPlatformAdmin(user)) {
-    return <Navigate to={homePathFor(user)} replace />;
+    /*
+      An admin-KIND account whose grant was revoked would be sent back to
+      `/control` by `homePathFor` and bounce forever, so that case — and any
+      account with no staff surface — ends the session instead.
+    */
+    const home = homePathFor(user);
+    return home === null || home === "/control" ? <NoStaffSurface /> : <Navigate to={home} replace />;
   }
 
   // Non-null by the guard above, which returns for every falsy case.

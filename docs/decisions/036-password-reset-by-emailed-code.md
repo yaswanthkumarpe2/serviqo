@@ -1,6 +1,6 @@
 # ADR-036: Password Reset by Emailed Code
 
-**Status:** Accepted
+**Status:** Accepted, amended by [ADR-037](./037-customers-never-authenticate.md) (staff accounts only; no customer accounts exist to reset)
 **Date:** 2026-09-14
 **Phase:** 2 (Authentication)
 **Amends:** [ADR-005](./005-account-action-token-lifecycle.md), which anticipated password reset as a LINK with an hour-long secret (`PASSWORD_RESET_TOKEN_TTL_MS`, now removed)

@@ -13,7 +13,7 @@ const PASSWORD = "DO_NOT_LEAK_THIS_PASSWORD";
 const successBody = {
   success: true,
   data: {
-    user: { id: "u1", name: "Ada Lovelace", email: EMAIL },
+    user: { id: "u1", name: "Ada Lovelace", email: EMAIL, kind: "agent" },
     accessToken: "header.payload.signature",
     expiresIn: 900,
   },
@@ -64,7 +64,8 @@ function renderLogin() {
       <AuthProvider>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
-          <Route path="/dashboard" element={<h1>Dashboard reached</h1>} />
+          <Route path="/agent" element={<h1>Workspace reached</h1>} />
+          <Route path="/home" element={<h1>Home resolver reached</h1>} />
         </Routes>
       </AuthProvider>
     </MemoryRouter>,
@@ -157,7 +158,7 @@ describe("LoginPage", () => {
       expect(JSON.parse(init.body)).toEqual({ email: EMAIL, password: PASSWORD });
     });
 
-    it("lands on the dashboard", async () => {
+    it("lands an agent in the workspace", async () => {
       const user = userEvent.setup();
       stubFetch(200, successBody);
       renderLogin();
@@ -166,7 +167,7 @@ describe("LoginPage", () => {
       await user.type(passwordField(), PASSWORD);
       await user.click(submitButton());
 
-      expect(await screen.findByText("Dashboard reached")).toBeDefined();
+      expect(await screen.findByText("Workspace reached")).toBeDefined();
     });
 
     it("shows a loading state and blocks a second submit", async () => {
@@ -202,7 +203,7 @@ describe("LoginPage", () => {
       expect(loginCalls(fetchMock)).toHaveLength(1);
 
       release(undefined);
-      expect(await screen.findByText("Dashboard reached")).toBeDefined();
+      expect(await screen.findByText("Workspace reached")).toBeDefined();
     });
   });
 
@@ -221,7 +222,7 @@ describe("LoginPage", () => {
 
       const alert = await screen.findByRole("alert");
       expect(alert.textContent).toBe("Email or password is incorrect");
-      expect(screen.queryByText("Dashboard reached")).toBeNull();
+      expect(screen.queryByText("Workspace reached")).toBeNull();
     });
 
     it("shows the unverified-account message", async () => {

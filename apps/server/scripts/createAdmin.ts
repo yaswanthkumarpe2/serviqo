@@ -19,8 +19,9 @@ import { isReservedSlug, isWellFormedSlug, slugifyOrganizationName } from "../sr
  * half-made account behind. That is fine as the product's front door and
  * miserable as a development chore, which is what this script removes.
  *
- * It is NOT a second signup path. It writes the same three documents the
- * real flow writes, in the same shapes, with `emailVerifiedAt` already set
+ * It is NOT an account-creation path for real deployments (there is no public
+ * sign-up at all since ADR-037). It writes the same three documents an
+ * invitation produces, in the same shapes, with `emailVerifiedAt` already set
  * — because the point of verification is proving control of an inbox, and
  * an operator with shell access to the database has already demonstrated
  * far more authority than an inbox confers.
@@ -48,7 +49,7 @@ function fail(message: string): never {
 async function main(): Promise<void> {
   if (env.NODE_ENV === "production") {
     fail(
-      "create:admin refuses to run with NODE_ENV=production. It creates a verified owner without any email check; use the real signup flow instead.",
+      "create:admin refuses to run with NODE_ENV=production. It creates a verified owner without any email check; invite the person instead.",
     );
   }
 

@@ -18,14 +18,12 @@ interface UseLoginFormOptions {
    * Where to land after a successful sign-in.
    *
    * OPTIONAL as of ADR-034 §9. Left unset, the destination is decided by the
-   * account's `kind`, which login now reports: a customer goes to their chat
-   * and an agent to their workspace. That is what the public `/login` page
-   * wants — one address, two kinds of person, and the server saying which.
+   * account's `kind`, which login reports: an agent goes to their workspace and
+   * the super admin to the console. That is what `/login` wants — one address
+   * for every member of staff, and the server saying which surface is theirs.
    *
-   * Set explicitly by the pages that exist FOR one audience: the agent
-   * sign-in page and the operations console both know where they are sending
-   * somebody, and a guard on the far side re-checks that the account belongs
-   * there.
+   * Set explicitly by the operations console's own door, which knows where it
+   * is sending somebody; the guard on the far side re-checks that they belong.
    */
   redirectTo?: string;
 }
@@ -73,11 +71,11 @@ export function useLoginForm({ redirectTo }: UseLoginFormOptions = {}): LoginFor
           signIn({ user: result.user, accessToken: result.accessToken });
           /*
             The server's answer decides, unless this page already knew. Routing
-            on `kind` here rather than after a `/me` round trip is what keeps an
-            agent from seeing the customer dashboard for a frame on the way to
-            their inbox.
+            on `kind` here rather than after a `/me` round trip is what keeps
+            anybody from seeing the wrong shell for a frame on the way in. An
+            unrecognised kind goes through `/home`, whose guard signs it out.
           */
-          navigate(redirectTo ?? homePathFor(result.user), { replace: true });
+          navigate(redirectTo ?? homePathFor(result.user) ?? "/home", { replace: true });
         })
         .catch((error: unknown) => {
           if (error instanceof AuthApiError) {

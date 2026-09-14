@@ -7,7 +7,6 @@ import {
   changePasswordSchema,
   forgotPasswordSchema,
   loginSchema,
-  registerSchema,
   resendVerificationSchema,
   resetPasswordSchema,
   verifyEmailSchema,
@@ -19,7 +18,6 @@ import { createLogoutService } from "./logout.service";
 import { createLogoutAllService } from "./logoutAll.service";
 import { createPasswordResetService } from "./passwordReset.service";
 import { createRefreshService } from "./refresh.service";
-import { createRegistrationService } from "./registration.service";
 import { createVerificationService } from "./verification.service";
 
 import type { EmailProvider } from "../../lib/email/emailProvider";
@@ -42,7 +40,6 @@ export function createAuthRouter({ emailProvider, rateLimiters }: AuthRouterDepe
   const router = Router();
 
   const controller = createAuthController({
-    registrationService: createRegistrationService({ emailProvider }),
     verificationService: createVerificationService({ emailProvider }),
     // Takes no EmailProvider: login sends nothing. Its factory does start the
     // dummy-hash computation, so constructing it early is deliberate.
@@ -56,8 +53,11 @@ export function createAuthRouter({ emailProvider, rateLimiters }: AuthRouterDepe
   });
 
   /*
-    Four unauthenticated endpoints, four separate budgets (ADR-031) — six
-    since password reset (ADR-036), below.
+    Unauthenticated endpoints, one budget each (ADR-031).
+
+    There is no `/register` any more (ADR-037): customers never hold accounts,
+    and staff exist only because somebody invited them. The history below is
+    kept because it is why the classes are separate at all.
 
     They shared one — the credential class — until ADR-031, and the sharing
     was the bug: completing one honest sign-up costs a register call, a
@@ -69,19 +69,17 @@ export function createAuthRouter({ emailProvider, rateLimiters }: AuthRouterDepe
 
     Splitting them lets each number answer the question its own endpoint
     poses. `credential` keeps the lockout pair, because guessing is what
-    `/login` faces. `registration` bounds Argon2id cost and bulk account
-    creation over an hour. `emailVerification` is the outer of two guessing
+    `/login` faces. `emailVerification` is the outer of two guessing
     bounds — `EMAIL_VERIFICATION_MAX_ATTEMPTS` is the inner and real one.
     `verificationResend` is the tightest of the four, because it is the only
     one whose accepted calls put mail in somebody else's inbox.
 
-    All four mount BEFORE `validateBody`, unchanged and on purpose. A limiter
+    Every one mounts BEFORE `validateBody`, unchanged and on purpose. A limiter
     behind validation would spend a Zod parse per attempt, and — more
     importantly — a caller could learn from the difference in responses
     whether their body was well-formed while being refused, which is a
     distinction a refused caller should not get.
   */
-  router.post("/register", rateLimiters.registration, validateBody(registerSchema), controller.register);
   router.post(
     "/resend-verification",
     rateLimiters.verificationResend,

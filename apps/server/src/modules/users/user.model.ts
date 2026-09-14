@@ -38,42 +38,43 @@ export type UserStatus = "active" | "disabled";
 export type PlatformRole = "none" | "admin";
 
 /**
- * WHICH PRODUCT this account signed up for (ADR-034 §1).
+ * Which kind of STAFF member this account is (ADR-034 §1, narrowed by ADR-037).
  *
- * A third axis, and the one that decides which front door an account came
- * through and which surface it may see:
+ * - `"agent"` — somebody who answers an organisation's conversations, or
+ *   administers one. Created only by invitation. Which organisation, and what
+ *   they may do in it, is their `Membership`'s business, not this field's: an
+ *   organisation admin is an agent-kind account holding an `owner` or `admin`
+ *   membership.
+ * - `"admin"` — somebody who OPERATES the deployment: the super admin. Created
+ *   only by `reset:platform`, and reaches the operations console rather than
+ *   the agent workspace (ADR-035 §4).
  *
- * - `"customer"` — a person who buys from the tenant and talks to its support
- *   team. Created by public registration at `/signup`, which is the only way
- *   this value is ever written.
- * - `"agent"` — a person who ANSWERS those conversations. Created only by an
- *   admin from the operations console; public registration cannot produce one.
- * - `"admin"` — a person who OPERATES the deployment. Created only by
- *   `reset:platform`, and deliberately neither of the above: an admin is not a
- *   customer of the tenant and not one of its agents, so they reach neither
- *   surface (ADR-035 §4). What they get instead is the operations console,
- *   which ADR-035 widens to carry the team and the conversations they used to
- *   need the agent workspace for.
+ * There is no customer kind. Customers never hold accounts (ADR-037): they are
+ * anonymous visitors of one organisation's widget, represented by `Customer`,
+ * which is not a `User` and never was one before ADR-034 briefly made it so.
  *
  * This is deliberately NOT `platformRole` and NOT `MembershipRole`. Platform
- * standing says whether you operate Serviqo; a membership role says what you
- * may do inside one tenant; this says which kind of person you are at all, and
- * the three are independent — an agent holds a membership and no platform
- * standing, a customer holds neither.
- *
- * It also reverses ADR-010 §5's assumption in one specific way, which is worth
- * naming because that ADR is otherwise unchanged: customers could not
- * authenticate at all, and now a customer MAY hold an account. What has not
- * changed is that a customer still holds no `Membership`, still reaches no
- * tenant surface, and still cannot read anything but their own conversation —
- * the widget remains the anonymous path, and this is an additional, signed-in
- * one (ADR-034 §2).
- *
- * Defaults to `"customer"`, which makes the field safe to add to a collection
- * that already holds documents and safe by construction: the value that
- * appears when nobody stated one is the one with the least reach.
+ * standing says whether you may operate Serviqo; a membership role says what
+ * you may do inside one tenant; this says which staff surface you belong on.
  */
-export type UserKind = "customer" | "agent" | "admin";
+export type UserKind = "agent" | "admin";
+
+/**
+ * What the `kind` field may hold IN THE DATABASE, which is one value wider than
+ * what the application writes.
+ *
+ * ADR-034 created `"customer"` accounts and ADR-037 removed them. Documents
+ * written in between still say `"customer"`, and a type that pretended they
+ * could not would let the gate that refuses them be deleted as dead code.
+ * `isStaffKind` is that gate; every place that admits a user to a session
+ * calls it.
+ */
+export type StoredUserKind = UserKind | "customer";
+
+/** Whether an account is staff at all. Legacy customer accounts are not (ADR-037). */
+export function isStaffKind(kind: StoredUserKind): kind is UserKind {
+  return kind === "agent" || kind === "admin";
+}
 
 export interface UserAttrs {
   email: string;
@@ -82,7 +83,7 @@ export interface UserAttrs {
   emailVerifiedAt: Date | null;
   status: UserStatus;
   platformRole: PlatformRole;
-  kind: UserKind;
+  kind: StoredUserKind;
   failedLoginAttempts: number;
   lockedUntil: Date | null;
   createdAt: Date;
@@ -146,15 +147,15 @@ const userSchema = new Schema<UserAttrs>(
       default: "none",
     },
     /*
-      Defaults to the least-privileged value for the same reason `platformRole`
-      does: every document written before this field existed reads back as a
-      customer, which is the reading that grants nothing, and no migration is
-      needed to make that true.
+      Defaults to "agent": the only way an account is created now is an
+      invitation, and an invitation is always for staff (ADR-037). The enum
+      still admits "customer" so the documents ADR-034 wrote stay loadable —
+      they are refused at sign-in by `isStaffKind`, not by failing to parse.
     */
     kind: {
       type: String,
-      enum: ["customer", "agent", "admin"] satisfies UserKind[],
-      default: "customer",
+      enum: ["agent", "admin", "customer"] satisfies StoredUserKind[],
+      default: "agent",
     },
     failedLoginAttempts: {
       type: Number,

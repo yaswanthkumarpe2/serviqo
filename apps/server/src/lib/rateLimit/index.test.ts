@@ -85,7 +85,6 @@ describe("createRateLimiters", () => {
       */
       "passwordReset",
       "passwordResetRequest",
-      "registration",
       "session",
       "verificationResend",
       // The seventh and eighth classes, added for conversation and message

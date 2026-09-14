@@ -29,11 +29,12 @@ export const CURRENT_USER = {
   */
   platformRole: "none",
   /*
-    Which product this account signed up for (ADR-034 §1). Defaults to
-    `customer`, matching the server's default and public registration — a test
-    that wants the agent workspace overrides it through `currentUser`.
+    Which staff surface this account belongs on (ADR-037). Defaults to
+    `agent`, matching the server's default — every account is invited staff —
+    and a test that wants the operations console overrides it through
+    `currentUser`.
   */
-  kind: "customer",
+  kind: "agent",
   createdAt: "2026-07-28T14:00:00.000Z",
 };
 
@@ -49,9 +50,6 @@ export const SESSION_USER = {
 
 /** An obvious sentinel — if it reaches storage or the DOM, the test fails. */
 export const RESTORED_TOKEN = "RESTORED_ACCESS_TOKEN";
-
-/** A fixed timestamp, so a rendered time never depends on when the suite runs. */
-const NOW = "2026-09-12T10:00:00.000Z";
 
 const REFRESH_SUCCESS = {
   success: true,
@@ -104,13 +102,6 @@ export interface StubAuthFetchOptions {
    * user who has registered and not onboarded is actually in (ADR-017 §9).
    */
   memberships?: StubMembership[];
-  /**
-   * The conversation `POST /me/conversations` resolves, and the messages in it
-   * (ADR-034 §5). Defaults to an empty chat, which is what a customer who has
-   * never written in actually has.
-   */
-  myConversationId?: string | null;
-  myMessages?: unknown[];
   /** What `GET /admin/overview` reports, for console tests (ADR-032 §3). */
   platformOverview?: unknown;
   /** What `GET /admin/organizations` reports. */
@@ -138,8 +129,6 @@ export function stubAuthFetch({
   refresh = "ok",
   currentUser = {},
   memberships = [],
-  myConversationId = "conv-1",
-  myMessages = [],
   platformOverview = PLATFORM_OVERVIEW,
   platformOrganizations = [],
   platformUsers = [],
@@ -189,36 +178,6 @@ export function stubAuthFetch({
               data: { user: { ...CURRENT_USER, ...currentUser }, memberships },
             })
           : jsonResponse(401, UNAUTHENTICATED),
-      );
-    }
-
-    /*
-      The signed-in customer's own chat (ADR-034 §5).
-
-      Answered here rather than by the catch-all below, which returns
-      `{ data: {} }` — a conversation with no id, which the chat hook would then
-      try to poll. `myConversationId: null` models the deployment with no
-      organization yet, where the server answers 404.
-    */
-    if (path.includes("/api/v1/me/conversations")) {
-      if (myConversationId === null) {
-        return Promise.resolve(
-          jsonResponse(404, {
-            success: false,
-            error: { code: "NOT_FOUND", message: "Support is not available yet." },
-          }),
-        );
-      }
-
-      if (path.includes("/messages")) {
-        return Promise.resolve(jsonResponse(200, { success: true, data: { messages: myMessages, nextCursor: null } }));
-      }
-
-      return Promise.resolve(
-        jsonResponse(200, {
-          success: true,
-          data: { id: myConversationId, status: "open", createdAt: NOW, lastMessageAt: NOW },
-        }),
       );
     }
 

@@ -17,9 +17,9 @@ import { UserModel, normalizeEmail } from "../src/modules/users/user.model";
  * there is no self-service path to escalate into it and no request an attacker
  * could forge to acquire it.
  *
- * It deliberately does NOT create accounts. The operator signs up through the
- * ordinary front door first — real address, real password, real verification —
- * and this promotes the account that resulted. A script that both minted an
+ * It deliberately does NOT create accounts. The account must already exist —
+ * invited, with a real address it has verified (ADR-037 removed public sign-up)
+ * — and this promotes it. A script that both minted an
  * account and made it omniscient would be a single command that turns database
  * access into a working platform login, and keeping the two steps apart means
  * an admin account is one a human being demonstrably controls the inbox of.
@@ -101,7 +101,7 @@ async function main(): Promise<void> {
 
     const user = await UserModel.findOne({ email });
     if (user === null) {
-      fail(`No account exists for ${email}. Sign up through /signup first, then run this again.`);
+      fail(`No account exists for ${email}. Invite them first, and run this again once they have verified.`);
     }
 
     /*

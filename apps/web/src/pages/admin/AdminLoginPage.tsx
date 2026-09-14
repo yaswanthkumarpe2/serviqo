@@ -37,7 +37,7 @@ export function AdminLoginPage() {
     ordinary dashboard would reasonably conclude the grant had failed.
 
     Someone WITHOUT the grant who signs in here is bounced from /control to
-    /dashboard by the route guard — silently, because a message would confirm
+    their own surface by the route guard — silently, because a message would confirm
     what is behind this address.
   */
   const form = useLoginForm({ redirectTo: "/control" });

@@ -14,6 +14,7 @@ import { OrganizationModel } from "../src/modules/organizations/organization.mod
 import { SessionModel } from "../src/modules/sessions/session.model";
 import { UserModel } from "../src/modules/users/user.model";
 import { createFakeEmailProvider } from "../src/modules/auth/testing/fakeEmailProvider";
+import { createStaffAccount } from "../src/modules/auth/testing/staffAccounts";
 
 import type { MembershipRole, MembershipStatus } from "../src/modules/memberships/membership.model";
 
@@ -28,7 +29,6 @@ import type { MembershipRole, MembershipStatus } from "../src/modules/membership
  * derives and from where.
  */
 
-const REGISTER_PATH = "/api/v1/auth/register";
 const VERIFY_PATH = "/api/v1/auth/verify-email";
 const LOGIN_PATH = "/api/v1/auth/login";
 const ORGANIZATIONS_PATH = "/api/v1/organizations";
@@ -54,7 +54,7 @@ async function signedInStaff(ctx: Ctx) {
   emailCounter += 1;
   const email = `staff${emailCounter}@example.com`;
 
-  await request(ctx.app).post(REGISTER_PATH).send({ name: "Ada Lovelace", email, password: PASSWORD });
+  await createStaffAccount(ctx.fake.provider, { name: "Ada Lovelace", email, password: PASSWORD });
   const code = ctx.fake.verifications.at(-1)!.code;
   await request(ctx.app).post(VERIFY_PATH).send({ email, code });
 

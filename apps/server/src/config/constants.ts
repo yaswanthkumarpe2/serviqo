@@ -303,24 +303,6 @@ export const CREDENTIAL_LIMIT = LOGIN_MAX_FAILED_ATTEMPTS;
 export const CREDENTIAL_WINDOW_MS = LOGIN_LOCK_DURATION_MS;
 
 /**
- * `POST /register` (ADR-031 §3).
- *
- * Guessing is not the attack here — there is nothing to guess — so this is
- * not derived from the lockout pair. Two things are being bounded: the
- * denial-of-service ADR-007 §13 named, where each call spends ~19 MiB and
- * ~100 ms of Argon2id on an unauthenticated path, and bulk creation of
- * unverified accounts.
- *
- * Five per hour per IP. A person signs up once; a shared office address
- * onboarding a team does it a handful of times in an afternoon. Anything
- * beyond that in one hour from one address is a script, and the hour-long
- * window is what makes a slow drip as unrewarding as a burst — a tighter
- * window with the same rate would simply be a slower script.
- */
-export const REGISTRATION_LIMIT = 5;
-export const REGISTRATION_WINDOW_MS = 60 * 60 * 1000;
-
-/**
  * `POST /verify-email` (ADR-031 §4).
  *
  * This one IS a guessing defence, but the per-IP budget is the outer of two

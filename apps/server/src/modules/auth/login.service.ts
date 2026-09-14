@@ -5,6 +5,7 @@ import { maskEmailAddress } from "../../lib/email/redaction";
 import { EmailNotVerifiedError, InvalidCredentialsError } from "../../lib/errors";
 import { logger } from "../../lib/logger";
 import { sessionRepository } from "../sessions/session.repository";
+import { isStaffKind } from "../users/user.model";
 import { userRepository } from "../users/user.repository";
 import { issueAccessToken } from "./accessToken";
 import { failureType } from "./authLogging";
@@ -37,12 +38,12 @@ export interface AuthenticatedUser {
   name: string;
   email: string;
   /**
-   * Which product this account signed up for (ADR-034 §1).
+   * Which staff surface this account belongs on (ADR-034 §1, ADR-037).
    *
    * Reported by LOGIN, not only by `/me`, because it decides where the browser
-   * goes next — a customer to their chat, an agent to their inbox — and making
-   * that decision wait for a second round trip would show every agent the
-   * customer dashboard for a frame first.
+   * goes next — an agent to their workspace, the super admin to the console —
+   * and making that decision wait for a second round trip would show the wrong
+   * shell for a frame first.
    *
    * Safe to report: it tells the authenticated owner of an account a fact about
    * that same account, which they demonstrably already know by virtue of which
@@ -84,7 +85,8 @@ const GENERIC_FAILURE_MESSAGE = "Email or password is incorrect";
  * what a session's owner looks like (ADR-012 §8).
  */
 export function toAuthenticatedUser(user: UserDocument): AuthenticatedUser {
-  return { id: user._id.toString(), name: user.name, email: user.email, kind: user.kind };
+  // Staff by the gate in `login`, which runs before this is built.
+  return { id: user._id.toString(), name: user.name, email: user.email, kind: user.kind as UserKind };
 }
 
 export function createLoginService(): LoginService {
@@ -177,6 +179,19 @@ export function createLoginService(): LoginService {
         log.info(
           { event: "auth.login.failed", reason: "account_disabled", userId: user._id.toString() },
           "Login attempted against a disabled account",
+        );
+        throw new InvalidCredentialsError(GENERIC_FAILURE_MESSAGE);
+      }
+
+      /*
+        A legacy customer account (ADR-037). Customers no longer sign in at all,
+        so this is refused exactly as a disabled account is — generically, and
+        after the password, so it discloses nothing to anyone who lacks it.
+      */
+      if (!isStaffKind(user.kind)) {
+        log.info(
+          { event: "auth.login.failed", reason: "not_staff", userId: user._id.toString() },
+          "Login attempted against a legacy customer account",
         );
         throw new InvalidCredentialsError(GENERIC_FAILURE_MESSAGE);
       }

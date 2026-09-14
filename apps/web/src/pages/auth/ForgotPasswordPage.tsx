@@ -11,8 +11,8 @@ import "./LoginPage.css";
 /**
  * Step one of password reset: ask for a code (ADR-036).
  *
- * Linked from the customer and agent sign-in pages, and from nowhere on the
- * admin one — the platform admin cannot be reset by email, and a link that led
+ * Linked from the staff sign-in page, and from nowhere on the console's
+ * door — the platform admin cannot be reset by email, and a link that led
  * to a silent no-op would be worse than no link (ADR-036 §6).
  *
  * The header follows the door the person came through. An agent's sign-in page

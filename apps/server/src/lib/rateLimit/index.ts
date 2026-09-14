@@ -23,8 +23,6 @@ import {
   PASSWORD_RESET_REQUEST_LIMIT,
   PASSWORD_RESET_REQUEST_WINDOW_MS,
   PASSWORD_RESET_WINDOW_MS,
-  REGISTRATION_LIMIT,
-  REGISTRATION_WINDOW_MS,
   SESSION_LIMIT,
   SESSION_WINDOW_MS,
   VERIFICATION_RESEND_LIMIT,
@@ -65,7 +63,6 @@ const GENERIC_FAILURE_MESSAGE = "Too many requests. Please wait a few minutes an
  */
 export type RateLimitClass =
   | "credential"
-  | "registration"
   | "emailVerification"
   | "verificationResend"
   | "passwordResetRequest"
@@ -224,8 +221,6 @@ export interface RateLimiters {
    * guesser's budget.
    */
   credential: RequestHandler;
-  /** `POST /register` (ADR-031 §3). Bounds Argon2id cost and bulk account creation. */
-  registration: RequestHandler;
   /**
    * `POST /verify-email` (ADR-031 §4). The outer of two guessing bounds — the
    * inner one, `EMAIL_VERIFICATION_MAX_ATTEMPTS`, destroys the code after five
@@ -310,11 +305,6 @@ export function createRateLimiters(): RateLimiters {
       limitClass: "credential",
       windowMs: CREDENTIAL_WINDOW_MS,
       limit: CREDENTIAL_LIMIT,
-    }),
-    registration: createLimiter({
-      limitClass: "registration",
-      windowMs: REGISTRATION_WINDOW_MS,
-      limit: REGISTRATION_LIMIT,
     }),
     emailVerification: createLimiter({
       limitClass: "emailVerification",
@@ -411,7 +401,6 @@ export function createDisabledRateLimiters(): RateLimiters {
   const passthrough: RequestHandler = (_req, _res, next) => next();
   return {
     credential: passthrough,
-    registration: passthrough,
     emailVerification: passthrough,
     verificationResend: passthrough,
     passwordResetRequest: passthrough,

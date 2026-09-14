@@ -75,23 +75,19 @@ export const organizationRepository = {
    * else.
    */
   /**
-   * The organization a signed-in customer is talking to (ADR-034 §4).
+   * The organization console-invited agents join, until invitations name their
+   * organization (ADR-034 §7; ADR-039 replaces this).
    *
-   * Serviqo is multi-tenant, but a customer arriving at the product's own
-   * front door names no tenant — there is no widget key in a login, and asking
-   * a customer to pick a company from a list would be exposing the platform's
-   * tenant roster to anyone who registers.
-   *
-   * So the default is DERIVED: the oldest active organization. Oldest rather
+   * It served signed-in customers as well until ADR-037 removed customer
+   * accounts. The rule is unchanged: the oldest active organization. Oldest rather
    * than newest because it is stable — a deployment's answer to "who does
    * support" must not change the moment somebody creates a second tenant — and
    * `_id` ascending is that order for free, since ObjectIds embed their
    * creation time and are the primary key.
    *
-   * `null` when none exists, which is a real state on a fresh deployment and
-   * is reported as "support is not set up yet" rather than as an error.
+   * `null` when none exists, which is a real state on a fresh deployment.
    */
-  async findDefaultForCustomers(): Promise<OrganizationDocument | null> {
+  async findDefaultOrganization(): Promise<OrganizationDocument | null> {
     return OrganizationModel.findOne({ status: "active" }).sort({ _id: 1 });
   },
 

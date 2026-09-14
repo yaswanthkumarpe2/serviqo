@@ -126,7 +126,7 @@ describe("Refresh service", () => {
       // Same projection login returns, `kind` included (ADR-034 §1) — the two
       // are aliased deliberately so a reloaded tab learns exactly what a fresh
       // sign-in would.
-      expect(result.user).toEqual({ id: user._id.toString(), name: "Ada Lovelace", email: EMAIL, kind: "customer" });
+      expect(result.user).toEqual({ id: user._id.toString(), name: "Ada Lovelace", email: EMAIL, kind: "agent" });
       expect(result.accessToken).toEqual(expect.any(String));
       expect(result.expiresIn).toBeGreaterThan(0);
     });

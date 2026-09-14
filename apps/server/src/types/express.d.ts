@@ -39,22 +39,6 @@ export interface PlatformContext {
 }
 
 /**
- * The signed-in CUSTOMER, set by `requireCustomerAccount` and by nothing else
- * (ADR-034 §4).
- *
- * Deliberately the same shape as `WidgetPrincipal`: both answer "which
- * customer, in which tenant", and the services below take exactly that pair.
- * They are separate types because they are established by different proofs — a
- * widget token for an anonymous visitor, an access token plus a customer
- * account for a signed-in one — and a handler must never be able to read one
- * while believing it proved the other.
- */
-export interface CustomerContext {
-  customerId: string;
-  organizationId: string;
-}
-
-/**
  * The verified widget caller, set by `requireWidgetToken` and by nothing
  * else (ADR-022 §6) — the customer-facing sibling of `principal` fused with
  * `organizationContext`, since a widget token carries both identities and
@@ -95,12 +79,6 @@ declare global {
        * reason `principal` is — most routes have none.
        */
       widgetPrincipal?: WidgetPrincipal;
-      /**
-       * Which customer is calling on the signed-in customer surface, set by
-       * `requireCustomerAccount` and by nothing else. Optional for the same
-       * reason `principal` is.
-       */
-      customerContext?: CustomerContext;
     }
   }
 }

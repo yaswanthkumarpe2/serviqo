@@ -3,6 +3,7 @@ import { sha256, timingSafeEqualHex } from "../../lib/crypto/tokens";
 import { InvalidRefreshTokenError } from "../../lib/errors";
 import { logger } from "../../lib/logger";
 import { sessionRepository } from "../sessions/session.repository";
+import { isStaffKind } from "../users/user.model";
 import { userRepository } from "../users/user.repository";
 import { issueAccessToken } from "./accessToken";
 import { failureType } from "./authLogging";
@@ -144,7 +145,9 @@ export function createRefreshService(): RefreshService {
     // The `emailVerifiedAt` half is expected to be unreachable — nothing
     // un-verifies an address today — and is checked anyway, so a future
     // email-change flow cannot walk around this gate in silence.
-    if (user === null || user.status !== "active" || user.emailVerifiedAt === null) {
+    // `isStaffKind`: a legacy customer's session (ADR-037) ends on its next
+    // refresh rather than surviving for the rest of its seven days.
+    if (user === null || user.status !== "active" || user.emailVerifiedAt === null || !isStaffKind(user.kind)) {
       await sessionRepository.revokeById(session._id);
       log.info(
         {
