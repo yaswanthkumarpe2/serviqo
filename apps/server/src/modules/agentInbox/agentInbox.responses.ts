@@ -42,6 +42,8 @@ export function toInboxCustomerResponse(customer: CustomerDocument | null) {
     email: customer.email,
     // Optional contact detail the visitor chose to give (ADR-038 §5).
     phone: customer.phone,
+    // So the inbox can mark a blocked visitor (ADR-043 §3).
+    blocked: customer.blockedAt !== null && customer.blockedAt !== undefined,
   };
 }
 

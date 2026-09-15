@@ -48,6 +48,7 @@ export type SocketAuthReason =
   | "organization_not_found"
   | "organization_not_active"
   | "customer_not_found"
+  | "customer_blocked"
   | "malformed_organization_id"
   | "not_a_member"
   | "membership_not_active"
@@ -130,8 +131,12 @@ async function authenticateWidget(token: string): Promise<SocketAuthOutcome> {
   }
 
   const customer = await customerRepository.findByIdAndOrganization(customerId, organizationId);
-  if (customer === null) {
+  if (customer === null || customer.mergedIntoCustomerId !== null) {
     return { ok: false, kind: "session_refused", reason: "customer_not_found", organizationId };
+  }
+  // A blocked visitor cannot open a live connection either (ADR-043 §3).
+  if (customer.blockedAt !== null) {
+    return { ok: false, kind: "session_refused", reason: "customer_blocked", organizationId };
   }
 
   return { ok: true, kind: "widget", principal: { customerId, organizationId } };

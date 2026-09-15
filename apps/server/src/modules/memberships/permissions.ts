@@ -114,7 +114,9 @@ export type Permission =
    */
   | "conversation.assign"
   /** Writing the team's saved replies (ADR-042 §1). Using them needs only `conversation.read`. */
-  | "saved_reply.manage";
+  | "saved_reply.manage"
+  /** Blocking, unblocking and merging customers (ADR-043 §3–4). Editing details needs only `conversation.reply`. */
+  | "customer.manage";
 
 /**
  * Which role holds which permission.
@@ -146,6 +148,7 @@ export const ROLE_PERMISSIONS = {
     "conversation.reply",
     "conversation.assign",
     "saved_reply.manage",
+    "customer.manage",
   ],
   /**
    * Everything the owner can do except what ownership itself confers.
@@ -165,6 +168,7 @@ export const ROLE_PERMISSIONS = {
     "conversation.reply",
     "conversation.assign",
     "saved_reply.manage",
+    "customer.manage",
   ],
   /**
    * Oversees people and queues without configuring the tenant. Reads the
@@ -182,6 +186,7 @@ export const ROLE_PERMISSIONS = {
     "conversation.reply",
     "conversation.assign",
     "saved_reply.manage",
+    "customer.manage",
   ],
   /**
    * Handles conversations — which, as of ADR-025, is a thing this role can

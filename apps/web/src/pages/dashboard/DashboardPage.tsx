@@ -357,6 +357,7 @@ function WorkspaceBody({
       {view === "chats" && (
         <AgentInbox
           organizationId={organizationId}
+          role={role}
           initialConversationId={pendingConversationId}
           onInitialConversationHandled={onConversationHandled}
         />

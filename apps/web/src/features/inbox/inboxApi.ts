@@ -23,6 +23,8 @@ export interface InboxCustomer {
   email: string | null;
   /** Optional contact detail the visitor gave (ADR-038 §5). */
   phone?: string | null;
+  /** Blocked by the team (ADR-043 §3). Absent from servers before ADR-043. */
+  blocked?: boolean;
 }
 
 /**

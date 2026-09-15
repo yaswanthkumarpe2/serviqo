@@ -55,9 +55,32 @@
   margin-top: 16px;
 }
 
+/* The contact panel takes a third column when there is room (ADR-043). */
+.inbox__body--withProfile {
+  grid-template-columns: minmax(200px, 260px) minmax(0, 1fr) minmax(220px, 280px);
+}
+
+@media (max-width: 1180px) {
+  .inbox__body--withProfile {
+    grid-template-columns: minmax(200px, 260px) minmax(0, 1fr);
+  }
+  .inbox__body--withProfile > .profile {
+    grid-column: 2;
+  }
+}
+
+.inbox__blockedTag {
+  color: #8c1d18;
+  font-weight: 600;
+}
+
 @media (max-width: 720px) {
-  .inbox__body {
+  .inbox__body,
+  .inbox__body--withProfile {
     grid-template-columns: 1fr;
+  }
+  .inbox__body--withProfile > .profile {
+    grid-column: auto;
   }
 }
 

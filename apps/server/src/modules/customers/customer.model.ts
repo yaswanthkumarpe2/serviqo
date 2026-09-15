@@ -95,6 +95,14 @@ export interface CustomerAttrs {
    * `null` for customers created before ADR-038; their next session mints one.
    */
   visitorKeyHash: string | null;
+  /** What the team knows about this person, for the profile panel (ADR-043 §1). Never shown to them. */
+  profileNote: string | null;
+  /** Set while blocked: sessions, requests and sockets are refused (ADR-043 §3). */
+  blockedAt: Date | null;
+  blockedByUserId: Types.ObjectId | null;
+  /** Set once this record was merged into another; the visitor resumes as that one (ADR-043 §4). */
+  mergedIntoCustomerId: Types.ObjectId | null;
+  mergedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -155,6 +163,11 @@ const customerSchema = new Schema<CustomerAttrs>(
       // inside the database, so nothing needs to read it back.
       select: false,
     },
+    profileNote: { type: String, default: null, trim: true, maxlength: 2000 },
+    blockedAt: { type: Date, default: null },
+    blockedByUserId: { type: Schema.Types.ObjectId, ref: "User", default: null },
+    mergedIntoCustomerId: { type: Schema.Types.ObjectId, ref: "Customer", default: null },
+    mergedAt: { type: Date, default: null },
   },
   {
     timestamps: true,

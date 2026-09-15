@@ -756,6 +756,22 @@ export function useAgentInbox({
             });
           }
         },
+        onCustomerUpdated: (customer) => {
+          setConversations((current) =>
+            current.map((conversation) =>
+              conversation.customer?.id === customer.id ? { ...conversation, customer: { ...conversation.customer, ...customer } } : conversation,
+            ),
+          );
+        },
+        onCustomerMerged: (sourceCustomerId, customer) => {
+          setConversations((current) =>
+            current.map((conversation) =>
+              conversation.customer?.id === sourceCustomerId || conversation.customer?.id === customer.id
+                ? { ...conversation, customer }
+                : conversation,
+            ),
+          );
+        },
         onNote: (note) => {
           if (note.conversationId === selectedRef.current) setNotes((current) => mergeNotes(current, [note]));
           // Being @mentioned is worth an alert even when the sound is for customers (ADR-042 §2).
