@@ -6,6 +6,7 @@ import {
   fetchConversations,
   fetchMessages,
   sendAgentMessage,
+  uploadInboxAttachment,
   updateAssignment,
   updateConversationStatus,
 } from "./inboxApi";
@@ -14,7 +15,7 @@ import { createInboxRealtimeClient } from "./inboxRealtime";
 
 import type { InboxNotifications } from "./inboxNotifications";
 
-import type { InboxConversation, InboxConversationStatus, InboxMessage, MessagePage } from "./inboxApi";
+import type { InboxAttachment, InboxConversation, InboxConversationStatus, InboxMessage, MessagePage } from "./inboxApi";
 import type { InboxRealtimeClient, InboxRealtimeStatus, InboxSocketFactory } from "./inboxRealtime";
 
 /**
@@ -115,7 +116,10 @@ export interface AgentInbox {
 
   isSending: boolean;
   sendError: string | null;
-  send: (body: string) => Promise<void>;
+  /** Sends a reply with any uploaded files; resolves whether it was sent (ADR-041 §1). */
+  send: (body: string, attachmentIds?: string[]) => Promise<boolean>;
+  /** Uploads a file into the selected conversation, ready to send (ADR-041 §2). */
+  upload: (file: File) => Promise<InboxAttachment>;
 
   /** Conversations whose customer is typing right now (ADR-040 §3). */
   customerTyping: Record<string, true>;
@@ -626,7 +630,10 @@ export function useAgentInbox({
             // A message ends "typing" for that conversation.
             clearTyping("customer", message.conversationId);
             if (!isSelected || !isVisible) {
-              notify(`New message from ${titlesRef.current.get(message.conversationId) ?? "a customer"}`, message.body);
+              notify(
+                `New message from ${titlesRef.current.get(message.conversationId) ?? "a customer"}`,
+                message.body.length > 0 ? message.body : "Sent a file",
+              );
             }
           }
 
@@ -769,19 +776,19 @@ export function useAgentInbox({
   // ---- sending ----
 
   const send = useCallback(
-    async (body: string) => {
+    async (body: string, attachmentIds: string[] = []) => {
       const conversationId = selectedConversationId;
-      if (conversationId === null) return;
+      if (conversationId === null) return false;
 
       const trimmed = body.trim();
-      if (trimmed.length === 0) return;
+      if (trimmed.length === 0 && attachmentIds.length === 0) return false;
 
       setIsSending(true);
       setSendError(null);
       stopTyping();
 
       try {
-        const message = await sendAgentMessage(authorizedFetch, organizationId, conversationId, trimmed);
+        const message = await sendAgentMessage(authorizedFetch, organizationId, conversationId, trimmed, attachmentIds);
 
         // Through the same id check as the socket path: the broadcast for
         // this very message may already have arrived.
@@ -789,8 +796,9 @@ export function useAgentInbox({
           seenMessageIds.current.add(message.id);
           setMessages((current) => [...current, message]);
         }
+        return true;
       } catch (caught: unknown) {
-        if (caught instanceof AuthApiError && caught.status === 401) return;
+        if (caught instanceof AuthApiError && caught.status === 401) return false;
 
         /*
           The server's own message is not shown. A 429 in particular carries
@@ -799,11 +807,21 @@ export function useAgentInbox({
           posture, applied to a staff surface).
         */
         setSendError(GENERIC_SEND_ERROR);
+        return false;
       } finally {
         setIsSending(false);
       }
     },
     [authorizedFetch, organizationId, selectedConversationId, stopTyping],
+  );
+
+  const upload = useCallback(
+    (file: File) => {
+      const conversationId = selectedConversationId;
+      if (conversationId === null) return Promise.reject(new Error("No conversation selected"));
+      return uploadInboxAttachment(authorizedFetch, organizationId, conversationId, file);
+    },
+    [authorizedFetch, organizationId, selectedConversationId],
   );
 
   // ---- assignment and status ----
@@ -886,6 +904,7 @@ export function useAgentInbox({
     isSending,
     sendError,
     send,
+    upload,
     /*
       From the session the provider holds, which came from the login response
       — the same id the server compares `assignedTo` against. Used only to

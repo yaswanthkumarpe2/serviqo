@@ -47,6 +47,10 @@ describe("createRateLimiters", () => {
     const limiters = createRateLimiters();
 
     expect(Object.keys(limiters).sort()).toEqual([
+      // Agent replies, claims and closes, off the 30/hour write class (ADR-041 §5).
+      "agentConversationWrite",
+      // Chat attachment uploads, one class per kind of principal (ADR-041 §4).
+      "attachmentUpload",
       "authenticatedRead",
       "authenticatedWrite",
       "credential",
@@ -90,6 +94,7 @@ describe("createRateLimiters", () => {
       // The seventh and eighth classes, added for conversation and message
       // traffic (ADR-022 §12) — customer-keyed, since a verified widget
       // principal already exists by the time these mount.
+      "widgetAttachmentUpload",
       "widgetConversationRead",
       "widgetConversationWrite",
       // The public lookup behind an organisation's chat link (ADR-038 §2).

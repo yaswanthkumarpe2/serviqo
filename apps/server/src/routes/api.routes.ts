@@ -6,6 +6,7 @@ import { createMemberRouter } from "../modules/members/member.routes";
 import { createOrganizationRouter } from "../modules/organizations/organization.routes";
 import { createPlatformAdminRouter } from "../modules/platformAdmin/platformAdmin.routes";
 import { createWidgetRouter } from "../modules/widget/widget.routes";
+import { createFileRouter } from "../modules/attachments/attachment.routes";
 
 import type { EmailProvider } from "../lib/email/emailProvider";
 import type { RateLimiters } from "../lib/rateLimit";
@@ -110,6 +111,13 @@ export function createApiRouter({ emailProvider, rateLimiters }: ApiRouterDepend
     and this mount point preserves.
   */
   router.use("/api/v1/widget", createWidgetRouter({ rateLimiters }));
+  /*
+    Downloads for files sent in chats (ADR-041 §3). Its own prefix because a
+    link is read by staff and visitors alike, by `<img>` tags that carry no
+    token: the key in the link is the credential. Under `/api/v1`, so the
+    global per-IP bound applies.
+  */
+  router.use("/api/v1/files", createFileRouter());
 
   return router;
 }

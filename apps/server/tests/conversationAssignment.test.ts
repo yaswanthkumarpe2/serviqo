@@ -4,7 +4,7 @@ import request from "supertest";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { createApp } from "../src/app";
-import { AUTHENTICATED_WRITE_LIMIT } from "../src/config/constants";
+import { AGENT_CONVERSATION_WRITE_LIMIT } from "../src/config/constants";
 import { AccountTokenModel } from "../src/modules/accountTokens/accountToken.model";
 import { ConversationModel } from "../src/modules/conversations/conversation.model";
 import { CustomerModel } from "../src/modules/customers/customer.model";
@@ -1379,7 +1379,7 @@ describe("conversation assignment and status", () => {
   // ---- rate limiting ----
 
   describe("rate limiting", () => {
-    it("bounds assignment changes with the authenticated write class", async () => {
+    it("bounds assignment changes with the agent conversation write class", async () => {
       const ctx = buildApp({ rateLimiting: true });
       const staff = await signedInStaff(ctx);
       const organization = await createOrganization(ctx, staff.accessToken, "Acme");
@@ -1393,7 +1393,7 @@ describe("conversation assignment and status", () => {
         the same request repeat without changing the outcome under test.
       */
       let refused = false;
-      for (let attempt = 0; attempt < AUTHENTICATED_WRITE_LIMIT + 1; attempt += 1) {
+      for (let attempt = 0; attempt < AGENT_CONVERSATION_WRITE_LIMIT + 1; attempt += 1) {
         const response = await request(ctx.app).patch(path).set(authed(staff.accessToken)).send({ action: "claim" });
         if (response.status === 429) {
           expect(response.body.error.code).toBe("TOO_MANY_REQUESTS");
@@ -1415,7 +1415,7 @@ describe("conversation assignment and status", () => {
       const path = statusPath(organization.id, conversationId);
 
       let refused = false;
-      for (let attempt = 0; attempt < AUTHENTICATED_WRITE_LIMIT + 1; attempt += 1) {
+      for (let attempt = 0; attempt < AGENT_CONVERSATION_WRITE_LIMIT + 1; attempt += 1) {
         const response = await request(ctx.app).patch(path).set(authed(staff.accessToken)).send({ status: "closed" });
         if (response.status === 429) {
           refused = true;
@@ -1436,7 +1436,7 @@ describe("conversation assignment and status", () => {
       const { conversationId } = await customerConversation(ctx, organization.id);
       const path = statusPath(organization.id, conversationId);
 
-      for (let attempt = 0; attempt < AUTHENTICATED_WRITE_LIMIT + 1; attempt += 1) {
+      for (let attempt = 0; attempt < AGENT_CONVERSATION_WRITE_LIMIT + 1; attempt += 1) {
         const response = await request(ctx.app).patch(path).set(authed(busy.accessToken)).send({ status: "closed" });
         if (response.status === 429) break;
       }

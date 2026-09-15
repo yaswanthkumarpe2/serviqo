@@ -76,7 +76,7 @@ export const widgetCorsHeaders: RequestHandler = (req, res, next) => {
 export function widgetPreflight(methods: string): RequestHandler {
   return (_req, res) => {
     res.setHeader("Access-Control-Allow-Methods", methods);
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Filename");
     res.setHeader("Access-Control-Max-Age", "600");
     res.status(204).end();
   };

@@ -62,6 +62,8 @@ export interface ConversationReadPayload {
 export interface MessageSendPayload {
   conversationId?: unknown;
   body?: unknown;
+  /** Files uploaded beforehand (ADR-041 §1). */
+  attachmentIds?: unknown;
 }
 
 /** One message per code, shared by every handler so a caller cannot distinguish two causes of one code by wording. */

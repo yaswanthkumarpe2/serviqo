@@ -74,7 +74,7 @@ describe("widgetPreflight", () => {
     expect(res.status).toHaveBeenCalledWith(204);
     expect(res.end).toHaveBeenCalledOnce();
     expect(headers["Access-Control-Allow-Methods"]).toBe("POST");
-    expect(headers["Access-Control-Allow-Headers"]).toBe("Content-Type, Authorization");
+    expect(headers["Access-Control-Allow-Headers"]).toBe("Content-Type, Authorization, X-Filename");
     expect(headers["Access-Control-Max-Age"]).toBe("600");
   });
 

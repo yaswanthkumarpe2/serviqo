@@ -66,7 +66,8 @@ export interface RealtimeCallbacks {
 export interface RealtimeClient {
   connect(): void;
   join(conversationId: string): Promise<void>;
-  send(conversationId: string, body: string): Promise<WidgetMessage>;
+  /** `attachmentIds` are files already uploaded into the conversation (ADR-041 §1). */
+  send(conversationId: string, body: string, attachmentIds?: string[]): Promise<WidgetMessage>;
   /** Fire-and-forget: a lost typing event is harmless (ADR-040 §3). */
   typing(conversationId: string, isTyping: boolean): void;
   /** Fire-and-forget: the next read covers a lost one (ADR-040 §4). */
@@ -264,8 +265,11 @@ export function createRealtimeClient({
     await emitWithAck(EVENT_CONVERSATION_JOIN, { conversationId });
   }
 
-  async function send(conversationId: string, body: string): Promise<WidgetMessage> {
-    const data = await emitWithAck<unknown>(EVENT_MESSAGE_SEND, { conversationId, body });
+  async function send(conversationId: string, body: string, attachmentIds: string[] = []): Promise<WidgetMessage> {
+    const data = await emitWithAck<unknown>(
+      EVENT_MESSAGE_SEND,
+      attachmentIds.length > 0 ? { conversationId, body, attachmentIds } : { conversationId, body },
+    );
     if (!isWidgetMessage(data)) throw new RealtimeError("MALFORMED_ACK");
     return data;
   }

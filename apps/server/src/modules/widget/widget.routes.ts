@@ -2,6 +2,7 @@ import { Router } from "express";
 
 import { requireWidgetToken } from "../../middleware/requireWidgetToken";
 import { validateBody } from "../../middleware/validate";
+import { readUploadBody } from "../attachments/attachment.routes";
 import { createConversationService } from "../conversations/conversation.service";
 import { createMessageService } from "../messages/message.service";
 import { createWidgetController } from "./widget.controller";
@@ -53,6 +54,7 @@ export function createWidgetRouter({ rateLimiters }: WidgetRouterDependencies): 
   router.options("/session", widgetPreflight("POST"));
   router.options("/conversations", widgetPreflight("POST"));
   router.options("/conversations/:conversationId/messages", widgetPreflight("GET, POST"));
+  router.options("/conversations/:conversationId/attachments", widgetPreflight("POST"));
 
   /*
     Serviqo's first public, unauthenticated WRITE.
@@ -110,6 +112,19 @@ export function createWidgetRouter({ rateLimiters }: WidgetRouterDependencies): 
     requireWidgetToken,
     rateLimiters.widgetConversationRead,
     controller.listMessages,
+  );
+
+  /*
+    A visitor uploads a file into their own open conversation (ADR-041 §2).
+    Token, then the customer-keyed upload limiter, THEN the body is read — so
+    nobody unidentified or over budget makes the server buffer a file.
+  */
+  router.post(
+    "/conversations/:conversationId/attachments",
+    requireWidgetToken,
+    rateLimiters.widgetAttachmentUpload,
+    readUploadBody,
+    controller.uploadAttachment,
   );
 
   return router;

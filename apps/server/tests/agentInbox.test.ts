@@ -4,7 +4,7 @@ import request from "supertest";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { createApp } from "../src/app";
-import { AUTHENTICATED_WRITE_LIMIT, MESSAGE_BODY_MAX_LENGTH } from "../src/config/constants";
+import { AGENT_CONVERSATION_WRITE_LIMIT, MESSAGE_BODY_MAX_LENGTH } from "../src/config/constants";
 import { AccountTokenModel } from "../src/modules/accountTokens/accountToken.model";
 import { ConversationModel } from "../src/modules/conversations/conversation.model";
 import { CustomerModel } from "../src/modules/customers/customer.model";
@@ -706,7 +706,7 @@ describe("agent inbox", () => {
   // ---- rate limiting ----
 
   describe("rate limiting", () => {
-    it("bounds agent replies with the authenticated write class", async () => {
+    it("bounds agent replies with the agent conversation write class", async () => {
       const ctx = buildApp({ rateLimiting: true });
       const staff = await signedInStaff(ctx);
       const organization = await createOrganization(ctx, staff.accessToken, "Acme");
@@ -719,11 +719,11 @@ describe("agent inbox", () => {
           .send({ body: "reply" });
 
       /*
-        The organization creation above already spent one unit of this
-        user's write budget, so the loop runs to the limit rather than past
-        it and the next call is the one that must be refused.
+        Replies have their own class (ADR-041 §5), so creating the
+        organisation spent nothing from it: exactly the limit succeeds and
+        the next call is the one that must be refused.
       */
-      for (let i = 0; i < AUTHENTICATED_WRITE_LIMIT; i += 1) await send();
+      for (let i = 0; i < AGENT_CONVERSATION_WRITE_LIMIT; i += 1) await send();
 
       const refused = await send();
 

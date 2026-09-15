@@ -169,7 +169,7 @@ describe("widget conversations and messages", () => {
         "status",
         "unreadCount",
       ]);
-      expect(Object.keys(message.body.data).sort()).toEqual(["body", "conversationId", "createdAt", "id", "senderType"]);
+      expect(Object.keys(message.body.data).sort()).toEqual(["attachments", "body", "conversationId", "createdAt", "id", "senderType"]);
     });
   });
 

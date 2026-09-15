@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { MESSAGE_BODY_MAX_LENGTH, MESSAGE_PAGE_DEFAULT_LIMIT, MESSAGE_PAGE_MAX_LIMIT } from "../../config/constants";
+import { ATTACHMENTS_PER_MESSAGE, MESSAGE_BODY_MAX_LENGTH, MESSAGE_PAGE_DEFAULT_LIMIT, MESSAGE_PAGE_MAX_LIMIT } from "../../config/constants";
 
 /**
  * Request schemas for the widget conversation/message routes (ADR-022 §5,
@@ -60,14 +60,29 @@ export const resolveConversationSchema = z.object({});
  * all (ADR-022 §5) — the service assigns the literal `"customer"` itself,
  * so there is no code path a client could reach with any other value.
  */
-export const createMessageSchema = z.object({
-  body: z
-    .string()
-    .trim()
-    .min(1, "body is required")
-    .max(MESSAGE_BODY_MAX_LENGTH, `body must be at most ${MESSAGE_BODY_MAX_LENGTH} characters`)
-    .refine((value) => !DISALLOWED_CONTROL_CHARACTERS.test(value), "body must not contain control characters"),
-});
+export const createMessageSchema = z
+  .object({
+    body: z
+      .string()
+      .trim()
+      .max(MESSAGE_BODY_MAX_LENGTH, `body must be at most ${MESSAGE_BODY_MAX_LENGTH} characters`)
+      .refine((value) => !DISALLOWED_CONTROL_CHARACTERS.test(value), "body must not contain control characters")
+      .default(""),
+    /*
+      Files uploaded beforehand into this conversation (ADR-041 §1). The
+      service proves each one belongs here; this only bounds the shape.
+    */
+    attachmentIds: z
+      .array(z.string().regex(OBJECT_ID_PATTERN, "attachmentIds must be attachment ids"))
+      .max(ATTACHMENTS_PER_MESSAGE, `at most ${ATTACHMENTS_PER_MESSAGE} attachments per message`)
+      .default([]),
+  })
+  // A message is text, files, or both — never nothing.
+  .superRefine((value, ctx) => {
+    if (value.body.length === 0 && value.attachmentIds.length === 0) {
+      ctx.addIssue({ code: "custom", path: ["body"], message: "body is required" });
+    }
+  });
 
 export type CreateMessageInput = z.infer<typeof createMessageSchema>;
 

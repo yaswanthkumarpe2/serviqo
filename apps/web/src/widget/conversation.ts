@@ -1,3 +1,5 @@
+import { isWidgetAttachment } from "./attachments";
+
 import type { WidgetConversation, WidgetMessage, WidgetMessagePage } from "./types";
 
 /**
@@ -77,7 +79,8 @@ export function isWidgetMessage(value: unknown): value is WidgetMessage {
     typeof m.conversationId === "string" &&
     (m.senderType === "customer" || m.senderType === "agent") &&
     typeof m.body === "string" &&
-    typeof m.createdAt === "string"
+    typeof m.createdAt === "string" &&
+    (m.attachments === undefined || (Array.isArray(m.attachments) && m.attachments.every(isWidgetAttachment)))
   );
 }
 

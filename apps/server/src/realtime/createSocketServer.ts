@@ -605,7 +605,7 @@ export function createSocketServer(httpServer: HttpServer, options: CreateSocket
       return safeAck(ack, { ok: false, error: socketError("NOT_JOINED") });
     }
 
-    const parsed = createMessageSchema.safeParse({ body: payload?.body });
+    const parsed = createMessageSchema.safeParse({ body: payload?.body, attachmentIds: payload?.attachmentIds });
     if (!parsed.success) {
       return safeAck(ack, { ok: false, error: socketError("VALIDATION_ERROR") });
     }
@@ -628,6 +628,7 @@ export function createSocketServer(httpServer: HttpServer, options: CreateSocket
         conversationId,
         parsed.data.body,
         socketLog,
+        parsed.data.attachmentIds,
       );
 
       safeAck(ack, { ok: true, data: toMessageResponse(message) });

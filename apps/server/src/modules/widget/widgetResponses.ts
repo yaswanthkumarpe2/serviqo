@@ -1,3 +1,5 @@
+import { toAttachmentResponse } from "../attachments/attachmentResponses";
+
 import type { ConversationDocument } from "../conversations/conversation.model";
 import type { MessageDocument } from "../messages/message.model";
 
@@ -34,7 +36,9 @@ export function toMessageResponse(message: MessageDocument) {
     id: message._id.toString(),
     conversationId: message.conversationId.toString(),
     senderType: message.senderType,
-    body: message.body,
+    body: message.body ?? "",
+    // Download links, never the raw keys (ADR-041 §3).
+    attachments: (message.attachments ?? []).map(toAttachmentResponse),
     createdAt: message.createdAt,
   };
 }

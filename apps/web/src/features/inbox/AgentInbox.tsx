@@ -1,7 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 
 import { BellIcon, BellOffIcon, VolumeIcon, VolumeOffIcon } from "@/features/workspace/workspaceIcons";
 
+import { InboxComposer } from "./InboxComposer";
+import { AttachmentView, LinkifiedText } from "./richText";
 import { useAgentInbox } from "./useAgentInbox";
 
 import type { InboxConversation, InboxMessage } from "./inboxApi";
@@ -98,7 +100,18 @@ function MessageBubble({ message, seen }: { message: InboxMessage; seen: boolean
 
   return (
     <li className={`inbox__message inbox__message--${isAgent ? "agent" : "customer"}`}>
-      <p className="inbox__messageBody">{message.body}</p>
+      {(message.attachments ?? []).length > 0 && (
+        <div className="inbox__attachments">
+          {(message.attachments ?? []).map((attachment) => (
+            <AttachmentView key={attachment.id} attachment={attachment} />
+          ))}
+        </div>
+      )}
+      {message.body.length > 0 && (
+        <p className="inbox__messageBody">
+          <LinkifiedText text={message.body} />
+        </p>
+      )}
       <p className="inbox__messageMeta">
         {/*
           Named rather than colour-coded alone: "filled is human" is a visual
@@ -151,17 +164,6 @@ export function AgentInbox({
     // keys this component by organization.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const [draft, setDraft] = useState("");
-
-  async function handleSubmit(event: React.FormEvent) {
-    event.preventDefault();
-    const body = draft;
-    // Cleared optimistically so a fast second message is not typed into stale
-    // text; a failure surfaces as `sendError` beneath the composer, and the
-    // agent still has what they wrote in the thread's failure message.
-    setDraft("");
-    await inbox.send(body);
-  }
 
   const selected = inbox.conversations.find((c) => c.id === inbox.selectedConversationId) ?? null;
   const seenIndex = selected === null ? -1 : lastSeenAgentIndex(inbox.messages, selected.customerLastReadAt);
@@ -508,30 +510,13 @@ export function AgentInbox({
                             A colleague is replying to this conversation.
                           </p>
                         )}
-                        <form className="inbox__composer" onSubmit={handleSubmit}>
-                          <label className="inbox__srOnly" htmlFor="inbox-composer">
-                            Reply to this conversation
-                          </label>
-                          <textarea
-                            id="inbox-composer"
-                            className="inbox__input"
-                            value={draft}
-                            rows={2}
-                            placeholder="Write a reply…"
-                            onChange={(event) => {
-                              setDraft(event.target.value);
-                              inbox.notifyTyping();
-                            }}
-                            disabled={inbox.isSending}
-                          />
-                          <button
-                            type="submit"
-                            className="inbox__send"
-                            disabled={inbox.isSending || draft.trim().length === 0}
-                          >
-                            {inbox.isSending ? "Sending…" : "Send"}
-                          </button>
-                        </form>
+                        <InboxComposer
+                          key={selected.id}
+                          isSending={inbox.isSending}
+                          send={inbox.send}
+                          upload={inbox.upload}
+                          onTyping={inbox.notifyTyping}
+                        />
 
                         {inbox.sendError !== null && (
                           <p className="inbox__state inbox__state--error" role="alert">

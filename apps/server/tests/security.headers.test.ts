@@ -172,7 +172,7 @@ describe("security headers", () => {
       const csp = (await request(buildApp()).get("/")).headers["content-security-policy"];
 
       expect(csp).toContain("default-src 'none'");
-      expect(csp).toContain("img-src 'self' data:");
+      expect(csp).toContain("img-src 'self' data: blob:");
     });
 
     // Unlike the API's `form-action 'none'`: the dashboard has real forms.

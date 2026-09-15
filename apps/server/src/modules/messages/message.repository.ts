@@ -2,6 +2,7 @@ import { Types } from "mongoose";
 
 import { MessageModel } from "./message.model";
 
+import type { MessageAttachment } from "../attachments/attachmentResponses";
 import type { MessageDocument, MessageSenderType } from "./message.model";
 
 /** Mongoose casts a 24-char hex string to an ObjectId, so callers may pass either. */
@@ -13,6 +14,9 @@ export interface CreateMessageInput {
   customerId: ObjectIdLike;
   senderType: MessageSenderType;
   body: string;
+  /** Pre-generated so attachments can be bound to it before it exists (ADR-041 §1). */
+  _id?: Types.ObjectId;
+  attachments?: MessageAttachment[];
 }
 
 export interface ListMessagesOptions {

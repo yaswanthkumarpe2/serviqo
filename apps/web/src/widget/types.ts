@@ -79,8 +79,20 @@ export interface WidgetMessage {
   id: string;
   conversationId: string;
   senderType: "customer" | "agent";
+  /** Empty when the message is only files (ADR-041 §1). */
   body: string;
+  /** Absent from servers before ADR-041. */
+  attachments?: WidgetAttachment[];
   createdAt: string;
+}
+
+/** A file sent in a message (ADR-041 §3). `url` is a path on the API origin. */
+export interface WidgetAttachment {
+  id: string;
+  name: string;
+  contentType: string;
+  size: number;
+  url: string;
 }
 
 /** What `POST /widget/conversations` returns (ADR-022 §13). */

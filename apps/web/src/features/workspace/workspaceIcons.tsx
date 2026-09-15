@@ -222,6 +222,24 @@ export function VolumeIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+export function PaperclipIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="17" height="17" {...STROKE} {...props}>
+      <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
+    </svg>
+  );
+}
+
+export function SmileIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="17" height="17" {...STROKE} {...props}>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M8 14s1.5 2 4 2 4-2 4-2" />
+      <path d="M9 9h.01M15 9h.01" />
+    </svg>
+  );
+}
+
 export function VolumeOffIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg width="16" height="16" {...STROKE} {...props}>
