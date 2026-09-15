@@ -32,6 +32,10 @@ export interface ConversationListCursor {
 export interface ConversationListFilter {
   status?: ConversationStatus;
   assignee?: { kind: "user"; userId: ObjectIdLike } | { kind: "unassigned" };
+  /** Conversations carrying this tag (ADR-042 §3). */
+  tag?: string;
+  /** A search, already resolved to the customers and conversations it matched (ADR-042 §4). */
+  matching?: { customerIds: ObjectIdLike[]; conversationIds: ObjectIdLike[] };
 }
 
 export interface ListConversationsOptions {
@@ -155,6 +159,21 @@ export const conversationRepository = {
       filter.assignedTo = listFilter.assignee.kind === "unassigned" ? null : listFilter.assignee.userId;
     }
 
+    if (listFilter?.tag !== undefined) {
+      filter.tags = listFilter.tag;
+    }
+
+    // `$and` because the cursor below uses `$or` too, and two `$or` keys cannot share one object.
+    const and: Record<string, unknown>[] = [];
+    if (listFilter?.matching !== undefined) {
+      and.push({
+        $or: [
+          { customerId: { $in: listFilter.matching.customerIds } },
+          { _id: { $in: listFilter.matching.conversationIds } },
+        ],
+      });
+    }
+
     if (cursor !== undefined) {
       /*
         The standard lexicographic-tuple range predicate for a composite
@@ -163,11 +182,14 @@ export const conversationRepository = {
         MongoDB has no tuple comparison and a hand-rolled approximation here
         would fail exactly in the tie case this exists to handle.
       */
-      filter.$or = [
-        { lastMessageAt: { $lt: cursor.lastMessageAt } },
-        { lastMessageAt: cursor.lastMessageAt, _id: { $lt: new Types.ObjectId(cursor.id) } },
-      ];
+      and.push({
+        $or: [
+          { lastMessageAt: { $lt: cursor.lastMessageAt } },
+          { lastMessageAt: cursor.lastMessageAt, _id: { $lt: new Types.ObjectId(cursor.id) } },
+        ],
+      });
     }
+    if (and.length > 0) filter.$and = and;
 
     return ConversationModel.find(filter)
       .sort({ lastMessageAt: -1, _id: -1 })
@@ -373,6 +395,25 @@ export const conversationRepository = {
    * because the refusal is correct and the alternative would be closing a
    * thread the customer is actively using.
    */
+  /** Replaces a conversation's tags (ADR-042 §3). Tenant-scoped like every write here. */
+  async setTags(
+    conversationId: ObjectIdLike,
+    organizationId: ObjectIdLike,
+    tags: string[],
+  ): Promise<ConversationDocument | null> {
+    return ConversationModel.findOneAndUpdate(
+      { _id: conversationId, organizationId },
+      { $set: { tags } },
+      { returnDocument: "after" },
+    );
+  },
+
+  /** Every tag in use in one organisation, for the filter and the tag picker. */
+  async distinctTags(organizationId: ObjectIdLike): Promise<string[]> {
+    const tags = (await ConversationModel.distinct("tags", { organizationId })) as string[];
+    return tags.sort((a, b) => a.localeCompare(b));
+  },
+
   async setStatus(
     conversationId: ObjectIdLike,
     organizationId: ObjectIdLike,

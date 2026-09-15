@@ -1,6 +1,6 @@
 import { io } from "socket.io-client";
 
-import type { InboxConversationUpdate, InboxMessage } from "./inboxApi";
+import type { InboxConversationUpdate, InboxMessage, InboxNote } from "./inboxApi";
 import type { Socket } from "socket.io-client";
 
 /**
@@ -32,6 +32,22 @@ const EVENT_CONVERSATION_UPDATED = "conversation:updated";
 /** ADR-040 §3–4's event names, restated rather than imported across the server boundary. */
 const EVENT_TYPING = "typing";
 const EVENT_READ = "conversation:read";
+const EVENT_NOTE_NEW = "note:new";
+
+function isInboxNote(value: unknown): value is InboxNote {
+  if (typeof value !== "object" || value === null) return false;
+  const note = value as Partial<InboxNote>;
+  return (
+    typeof note.id === "string" &&
+    typeof note.conversationId === "string" &&
+    typeof note.body === "string" &&
+    typeof note.createdAt === "string" &&
+    typeof note.author === "object" &&
+    note.author !== null &&
+    typeof note.author.id === "string" &&
+    Array.isArray(note.mentions)
+  );
+}
 
 /** What the inbox shows about the connection. Mirrors the widget's states (ADR-024 §7). */
 export type InboxRealtimeStatus = "connecting" | "connected" | "reconnecting" | "failed";
@@ -54,6 +70,8 @@ export interface InboxRealtimeCallbacks {
   onTyping?(conversationId: string, sender: "customer" | "agent", isTyping: boolean): void;
   /** Someone read a conversation (ADR-040 §4). */
   onRead?(conversationId: string, reader: "customer" | "agent", readAt: string): void;
+  /** A teammate wrote an internal note (ADR-042 §2). Staff-only by the server's room choice. */
+  onNote?(note: InboxNote): void;
   /**
    * The handshake was refused. The inbox stops retrying rather than
    * re-presenting a credential the server has already rejected — an expired
@@ -153,7 +171,8 @@ function isConversationUpdate(value: unknown): value is InboxConversationUpdate 
     typeof candidate.id === "string" &&
     (candidate.status === "open" || candidate.status === "closed") &&
     typeof candidate.lastMessageAt === "string" &&
-    isAssignee(candidate.assignedTo)
+    isAssignee(candidate.assignedTo) &&
+    (candidate.tags === undefined || (Array.isArray(candidate.tags) && candidate.tags.every((tag) => typeof tag === "string")))
   );
 }
 
@@ -206,6 +225,10 @@ export function createInboxRealtimeClient({
 
     socket.on(EVENT_CONVERSATION_UPDATED, (payload: unknown) => {
       if (isConversationUpdate(payload)) callbacks.onConversationUpdate(payload);
+    });
+
+    socket.on(EVENT_NOTE_NEW, (payload: unknown) => {
+      if (isInboxNote(payload)) callbacks.onNote?.(payload);
     });
 
     socket.on(EVENT_TYPING, (payload: unknown) => {

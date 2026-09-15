@@ -124,6 +124,13 @@ const messageSchema = new Schema<MessageAttrs>(
  */
 messageSchema.index({ organizationId: 1, conversationId: 1, _id: 1 });
 
+/*
+  Inbox search (ADR-042 §4). The organisation id is the index's equality
+  prefix, so MongoDB requires every text query to name one — a search cannot
+  run across tenants even by mistake.
+*/
+messageSchema.index({ organizationId: 1, body: "text" }, { name: "organization_message_text" });
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Mongoose's transform-hook type is impractical to hand-type precisely.
 function stripInternalFields(_doc: any, ret: any) {
   delete ret.__v;

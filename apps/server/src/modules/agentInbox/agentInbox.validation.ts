@@ -1,6 +1,13 @@
 import { z } from "zod";
 
-import { CONVERSATION_PAGE_DEFAULT_LIMIT, CONVERSATION_PAGE_MAX_LIMIT } from "../../config/constants";
+import {
+  CONVERSATION_PAGE_DEFAULT_LIMIT,
+  CONVERSATION_PAGE_MAX_LIMIT,
+  CONVERSATION_TAG_MAX_LENGTH,
+  CONVERSATION_TAGS_MAX,
+  INBOX_SEARCH_MAX_LENGTH,
+  INBOX_SEARCH_MIN_LENGTH,
+} from "../../config/constants";
 import { OBJECT_ID_PATTERN, createMessageSchema, listMessagesQuerySchema } from "../widget/widgetConversation.validation";
 
 import type { ConversationListCursor } from "../conversations/conversation.repository";
@@ -82,7 +89,39 @@ export const listConversationsQuerySchema = z.object({
    * server already proved.
    */
   assignee: z.enum(["me", "unassigned"]).optional(),
+  tag: z.string().trim().toLowerCase().max(CONVERSATION_TAG_MAX_LENGTH).optional(),
+  q: z
+    .string()
+    .trim()
+    .min(INBOX_SEARCH_MIN_LENGTH, `q must be at least ${INBOX_SEARCH_MIN_LENGTH} characters`)
+    .max(INBOX_SEARCH_MAX_LENGTH, `q must be at most ${INBOX_SEARCH_MAX_LENGTH} characters`)
+    .optional(),
 });
+
+/** One tag: lowercase words joined by single spaces, hyphens or underscores (ADR-042 §3). */
+export const TAG_PATTERN = /^[a-z0-9]+(?:[ _-][a-z0-9]+)*$/;
+
+export const updateConversationTagsSchema = z.object({
+  tags: z
+    .array(
+      z
+        .string()
+        .trim()
+        .toLowerCase()
+        .transform((tag) => tag.replace(/\s+/g, " "))
+        .pipe(
+          z
+            .string()
+            .min(1, "tags must not be empty")
+            .max(CONVERSATION_TAG_MAX_LENGTH, `a tag must be at most ${CONVERSATION_TAG_MAX_LENGTH} characters`)
+            .regex(TAG_PATTERN, "tags may contain letters, digits, spaces, - and _"),
+        ),
+    )
+    .max(CONVERSATION_TAGS_MAX, `at most ${CONVERSATION_TAGS_MAX} tags`)
+    .transform((tags) => [...new Set(tags)]),
+});
+
+export type UpdateConversationTagsInput = z.infer<typeof updateConversationTagsSchema>;
 
 export type ListConversationsQuery = z.infer<typeof listConversationsQuerySchema>;
 

@@ -695,6 +695,9 @@ describe("widget conversations and messages", () => {
           "claimForUser",
           "releaseForUser",
           "setStatus",
+          // Tags (ADR-042 §3): the write and the distinct read both take `organizationId`.
+          "setTags",
+          "distinctTags",
           /*
             The membership-driven sweep (ADR-027 §10) — the one this repository
             gained when memberships got a lifecycle, and the thing that closes

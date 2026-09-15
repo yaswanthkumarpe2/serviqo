@@ -112,7 +112,9 @@ export type Permission =
    * another agent — that is refused for every role, and an override needs its
    * own permission and a notification design (ADR-026 §4, §15).
    */
-  | "conversation.assign";
+  | "conversation.assign"
+  /** Writing the team's saved replies (ADR-042 §1). Using them needs only `conversation.read`. */
+  | "saved_reply.manage";
 
 /**
  * Which role holds which permission.
@@ -143,6 +145,7 @@ export const ROLE_PERMISSIONS = {
     "conversation.read",
     "conversation.reply",
     "conversation.assign",
+    "saved_reply.manage",
   ],
   /**
    * Everything the owner can do except what ownership itself confers.
@@ -161,6 +164,7 @@ export const ROLE_PERMISSIONS = {
     "conversation.read",
     "conversation.reply",
     "conversation.assign",
+    "saved_reply.manage",
   ],
   /**
    * Oversees people and queues without configuring the tenant. Reads the
@@ -177,6 +181,7 @@ export const ROLE_PERMISSIONS = {
     "conversation.read",
     "conversation.reply",
     "conversation.assign",
+    "saved_reply.manage",
   ],
   /**
    * Handles conversations — which, as of ADR-025, is a thing this role can

@@ -572,6 +572,29 @@ export const ATTACHMENT_UPLOAD_WINDOW_MS = 15 * 60 * 1000;
 export const AGENT_CONVERSATION_WRITE_LIMIT = 120;
 export const AGENT_CONVERSATION_WRITE_WINDOW_MS = 5 * 60 * 1000;
 
+// ---- agent productivity (ADR-042) ----
+
+/** Saved replies one organisation may keep — enough for a real playbook, bounded for the picker. */
+export const SAVED_REPLIES_PER_ORGANIZATION = 200;
+
+/** Teammates one internal note may @mention. */
+export const NOTE_MENTIONS_MAX = 20;
+
+/** Notes returned for one conversation. A thread with more is a ticket that needs splitting. */
+export const NOTES_PER_CONVERSATION_READ_MAX = 500;
+
+/** Tags on one conversation, and the longest tag. */
+export const CONVERSATION_TAGS_MAX = 10;
+export const CONVERSATION_TAG_MAX_LENGTH = 32;
+
+/**
+ * Inbox search bounds (ADR-042 §4): the query length, and how many matching
+ * customers and conversations one search considers before paging the list.
+ */
+export const INBOX_SEARCH_MIN_LENGTH = 2;
+export const INBOX_SEARCH_MAX_LENGTH = 100;
+export const INBOX_SEARCH_MATCH_LIMIT = 500;
+
 /** Messages returned per page when a caller does not specify `limit` (ADR-022 §11). */
 export const MESSAGE_PAGE_DEFAULT_LIMIT = 30;
 

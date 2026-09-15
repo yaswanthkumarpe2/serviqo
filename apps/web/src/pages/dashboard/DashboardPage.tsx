@@ -6,6 +6,7 @@ import { BrandMark } from "@/components/ui/icons";
 import { useAuth } from "@/features/auth/useAuth";
 import { useCurrentUser } from "@/features/auth/useCurrentUser";
 import { AgentInbox } from "@/features/inbox/AgentInbox";
+import { SavedRepliesSettings } from "@/features/inbox/SavedRepliesSettings";
 import { OrganizationSwitcher } from "@/features/organizations/OrganizationSwitcher";
 import { WidgetAppearanceSettings } from "@/features/organizations/WidgetAppearanceSettings";
 import { WidgetInstallation } from "@/features/organizations/WidgetInstallation";
@@ -386,6 +387,14 @@ function WorkspaceBody({
         <div className="ws__stack">
           {widgetUrl !== null && <WidgetLinkCard widgetUrl={widgetUrl} />}
           <WidgetAppearanceSettings organizationId={organizationId} organizationName={organizationName} />
+          {/*
+            The team's saved replies (ADR-042 §1). Every member sees them; the
+            roles holding `saved_reply.manage` can edit, and the server decides.
+          */}
+          <SavedRepliesSettings
+            organizationId={organizationId}
+            canManage={role === "owner" || role === "admin" || role === "supervisor"}
+          />
           {/*
             Embedding the chat on the organisation's own website. Its settings
             are `organization.manage`, and the component renders the server's

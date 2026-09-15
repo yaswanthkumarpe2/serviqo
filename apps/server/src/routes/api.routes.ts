@@ -7,6 +7,8 @@ import { createOrganizationRouter } from "../modules/organizations/organization.
 import { createPlatformAdminRouter } from "../modules/platformAdmin/platformAdmin.routes";
 import { createWidgetRouter } from "../modules/widget/widget.routes";
 import { createFileRouter } from "../modules/attachments/attachment.routes";
+import { createNoteRouter, createTeammatesRouter } from "../modules/notes/note.routes";
+import { createSavedReplyRouter } from "../modules/savedReplies/savedReply.routes";
 
 import type { EmailProvider } from "../lib/email/emailProvider";
 import type { RateLimiters } from "../lib/rateLimit";
@@ -65,6 +67,15 @@ export function createApiRouter({ emailProvider, rateLimiters }: ApiRouterDepend
     general one rather than as an interception of it.
   */
   router.use("/api/v1/organizations/:organizationId/conversations", createAgentInboxRouter({ rateLimiters }));
+  /*
+    Agent productivity (ADR-042), each nested under the organisation so the
+    tenant is a path segment `requireOrganization` reads. The notes router
+    sits after the inbox router: no inbox route matches `/:id/notes`, so the
+    request falls through to it.
+  */
+  router.use("/api/v1/organizations/:organizationId/conversations/:conversationId/notes", createNoteRouter({ rateLimiters }));
+  router.use("/api/v1/organizations/:organizationId/saved-replies", createSavedReplyRouter({ rateLimiters }));
+  router.use("/api/v1/organizations/:organizationId/teammates", createTeammatesRouter({ rateLimiters }));
   /*
     The team-management surface (ADR-027 §1), nested under the organization
     prefix for the same reason the inbox is: the tenant becomes a path segment

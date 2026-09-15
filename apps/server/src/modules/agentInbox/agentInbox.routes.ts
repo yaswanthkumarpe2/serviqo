@@ -10,6 +10,7 @@ import { createMessageService } from "../messages/message.service";
 import { createAgentInboxController } from "./agentInbox.controller";
 import {
   sendAgentMessageSchema,
+  updateConversationTagsSchema,
   updateAssignmentSchema,
   updateConversationStatusSchema,
 } from "./agentInbox.validation";
@@ -71,6 +72,19 @@ export function createAgentInboxRouter({ rateLimiters }: AgentInboxRouterDepende
     controller.listConversations,
   );
 
+  /*
+    Registered BEFORE `/:conversationId`, which would otherwise take "tags" as
+    a conversation id and refuse it as malformed (ADR-042 §3).
+  */
+  router.get(
+    "/tags",
+    requireAccessToken,
+    rateLimiters.authenticatedRead,
+    requireOrganization,
+    requirePermission("conversation.read"),
+    controller.listTags,
+  );
+
   router.get(
     "/:conversationId",
     requireAccessToken,
@@ -116,6 +130,17 @@ export function createAgentInboxRouter({ rateLimiters }: AgentInboxRouterDepende
     because a file is only ever uploaded to be sent. The body is read last, after
     every check, so a refused caller never makes the server buffer a file.
   */
+  // Tagging is working the conversation, so it shares `conversation.reply` with replying and closing.
+  router.put(
+    "/:conversationId/tags",
+    requireAccessToken,
+    rateLimiters.agentConversationWrite,
+    requireOrganization,
+    requirePermission("conversation.reply"),
+    validateBody(updateConversationTagsSchema),
+    controller.updateTags,
+  );
+
   router.post(
     "/:conversationId/attachments",
     requireAccessToken,

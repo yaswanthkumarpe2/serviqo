@@ -1,3 +1,4 @@
+import { noteEvents } from "../modules/notes/note.routes";
 import { Server } from "socket.io";
 
 import {
@@ -25,6 +26,7 @@ import { SOCKET_EVENTS, safeAck, socketError } from "./realtimeEvents";
 import { authenticateSocketHandshake } from "./socketAuthentication";
 import { SocketRateLimiter } from "./socketRateLimit";
 
+import type { NoteCreatedEvent } from "../modules/notes/note.routes";
 import type { AuthLogger } from "../modules/auth/authLogging";
 import type { ConversationUpdatedEvent } from "../modules/conversations/conversationEvents";
 import type { MembershipRevokedEvent } from "../modules/memberships/membershipEvents";
@@ -270,12 +272,21 @@ export function createSocketServer(httpServer: HttpServer, options: CreateSocket
     somebody, or back, its visitors are told. Only a boolean crosses to them;
     who is online is never sent.
   */
+  /*
+    Internal notes (ADR-042 §2) go to the inbox room and NOTHING else. No
+    conversation room, so no customer socket can receive one.
+  */
+  const unsubscribeNotes = noteEvents.subscribe((event: NoteCreatedEvent) => {
+    io.to(organizationInboxRoomName(event.organizationId)).emit(SOCKET_EVENTS.NOTE_NEW, event.note);
+  });
+
   const unsubscribePresence = agentPresence.subscribe((organizationId, agentsOnline) => {
     io.to(organizationVisitorsRoomName(organizationId)).emit(SOCKET_EVENTS.PRESENCE_UPDATE, { agentsOnline });
   });
 
   httpServer.once("close", () => {
     unsubscribePresence();
+    unsubscribeNotes();
     unsubscribeMessages();
     unsubscribeConversations();
     unsubscribeMemberships();

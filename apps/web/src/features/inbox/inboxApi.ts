@@ -60,6 +60,8 @@ export interface InboxConversation {
   agentLastReadAt?: string | null;
   /** When the customer last read it, for "Seen" under an agent's reply. */
   customerLastReadAt?: string | null;
+  /** The team's labels (ADR-042 §3). Absent from servers before ADR-042. */
+  tags?: string[];
 }
 
 /**
@@ -75,6 +77,7 @@ export interface InboxConversationUpdate {
   status: string;
   lastMessageAt: string;
   assignedTo: InboxAssignee | null;
+  tags?: string[];
 }
 
 /**
@@ -127,6 +130,37 @@ export interface PageRequest {
   limit?: number;
 }
 
+/** What the conversation list is narrowed to (ADR-042 §3–4). Every field is optional. */
+export interface ConversationFilters {
+  q?: string;
+  tag?: string;
+  status?: InboxConversationStatus;
+  assignee?: "me" | "unassigned";
+}
+
+/** An internal note: staff-only, never shown to the customer (ADR-042 §2). */
+export interface InboxNote {
+  id: string;
+  conversationId: string;
+  author: { id: string; name: string | null };
+  body: string;
+  mentions: { id: string; name: string | null }[];
+  createdAt: string;
+}
+
+export interface SavedReply {
+  id: string;
+  shortcut: string;
+  title: string;
+  body: string;
+  updatedAt?: string;
+}
+
+export interface Teammate {
+  id: string;
+  name: string | null;
+}
+
 function conversationsPath(organizationId: string, suffix = ""): string {
   return `${ORGANIZATIONS_BASE}/${encodeURIComponent(organizationId)}/conversations${suffix}`;
 }
@@ -157,7 +191,7 @@ function withPage(path: string, page: PageRequest | undefined): string {
  * shape `widgetConfigApi.ts` uses, and what lets the UI tell "the server
  * refused" from "the server was not reachable".
  */
-async function callInbox<T>(authorizedFetch: AuthorizedFetch, path: string, init?: RequestInit): Promise<T> {
+export async function callInbox<T>(authorizedFetch: AuthorizedFetch, path: string, init?: RequestInit): Promise<T> {
   let response: Response;
 
   try {
@@ -205,10 +239,17 @@ export async function fetchConversations(
   authorizedFetch: AuthorizedFetch,
   organizationId: string,
   request?: PageRequest,
+  filters: ConversationFilters = {},
 ): Promise<ConversationPage> {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (typeof value === "string" && value.length > 0) params.set(key, value);
+  }
+  const base = withPage(conversationsPath(organizationId), request);
+  const query = params.toString();
   const page = await callInbox<ConversationPage>(
     authorizedFetch,
-    withPage(conversationsPath(organizationId), request),
+    query.length === 0 ? base : `${base}${base.includes("?") ? "&" : "?"}${query}`,
   );
   const { items, nextCursor } = toPage<InboxConversation>(page, page?.conversations);
   return { conversations: items, nextCursor };
@@ -344,4 +385,101 @@ export function updateConversationStatus(
       body: JSON.stringify({ status }),
     },
   );
+}
+
+// ---- agent productivity (ADR-042) ----
+
+const json = (method: string, body: unknown): RequestInit => ({
+  method,
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(body),
+});
+
+export async function fetchNotes(authorizedFetch: AuthorizedFetch, organizationId: string, conversationId: string): Promise<InboxNote[]> {
+  const data = await callInbox<{ notes?: unknown }>(
+    authorizedFetch,
+    conversationsPath(organizationId, `/${encodeURIComponent(conversationId)}/notes`),
+  );
+  return Array.isArray(data?.notes) ? (data.notes as InboxNote[]) : [];
+}
+
+export function createNote(
+  authorizedFetch: AuthorizedFetch,
+  organizationId: string,
+  conversationId: string,
+  body: string,
+  mentionedUserIds: string[],
+): Promise<InboxNote> {
+  return callInbox<InboxNote>(
+    authorizedFetch,
+    conversationsPath(organizationId, `/${encodeURIComponent(conversationId)}/notes`),
+    json("POST", { body, mentionedUserIds }),
+  );
+}
+
+export function updateConversationTags(
+  authorizedFetch: AuthorizedFetch,
+  organizationId: string,
+  conversationId: string,
+  tags: string[],
+): Promise<InboxConversation> {
+  return callInbox<InboxConversation>(
+    authorizedFetch,
+    conversationsPath(organizationId, `/${encodeURIComponent(conversationId)}/tags`),
+    json("PUT", { tags }),
+  );
+}
+
+export async function fetchConversationTags(authorizedFetch: AuthorizedFetch, organizationId: string): Promise<string[]> {
+  const data = await callInbox<{ tags?: unknown }>(authorizedFetch, conversationsPath(organizationId, "/tags"));
+  return Array.isArray(data?.tags) ? (data.tags as string[]) : [];
+}
+
+function savedRepliesPath(organizationId: string, suffix = ""): string {
+  return `${ORGANIZATIONS_BASE}/${encodeURIComponent(organizationId)}/saved-replies${suffix}`;
+}
+
+export async function fetchSavedReplies(authorizedFetch: AuthorizedFetch, organizationId: string): Promise<SavedReply[]> {
+  const data = await callInbox<{ savedReplies?: unknown }>(authorizedFetch, savedRepliesPath(organizationId));
+  return Array.isArray(data?.savedReplies) ? (data.savedReplies as SavedReply[]) : [];
+}
+
+export function createSavedReply(
+  authorizedFetch: AuthorizedFetch,
+  organizationId: string,
+  input: { shortcut: string; title: string; body: string },
+): Promise<SavedReply> {
+  return callInbox<SavedReply>(authorizedFetch, savedRepliesPath(organizationId), json("POST", input));
+}
+
+export function updateSavedReply(
+  authorizedFetch: AuthorizedFetch,
+  organizationId: string,
+  savedReplyId: string,
+  input: Partial<{ shortcut: string; title: string; body: string }>,
+): Promise<SavedReply> {
+  return callInbox<SavedReply>(
+    authorizedFetch,
+    savedRepliesPath(organizationId, `/${encodeURIComponent(savedReplyId)}`),
+    json("PATCH", input),
+  );
+}
+
+export async function deleteSavedReply(authorizedFetch: AuthorizedFetch, organizationId: string, savedReplyId: string): Promise<void> {
+  let response: Response;
+  try {
+    response = await authorizedFetch(savedRepliesPath(organizationId, `/${encodeURIComponent(savedReplyId)}`), { method: "DELETE" });
+  } catch (error) {
+    if (error instanceof AuthApiError) throw error;
+    throw new AuthApiError(NETWORK_ERROR, GENERIC_NETWORK_MESSAGE, 0);
+  }
+  if (!response.ok) await unwrapEnvelope(response);
+}
+
+export async function fetchTeammates(authorizedFetch: AuthorizedFetch, organizationId: string): Promise<Teammate[]> {
+  const data = await callInbox<{ teammates?: unknown }>(
+    authorizedFetch,
+    `${ORGANIZATIONS_BASE}/${encodeURIComponent(organizationId)}/teammates`,
+  );
+  return Array.isArray(data?.teammates) ? (data.teammates as Teammate[]) : [];
 }

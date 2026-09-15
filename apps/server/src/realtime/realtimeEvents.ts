@@ -28,6 +28,8 @@ export const SOCKET_EVENTS = {
   TYPING: "typing",
   /** A side read a conversation; clears unread counts and shows "Seen" (ADR-040 §4). Both directions. */
   CONVERSATION_READ: "conversation:read",
+  /** A new internal note, to the organisation's inbox room only (ADR-042 §2). */
+  NOTE_NEW: "note:new",
 } as const;
 
 /** One machine-readable code per ack failure, mirroring the REST error codes this transport parallels. */

@@ -65,6 +65,8 @@ export interface ConversationAttrs {
   agentLastReadAt: Date | null;
   /** When the customer last read this conversation. Drives "Seen" in the inbox. */
   customerLastReadAt: Date | null;
+  /** Labels the team puts on a conversation, lowercase (ADR-042 §3). Never shown to the customer. */
+  tags: string[];
   createdAt: Date;
   /**
    * When THIS document's own state last changed (its `status`), distinct
@@ -121,6 +123,7 @@ const conversationSchema = new Schema<ConversationAttrs>(
     unreadByCustomer: { type: Number, default: 0, min: 0 },
     agentLastReadAt: { type: Date, default: null },
     customerLastReadAt: { type: Date, default: null },
+    tags: { type: [String], default: [] },
   },
   {
     timestamps: true,
@@ -175,6 +178,9 @@ conversationSchema.index({ organizationId: 1, lastMessageAt: -1, _id: -1 });
  * status-only filter is already served by the sort index above.
  */
 conversationSchema.index({ organizationId: 1, assignedTo: 1, lastMessageAt: -1, _id: -1 });
+
+// The tag filter (ADR-042 §3): multikey on `tags`, same sort as the list.
+conversationSchema.index({ organizationId: 1, tags: 1, lastMessageAt: -1, _id: -1 });
 
 // Same serialization boundary as every tenant-owned model: internal
 // Mongoose bookkeeping never survives serialization.
