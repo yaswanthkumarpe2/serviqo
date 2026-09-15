@@ -23,6 +23,8 @@ const ALL_PERMISSIONS: Permission[] = [
   "conversation.read",
   "conversation.reply",
   "conversation.assign",
+  // Joined in ADR-042, the slice with saved-reply routes to guard.
+  "saved_reply.manage",
 ];
 
 describe("ROLE_PERMISSIONS", () => {
@@ -97,6 +99,7 @@ describe("can", () => {
       "conversation.read": true,
       "conversation.reply": true,
       "conversation.assign": true,
+      "saved_reply.manage": true,
     },
     admin: {
       "organization.read": true,
@@ -113,6 +116,7 @@ describe("can", () => {
       "conversation.read": true,
       "conversation.reply": true,
       "conversation.assign": true,
+      "saved_reply.manage": true,
     },
     supervisor: {
       "organization.read": true,
@@ -125,6 +129,7 @@ describe("can", () => {
       "conversation.read": true,
       "conversation.reply": true,
       "conversation.assign": true,
+      "saved_reply.manage": true,
     },
     agent: {
       "organization.read": true,
@@ -142,6 +147,8 @@ describe("can", () => {
       // colleague's NAME from it while disclosing the assignee id
       // (ADR-026 §11).
       "conversation.assign": true,
+      // Writing the team's saved replies (ADR-042 §1); agents use them but do not edit them.
+      "saved_reply.manage": false,
     },
   };
 

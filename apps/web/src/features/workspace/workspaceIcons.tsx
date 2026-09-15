@@ -222,6 +222,33 @@ export function VolumeIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+export function TagIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="15" height="15" {...STROKE} {...props}>
+      <path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z" />
+      <path d="M7 7h.01" />
+    </svg>
+  );
+}
+
+export function NoteIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="14" height="14" {...STROKE} {...props}>
+      <path d="M14 3H6a2 2 0 00-2 2v14a2 2 0 002 2h12a2 2 0 002-2V9z" />
+      <path d="M14 3v6h6M8 13h8M8 17h5" />
+    </svg>
+  );
+}
+
+export function KeyboardIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="16" height="16" {...STROKE} {...props}>
+      <rect x="2" y="6" width="20" height="12" rx="2" />
+      <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10" />
+    </svg>
+  );
+}
+
 export function PaperclipIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg width="17" height="17" {...STROKE} {...props}>

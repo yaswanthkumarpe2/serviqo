@@ -21,6 +21,7 @@ import type { ConversationService } from "../conversations/conversation.service"
 import type { MembershipRole } from "../memberships/membership.model";
 import type { MessageService } from "../messages/message.service";
 import type {
+  UpdateConversationTagsInput,
   SendAgentMessageInput,
   UpdateAssignmentInput,
   UpdateConversationStatusInput,
@@ -140,10 +141,13 @@ export function createAgentInboxController({
 
     if (assigneeIds.length === 0) return new Map();
 
-    // The id is disclosed to everyone — it is what lets an agent tell their
-    // own work from a colleague's — and the NAME only to a reader entitled to
-    // the roster.
-    if (!can(role, "member.read")) {
+    /*
+      Names are shown to every member who can read conversations (ADR-042 §2,
+      amending ADR-026 §11): notes and @mentions already name colleagues, and
+      "Assigned to another agent" beside a note signed by that same agent hid
+      nothing. Emails, roles and status stay behind `member.read`.
+    */
+    if (!can(role, "conversation.read")) {
       return new Map(assigneeIds.map((id) => [id, { id, name: null }]));
     }
 
@@ -176,12 +180,13 @@ export function createAgentInboxController({
    * already proved.
    */
   function toListFilter(
-    query: { status?: "open" | "closed"; assignee?: "me" | "unassigned" },
+    query: { status?: "open" | "closed"; assignee?: "me" | "unassigned"; tag?: string },
     userId: string,
   ): ConversationListFilter | undefined {
-    if (query.status === undefined && query.assignee === undefined) return undefined;
+    if (query.status === undefined && query.assignee === undefined && query.tag === undefined) return undefined;
 
     return {
+      ...(query.tag === undefined || query.tag.length === 0 ? {} : { tag: query.tag }),
       ...(query.status === undefined ? {} : { status: query.status }),
       ...(query.assignee === undefined
         ? {}
@@ -206,16 +211,19 @@ export function createAgentInboxController({
     const { organizationId, role } = req.organizationContext!;
     const { userId } = req.principal!;
 
-    const { cursor, limit, status, assignee } = parseQuery(listConversationsQuerySchema, req.query);
+    const { cursor, limit, status, assignee, tag, q } = parseQuery(listConversationsQuerySchema, req.query);
+
+    // `me` resolves to the verified principal here, not in the query string (ADR-026 §5).
+    const filter = toListFilter({ status, assignee, tag }, userId) ?? {};
+    // A search is resolved to ids first, then applied to the same paged query (ADR-042 §4).
+    if (q !== undefined) filter.matching = await conversationService.resolveSearch(organizationId, q);
 
     const page = await conversationService.listForOrganization(
       organizationId,
       {
         cursor: decodeConversationCursor(cursor),
         limit,
-        // `me` resolves to the verified principal here, not in the query
-        // string (ADR-026 §5).
-        filter: toListFilter({ status, assignee }, userId),
+        filter: Object.keys(filter).length === 0 ? undefined : filter,
       },
       req.log,
     );
@@ -378,5 +386,24 @@ export function createAgentInboxController({
     created(res, attachment);
   };
 
-  return { uploadAttachment, listConversations, readConversation, listMessages, sendMessage, updateAssignment, updateStatus };
+  /** Replaces a conversation's tags (ADR-042 §3). */
+  const updateTags: RequestHandler = async (req, res) => {
+    const { organizationId, role } = req.organizationContext!;
+    const conversationId = requireWellFormedConversationId(req.params.conversationId);
+    const { tags } = req.body as UpdateConversationTagsInput;
+
+    const conversation = await conversationService.setTags(organizationId, conversationId, tags, req.log);
+    const customer = await customerRepository.findByIdAndOrganization(conversation.customerId, organizationId);
+    const assignees = await resolveAssignees([conversation], organizationId, role);
+
+    success(res, toInboxConversationResponse(conversation, customer, assigneeFor(conversation, assignees)));
+  };
+
+  /** Every tag in use in the organisation (ADR-042 §3). */
+  const listTags: RequestHandler = async (req, res) => {
+    const { organizationId } = req.organizationContext!;
+    success(res, { tags: await conversationService.listTags(organizationId) });
+  };
+
+  return { updateTags, listTags, uploadAttachment, listConversations, readConversation, listMessages, sendMessage, updateAssignment, updateStatus };
 }

@@ -1200,7 +1200,7 @@ describe("team management", () => {
       expect(response.body.data.conversations[0].assignedTo).toEqual({ id: agent.userId, name: agent.name });
     });
 
-    it("withholds the name from an agent, who does not hold member.read", async () => {
+    it("shows the name to an agent too, as notes and mentions do (ADR-042 §2)", async () => {
       const ctx = buildApp();
       const { organization, agent } = await tenantWithAgent(ctx);
       const other = await signedInStaff(ctx, "Other Agent");
@@ -1214,7 +1214,7 @@ describe("team management", () => {
 
       const response = await request(ctx.app).get(inboxPath(organization.id)).set(authed(other.accessToken));
 
-      expect(response.body.data.conversations[0].assignedTo).toEqual({ id: agent.userId, name: null });
+      expect(response.body.data.conversations[0].assignedTo).toEqual({ id: agent.userId, name: expect.any(String) });
     });
 
     it("stops rendering a removed member's name, because the conversation is unassigned", async () => {

@@ -6,6 +6,9 @@ import {
 import { logger } from "../../lib/logger";
 import { conversationEvents, toConversationUpdatedEvent } from "./conversationEvents";
 import { conversationRepository } from "./conversation.repository";
+import { INBOX_SEARCH_MATCH_LIMIT } from "../../config/constants";
+import { CustomerModel } from "../customers/customer.model";
+import { MessageModel } from "../messages/message.model";
 
 import type { AuthLogger } from "../auth/authLogging";
 import type { ConversationDocument, ConversationStatus } from "./conversation.model";
@@ -140,6 +143,23 @@ export interface ConversationService {
     status: ConversationStatus,
     log?: AuthLogger,
   ): Promise<ConversationDocument>;
+
+  /** Replaces the tags (ADR-042 §3) and tells the team. */
+  setTags(organizationId: string, conversationId: string, tags: string[], log?: AuthLogger): Promise<ConversationDocument>;
+
+  listTags(organizationId: string): Promise<string[]>;
+
+  /**
+   * Resolves a search to the customers and conversations it matches, inside
+   * ONE organisation (ADR-042 §4): customer name, email or phone, and words in
+   * any message. Both lookups carry `organizationId`, so a search can never
+   * reach another tenant's customers or messages.
+   */
+  resolveSearch(organizationId: string, query: string): Promise<{ customerIds: string[]; conversationIds: string[] }>;
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /**
@@ -342,6 +362,52 @@ export function createConversationService(): ConversationService {
       );
 
       return updated;
+    },
+
+    async setTags(
+      organizationId: string,
+      conversationId: string,
+      tags: string[],
+      log: AuthLogger = logger,
+    ): Promise<ConversationDocument> {
+      const updated = await conversationRepository.setTags(conversationId, organizationId, tags);
+      if (updated === null) throw new ConversationNotAccessibleError(CONVERSATION_NOT_ACCESSIBLE_MESSAGE);
+
+      log.info({ event: "conversation.tagged", organizationId, conversationId, count: tags.length }, "Conversation tags changed");
+      announce(organizationId, updated);
+      return updated;
+    },
+
+    listTags(organizationId: string): Promise<string[]> {
+      return conversationRepository.distinctTags(organizationId);
+    },
+
+    async resolveSearch(organizationId: string, query: string) {
+      const pattern = new RegExp(escapeRegex(query.trim()), "i");
+
+      const [customers, messages] = await Promise.all([
+        CustomerModel.find({ organizationId, $or: [{ name: pattern }, { email: pattern }, { phone: pattern }] })
+          .select("_id")
+          .limit(INBOX_SEARCH_MATCH_LIMIT),
+        // A text index scoped by organisation (ADR-042 §4): words, not substrings.
+        MessageModel.find({ organizationId, $text: { $search: query } })
+          .select("conversationId")
+          .limit(INBOX_SEARCH_MATCH_LIMIT)
+          .catch((err: unknown) => {
+            /*
+              A fresh database can be asked to search before Mongoose has built
+              the text index (MongoDB error 27, IndexNotFound). Customer matches
+              still work, so the search degrades to those rather than failing.
+            */
+            if ((err as { code?: unknown }).code === 27) return [];
+            throw err;
+          }),
+      ]);
+
+      return {
+        customerIds: customers.map((customer) => customer._id.toString()),
+        conversationIds: [...new Set(messages.map((message) => message.conversationId.toString()))],
+      };
     },
   };
 }

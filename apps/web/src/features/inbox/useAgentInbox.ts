@@ -3,8 +3,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AuthApiError } from "@/features/auth/authApi";
 import { useAuth } from "@/features/auth/useAuth";
 import {
+  createNote,
+  fetchConversationTags,
   fetchConversations,
   fetchMessages,
+  fetchNotes,
+  fetchSavedReplies,
+  fetchTeammates,
+  updateConversationTags,
   sendAgentMessage,
   uploadInboxAttachment,
   updateAssignment,
@@ -15,7 +21,17 @@ import { createInboxRealtimeClient } from "./inboxRealtime";
 
 import type { InboxNotifications } from "./inboxNotifications";
 
-import type { InboxAttachment, InboxConversation, InboxConversationStatus, InboxMessage, MessagePage } from "./inboxApi";
+import type {
+  ConversationFilters,
+  InboxAttachment,
+  InboxConversation,
+  InboxConversationStatus,
+  InboxMessage,
+  InboxNote,
+  MessagePage,
+  SavedReply,
+  Teammate,
+} from "./inboxApi";
 import type { InboxRealtimeClient, InboxRealtimeStatus, InboxSocketFactory } from "./inboxRealtime";
 
 /**
@@ -44,7 +60,7 @@ export type ThreadStatus = "idle" | "loading" | "ready" | "error";
  * on one conversation, and a set of independent booleans is a state where two
  * can be true at once and the UI has to decide what that means.
  */
-export type ConversationActionKind = "claim" | "release" | "close" | "reopen";
+export type ConversationActionKind = "claim" | "release" | "close" | "reopen" | "tag";
 
 export interface UseAgentInboxOptions {
   organizationId: string;
@@ -148,7 +164,37 @@ export interface AgentInbox {
    * setters a letter apart is the kind of pair a reader picks wrong.
    */
   setConversationStatus: (status: InboxConversationStatus) => Promise<void>;
+
+  // ---- agent productivity (ADR-042) ----
+
+  /** What the list is narrowed to: search, tag, status, assignee. */
+  filters: ConversationFilters;
+  /** Replaces the filters and reloads the list from the server. */
+  setFilters: (next: ConversationFilters) => void;
+  /** A filtered reload is in flight; the previous rows stay on screen meanwhile. */
+  isFiltering: boolean;
+  /** Internal notes on the selected conversation, oldest first. */
+  notes: InboxNote[];
+  addNote: (body: string, mentionedUserIds: string[]) => Promise<boolean>;
+  noteError: string | null;
+  /** Replaces the selected conversation's tags. */
+  setTags: (tags: string[]) => Promise<void>;
+  /** Every tag in use in the organisation, for the filter and the tag picker. */
+  organizationTags: string[];
+  savedReplies: SavedReply[];
+  teammates: Teammate[];
+  /** Moves the selection one row down (1) or up (-1): the j/k shortcuts. */
+  selectAdjacentConversation: (direction: 1 | -1) => void;
 }
+
+/** Adds notes by id, keeping the thread in time order. */
+function mergeNotes(current: InboxNote[], incoming: InboxNote[]): InboxNote[] {
+  const byId = new Map(current.map((note) => [note.id, note]));
+  for (const note of incoming) byId.set(note.id, note);
+  return [...byId.values()].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+const NOTE_ERROR = "Note not saved. Please try again.";
 
 /**
  * The page size both reads ask for, and the server's own maximum
@@ -260,6 +306,22 @@ export function useAgentInbox({
   const [pendingAction, setPendingAction] = useState<ConversationActionKind | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
+  const [filters, setFiltersState] = useState<ConversationFilters>({});
+  /** Read by the loaders, so a page request always carries the filters the reader last chose. */
+  const filtersRef = useRef<ConversationFilters>({});
+  const [isFiltering, setIsFiltering] = useState(false);
+  /** Increments per list load, so a slow response to an older filter cannot overwrite a newer one. */
+  const listRequest = useRef(0);
+  const [notes, setNotes] = useState<InboxNote[]>([]);
+  const [noteError, setNoteError] = useState<string | null>(null);
+  const [organizationTags, setOrganizationTags] = useState<string[]>([]);
+  const [savedReplies, setSavedReplies] = useState<SavedReply[]>([]);
+  const [teammates, setTeammates] = useState<Teammate[]>([]);
+  const currentUserIdRef = useRef<string | null>(session?.user.id ?? null);
+  useEffect(() => {
+    currentUserIdRef.current = session?.user.id ?? null;
+  }, [session]);
+
   /**
    * Every message id currently rendered in the thread — THE de-duplication
    * mechanism, exactly as `widget.ts` uses one (ADR-024 §4, ADR-025 §8).
@@ -310,6 +372,8 @@ export function useAgentInbox({
     // it says nothing about.
     setActionError(null);
     setMessages([]);
+    setNotes([]);
+    setNoteError(null);
     // Whatever remained of the previous thread says nothing about this one.
     setThreadCursor(null);
 
@@ -350,7 +414,9 @@ export function useAgentInbox({
 
   const loadConversations = useCallback(async () => {
     try {
-      const page = await fetchConversations(authorizedFetch, organizationId, { limit: PAGE_LIMIT });
+      const request = ++listRequest.current;
+      const page = await fetchConversations(authorizedFetch, organizationId, { limit: PAGE_LIMIT }, filtersRef.current);
+      if (request !== listRequest.current) return;
       setConversations(page.conversations);
       setConversationsCursor(page.nextCursor);
       // Unread counts are stored on the server now, so they survive a reload (ADR-040 §4).
@@ -425,10 +491,12 @@ export function useAgentInbox({
     setOlderConversationsError(null);
 
     try {
-      const page = await fetchConversations(authorizedFetch, organizationId, {
-        cursor,
-        limit: PAGE_LIMIT,
-      });
+      const page = await fetchConversations(
+        authorizedFetch,
+        organizationId,
+        { cursor, limit: PAGE_LIMIT },
+        filtersRef.current,
+      );
 
       setConversations((current) => {
         const held = new Set(current.map((conversation) => conversation.id));
@@ -688,6 +756,14 @@ export function useAgentInbox({
             });
           }
         },
+        onNote: (note) => {
+          if (note.conversationId === selectedRef.current) setNotes((current) => mergeNotes(current, [note]));
+          // Being @mentioned is worth an alert even when the sound is for customers (ADR-042 §2).
+          const me = currentUserIdRef.current;
+          if (me !== null && note.author.id !== me && note.mentions.some((mention) => mention.id === me)) {
+            notify(`${note.author.name ?? "A teammate"} mentioned you`, note.body);
+          }
+        },
         onConversationUpdate: (update) => {
           /*
             Another agent claimed, released, closed, or reopened something in
@@ -718,6 +794,7 @@ export function useAgentInbox({
                 status: update.status,
                 lastMessageAt: update.lastMessageAt,
                 assignedTo: keepsAssignee ? conversation.assignedTo : update.assignedTo,
+                tags: update.tags ?? conversation.tags,
               };
             }),
           );
@@ -732,6 +809,81 @@ export function useAgentInbox({
       client.destroy();
     };
   }, [accessToken, organizationId, socketFactory, notify, setTyping, clearTyping]);
+
+  // ---- agent productivity (ADR-042) ----
+
+  /*
+    The organisation's saved replies, teammates and tags, read once. Each is a
+    convenience on top of the inbox: a failure leaves that feature empty and
+    the inbox fully usable.
+  */
+  useEffect(() => {
+    let cancelled = false;
+    const ignore = () => undefined;
+    fetchSavedReplies(authorizedFetch, organizationId).then((loaded) => !cancelled && setSavedReplies(loaded), ignore);
+    fetchTeammates(authorizedFetch, organizationId).then((loaded) => !cancelled && setTeammates(loaded), ignore);
+    fetchConversationTags(authorizedFetch, organizationId).then((loaded) => !cancelled && setOrganizationTags(loaded), ignore);
+    return () => {
+      cancelled = true;
+    };
+  }, [authorizedFetch, organizationId]);
+
+  useEffect(() => {
+    if (selectedConversationId === null) return;
+    let cancelled = false;
+    fetchNotes(authorizedFetch, organizationId, selectedConversationId).then(
+      (loaded) => {
+        if (!cancelled) setNotes((current) => mergeNotes(current, loaded));
+      },
+      () => undefined,
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [authorizedFetch, organizationId, selectedConversationId]);
+
+  const setFilters = useCallback(
+    (next: ConversationFilters) => {
+      filtersRef.current = next;
+      setFiltersState(next);
+      setIsFiltering(true);
+      void loadConversations().finally(() => setIsFiltering(false));
+    },
+    [loadConversations],
+  );
+
+  const addNote = useCallback(
+    async (body: string, mentionedUserIds: string[]) => {
+      const conversationId = selectedConversationId;
+      if (conversationId === null || body.trim().length === 0) return false;
+
+      setIsSending(true);
+      setNoteError(null);
+      try {
+        const note = await createNote(authorizedFetch, organizationId, conversationId, body.trim(), mentionedUserIds);
+        setNotes((current) => mergeNotes(current, [note]));
+        return true;
+      } catch (caught: unknown) {
+        if (caught instanceof AuthApiError && caught.status === 401) return false;
+        setNoteError(NOTE_ERROR);
+        return false;
+      } finally {
+        setIsSending(false);
+      }
+    },
+    [authorizedFetch, organizationId, selectedConversationId],
+  );
+
+  const selectAdjacentConversation = useCallback(
+    (direction: 1 | -1) => {
+      if (conversations.length === 0) return;
+      const index = conversations.findIndex((conversation) => conversation.id === selectedRef.current);
+      const nextIndex = index === -1 ? 0 : Math.min(conversations.length - 1, Math.max(0, index + direction));
+      const target = conversations[nextIndex];
+      if (target !== undefined && target.id !== selectedRef.current) selectConversation(target.id);
+    },
+    [conversations, selectConversation],
+  );
 
   useEffect(() => {
     const timers = typingTimers.current;
@@ -875,6 +1027,14 @@ export function useAgentInbox({
     [authorizedFetch, organizationId, runAction],
   );
 
+  const setTags = useCallback(
+    async (tags: string[]) => {
+      await runAction("tag", (id) => updateConversationTags(authorizedFetch, organizationId, id, tags));
+      setOrganizationTags((current) => [...new Set([...current, ...tags])].sort((a, b) => a.localeCompare(b)));
+    },
+    [authorizedFetch, organizationId, runAction],
+  );
+
   const setConversationStatus = useCallback(
     (next: InboxConversationStatus) =>
       runAction(next === "closed" ? "close" : "reopen", (id) =>
@@ -916,6 +1076,17 @@ export function useAgentInbox({
     notifyTyping,
     notifications,
     currentUserId: session?.user.id ?? null,
+    filters,
+    setFilters,
+    isFiltering,
+    notes,
+    addNote,
+    noteError,
+    setTags,
+    organizationTags,
+    savedReplies,
+    teammates,
+    selectAdjacentConversation,
     pendingAction,
     actionError,
     claim,

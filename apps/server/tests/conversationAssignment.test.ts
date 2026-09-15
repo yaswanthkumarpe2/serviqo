@@ -435,7 +435,7 @@ describe("conversation assignment and status", () => {
       expect(response.body.data.conversations[0].assignedTo).toEqual({ id: owner.userId, name: "Ada Lovelace" });
     });
 
-    it("withholds the assignee's name from an agent, who does not hold member.read", async () => {
+    it("shows the assignee's name to an agent, but never their email (ADR-042 §2)", async () => {
       const ctx = buildApp();
       const owner = await signedInStaff(ctx, "Ada Lovelace");
       const organization = await createOrganization(ctx, owner.accessToken, "Acme");
@@ -452,16 +452,13 @@ describe("conversation assignment and status", () => {
       const response = await request(ctx.app).get(inboxPath(organization.id)).set(authed(agent.accessToken));
 
       /*
-        The `agent` role lacks `member.read`, so rendering a colleague's name
-        into its inbox would hand it, through a conversation projection,
-        exactly what the permission table withholds (ADR-026 §11).
-
-        The ID is still disclosed — it is what lets an agent tell their own
-        work from someone else's — and it is strictly less than the roster.
+        ADR-042 §2 amends ADR-026 §11: colleagues' NAMES are visible to anyone
+        who works the inbox, because notes and @mentions name them anyway. The
+        roster — emails, roles, status — still needs `member.read`.
       */
       expect(can("agent", "member.read")).toBe(false);
-      expect(response.body.data.conversations[0].assignedTo).toEqual({ id: owner.userId, name: null });
-      expect(JSON.stringify(response.body)).not.toContain("Ada Lovelace");
+      expect(response.body.data.conversations[0].assignedTo).toEqual({ id: owner.userId, name: "Ada Lovelace" });
+      expect(JSON.stringify(response.body)).not.toContain(owner.email);
     });
 
     it("never discloses the assignee's email, to any reader", async () => {

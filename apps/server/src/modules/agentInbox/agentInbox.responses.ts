@@ -98,6 +98,7 @@ export function toInboxConversationResponse(
     lastMessageAt: conversation.lastMessageAt,
     customer: toInboxCustomerResponse(customer),
     assignedTo: toAssignedAgentResponse(assignee),
+    tags: conversation.tags ?? [],
     ...toReadStateResponse(conversation),
   };
 }
@@ -139,5 +140,7 @@ export function toConversationStateResponse(conversation: ConversationDocument) 
     status: conversation.status,
     lastMessageAt: conversation.lastMessageAt,
     assignedTo: conversation.assignedTo === null ? null : { id: conversation.assignedTo.toString(), name: null },
+    // Staff-only: this projection goes to the inbox room alone (ADR-026 §10), so tags never reach a customer.
+    tags: conversation.tags ?? [],
   };
 }

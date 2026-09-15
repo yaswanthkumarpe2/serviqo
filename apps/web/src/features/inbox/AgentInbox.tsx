@@ -1,12 +1,17 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
-import { BellIcon, BellOffIcon, VolumeIcon, VolumeOffIcon } from "@/features/workspace/workspaceIcons";
+import { BellIcon, BellOffIcon, KeyboardIcon, NoteIcon, VolumeIcon, VolumeOffIcon } from "@/features/workspace/workspaceIcons";
 
-import { InboxComposer } from "./InboxComposer";
+import { ConversationTags } from "./ConversationTags";
+import { COMPOSER_INPUT_ID, InboxComposer } from "./InboxComposer";
+import { INBOX_SEARCH_INPUT_ID, InboxFilters } from "./InboxFilters";
+import { ShortcutsHelp } from "./InboxShortcuts";
+import { useInboxShortcuts } from "./useInboxShortcuts";
 import { AttachmentView, LinkifiedText } from "./richText";
 import { useAgentInbox } from "./useAgentInbox";
 
-import type { InboxConversation, InboxMessage } from "./inboxApi";
+import type { ComposerMode } from "./InboxComposer";
+import type { InboxConversation, InboxMessage, InboxNote } from "./inboxApi";
 import type { InboxSocketFactory } from "./inboxRealtime";
 
 import "./AgentInbox.css";
@@ -126,6 +131,38 @@ function MessageBubble({ message, seen }: { message: InboxMessage; seen: boolean
   );
 }
 
+/** An internal note in the thread: yellow, labelled, and never mistaken for a message (ADR-042 §2). */
+function NoteBubble({ note }: { note: InboxNote }) {
+  return (
+    <li className="inbox__message inbox__message--note">
+      <p className="inbox__noteLabel">
+        <NoteIcon aria-hidden="true" />
+        Internal note · {note.author.name ?? "A teammate"}
+      </p>
+      <p className="inbox__messageBody">
+        <LinkifiedText text={note.body} />
+      </p>
+      <p className="inbox__messageMeta">
+        <time dateTime={note.createdAt}>{formatTime(note.createdAt)}</time>
+      </p>
+    </li>
+  );
+}
+
+type TimelineEntry = { kind: "message"; item: InboxMessage } | { kind: "note"; item: InboxNote };
+
+/** Messages and notes in one time-ordered thread. Stable: equal times keep messages first. */
+function timelineOf(messages: InboxMessage[], notes: InboxNote[]): TimelineEntry[] {
+  const entries: TimelineEntry[] = [
+    ...messages.map((item) => ({ kind: "message" as const, item })),
+    ...notes.map((item) => ({ kind: "note" as const, item })),
+  ];
+  return entries
+    .map((entry, index) => ({ entry, index }))
+    .sort((a, b) => a.entry.item.createdAt.localeCompare(b.entry.item.createdAt) || a.index - b.index)
+    .map(({ entry }) => entry);
+}
+
 /** The index of the last agent message the customer has read, or -1 (ADR-040 §4). */
 function lastSeenAgentIndex(messages: InboxMessage[], customerLastReadAt: string | null | undefined): number {
   if (customerLastReadAt === null || customerLastReadAt === undefined) return -1;
@@ -151,6 +188,25 @@ export function AgentInbox({
     synchronous setState inside an effect body (ADR-033 §7).
   */
   const inbox = useAgentInbox({ organizationId, socketFactory, initialConversationId });
+  const [composerMode, setComposerMode] = useState<ComposerMode>("reply");
+  const [showShortcuts, setShowShortcuts] = useState(false);
+
+  const focusComposer = (mode: ComposerMode) => {
+    setComposerMode(mode);
+    requestAnimationFrame(() => document.getElementById(COMPOSER_INPUT_ID)?.focus());
+  };
+
+  useInboxShortcuts({
+    next: () => inbox.selectAdjacentConversation(1),
+    previous: () => inbox.selectAdjacentConversation(-1),
+    search: () => document.getElementById(INBOX_SEARCH_INPUT_ID)?.focus(),
+    reply: () => focusComposer("reply"),
+    note: () => focusComposer("note"),
+    toggleHelp: () => setShowShortcuts((open) => !open),
+    closeHelp: () => setShowShortcuts(false),
+  });
+
+  const hasFilters = Object.keys(inbox.filters).length > 0;
 
   /*
     Told once, immediately: the hook has taken the id and will act on it when
@@ -185,6 +241,16 @@ export function AgentInbox({
           Inbox
         </h2>
         <div className="inbox__alerts">
+          <button
+            type="button"
+            className="inbox__alertToggle"
+            onClick={() => setShowShortcuts((open) => !open)}
+            aria-expanded={showShortcuts}
+            aria-label="Keyboard shortcuts"
+            title="Keyboard shortcuts (?)"
+          >
+            <KeyboardIcon aria-hidden="true" />
+          </button>
           <button
             type="button"
             className="inbox__alertToggle"
@@ -257,15 +323,28 @@ export function AgentInbox({
         </p>
       )}
 
-      {inbox.status === "ready" && inbox.conversations.length === 0 && (
+      {showShortcuts && <ShortcutsHelp onClose={() => setShowShortcuts(false)} />}
+
+      {inbox.status === "ready" && inbox.conversations.length === 0 && !hasFilters && (
         <p className="inbox__state" role="status">
           No conversations yet. They appear here as soon as a visitor writes in.
         </p>
       )}
 
-      {inbox.status === "ready" && inbox.conversations.length > 0 && (
+      {inbox.status === "ready" && (inbox.conversations.length > 0 || hasFilters) && (
         <div className="inbox__body">
           <nav className="inbox__list" aria-label="Conversations">
+            <InboxFilters
+              filters={inbox.filters}
+              onChange={inbox.setFilters}
+              tags={inbox.organizationTags}
+              isFiltering={inbox.isFiltering}
+            />
+            {inbox.conversations.length === 0 && (
+              <p className="inbox__state" role="status">
+                No conversations match these filters.
+              </p>
+            )}
             <ul>
               {inbox.conversations.map((conversation) => {
                 const unread = inbox.unreadCounts[conversation.id] ?? 0;
@@ -294,6 +373,11 @@ export function AgentInbox({
                           <>
                             {assignmentLabel(conversation, inbox.currentUserId)}
                             {conversation.status === "closed" && <span className="inbox__closedTag"> · Closed</span>}
+                            {(conversation.tags ?? []).slice(0, 2).map((tag) => (
+                              <span key={tag} className="inbox__rowTag">
+                                {tag}
+                              </span>
+                            ))}
                           </>
                         )}
                       </span>
@@ -362,6 +446,13 @@ export function AgentInbox({
                     {[selected.customer?.email, selected.customer?.phone].filter(Boolean).join(" · ")}
                   </p>
                 )}
+
+                <ConversationTags
+                  tags={selected.tags ?? []}
+                  suggestions={inbox.organizationTags}
+                  disabled={inbox.pendingAction !== null}
+                  onChange={(tags) => void inbox.setTags(tags)}
+                />
 
                 {/*
                   Ownership and lifecycle (ADR-026 §13). Each control has its
@@ -448,15 +539,23 @@ export function AgentInbox({
 
                 {inbox.threadStatus === "ready" && (
                   <>
-                    {inbox.messages.length === 0 ? (
+                    {inbox.messages.length === 0 && inbox.notes.length === 0 ? (
                       <p className="inbox__state" role="status">
                         No messages in this conversation yet.
                       </p>
                     ) : (
                       <ul className="inbox__messages">
-                        {inbox.messages.map((message, index) => (
-                          <MessageBubble key={message.id} message={message} seen={index === seenIndex} />
-                        ))}
+                        {timelineOf(inbox.messages, inbox.notes).map((entry) =>
+                          entry.kind === "note" ? (
+                            <NoteBubble key={`note-${entry.item.id}`} note={entry.item} />
+                          ) : (
+                            <MessageBubble
+                              key={entry.item.id}
+                              message={entry.item}
+                              seen={seenIndex >= 0 && inbox.messages[seenIndex]?.id === entry.item.id}
+                            />
+                          ),
+                        )}
                       </ul>
                     )}
 
@@ -516,7 +615,18 @@ export function AgentInbox({
                           send={inbox.send}
                           upload={inbox.upload}
                           onTyping={inbox.notifyTyping}
+                          addNote={inbox.addNote}
+                          savedReplies={inbox.savedReplies}
+                          teammates={inbox.teammates}
+                          currentUserId={inbox.currentUserId}
+                          mode={composerMode}
+                          onModeChange={setComposerMode}
                         />
+                        {inbox.noteError !== null && (
+                          <p className="inbox__state inbox__state--error" role="alert">
+                            {inbox.noteError}
+                          </p>
+                        )}
 
                         {inbox.sendError !== null && (
                           <p className="inbox__state inbox__state--error" role="alert">
