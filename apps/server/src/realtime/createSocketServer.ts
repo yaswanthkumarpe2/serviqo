@@ -3,6 +3,8 @@ import { Server } from "socket.io";
 import {
   SOCKET_CONNECTION_LIMIT,
   SOCKET_CONNECTION_WINDOW_MS,
+  SOCKET_INTERACTION_LIMIT,
+  SOCKET_INTERACTION_WINDOW_MS,
   SOCKET_MESSAGE_WRITE_LIMIT,
   SOCKET_MESSAGE_WRITE_WINDOW_MS,
 } from "../config/constants";
@@ -17,7 +19,8 @@ import { messageEvents } from "../modules/messages/messageEvents";
 import { createMessageService } from "../modules/messages/message.service";
 import { OBJECT_ID_PATTERN, createMessageSchema } from "../modules/widget/widgetConversation.validation";
 import { toConversationResponse, toMessageResponse } from "../modules/widget/widgetResponses";
-import { conversationRoomName, organizationInboxRoomName } from "./conversationRoom";
+import { conversationRoomName, organizationInboxRoomName, organizationVisitorsRoomName } from "./conversationRoom";
+import { agentPresence } from "./presence";
 import { SOCKET_EVENTS, safeAck, socketError } from "./realtimeEvents";
 import { authenticateSocketHandshake } from "./socketAuthentication";
 import { SocketRateLimiter } from "./socketRateLimit";
@@ -28,7 +31,7 @@ import type { MembershipRevokedEvent } from "../modules/memberships/membershipEv
 import type { MessageCreatedEvent } from "../modules/messages/messageEvents";
 import type { AgentSocketPrincipal } from "./socketAuthentication";
 import type { WidgetPrincipal } from "../modules/widget/widgetToken";
-import type { ConversationJoinPayload, MessageSendPayload } from "./realtimeEvents";
+import type { ConversationJoinPayload, ConversationReadPayload, MessageSendPayload, TypingPayload } from "./realtimeEvents";
 import type { Server as HttpServer } from "node:http";
 import type { DefaultEventsMap, Server as IOServer, Socket as IOSocket } from "socket.io";
 
@@ -68,7 +71,16 @@ type SocketIdentity =
        */
       joinedConversationIds: Set<string>;
     }
-  | { kind: "agent"; principal: AgentSocketPrincipal };
+  | {
+      kind: "agent";
+      principal: AgentSocketPrincipal;
+      /**
+       * Conversations this agent socket has proven belong to its organisation,
+       * so typing and read events after the first cost no database read
+       * (ADR-040 §3). Never a substitute for the tenant-scoped lookup itself.
+       */
+      verifiedConversationIds: Set<string>;
+    };
 
 interface SocketData {
   identity: SocketIdentity;
@@ -116,6 +128,12 @@ export function createSocketServer(httpServer: HttpServer, options: CreateSocket
   */
   const connectionLimiter = new SocketRateLimiter(SOCKET_CONNECTION_LIMIT, SOCKET_CONNECTION_WINDOW_MS);
   const messageWriteLimiter = new SocketRateLimiter(SOCKET_MESSAGE_WRITE_LIMIT, SOCKET_MESSAGE_WRITE_WINDOW_MS);
+  /*
+    Typing and read events (ADR-040 §3–4). Frequent by nature, since a typing
+    event fires as someone types, so generous, but bounded per principal so a
+    loop cannot flood an organisation's inbox.
+  */
+  const interactionLimiter = new SocketRateLimiter(SOCKET_INTERACTION_LIMIT, SOCKET_INTERACTION_WINDOW_MS);
 
   const messageService = createMessageService();
 
@@ -247,7 +265,17 @@ export function createSocketServer(httpServer: HttpServer, options: CreateSocket
     third, and it registered here because there was one obvious place for it to
     go.
   */
+  /*
+    Presence (ADR-040 §2): when an organisation goes from nobody available to
+    somebody, or back, its visitors are told. Only a boolean crosses to them;
+    who is online is never sent.
+  */
+  const unsubscribePresence = agentPresence.subscribe((organizationId, agentsOnline) => {
+    io.to(organizationVisitorsRoomName(organizationId)).emit(SOCKET_EVENTS.PRESENCE_UPDATE, { agentsOnline });
+  });
+
   httpServer.once("close", () => {
+    unsubscribePresence();
     unsubscribeMessages();
     unsubscribeConversations();
     unsubscribeMemberships();
@@ -299,7 +327,7 @@ export function createSocketServer(httpServer: HttpServer, options: CreateSocket
     socket.data.identity =
       outcome.kind === "widget"
         ? { kind: "widget", principal: outcome.principal, joinedConversationIds: new Set() }
-        : { kind: "agent", principal: outcome.principal };
+        : { kind: "agent", principal: outcome.principal, verifiedConversationIds: new Set() };
 
     next();
   });
@@ -334,12 +362,22 @@ export function createSocketServer(httpServer: HttpServer, options: CreateSocket
     const socketLog = logger.child({ socketId: socket.id, organizationId, userId });
 
     void socket.join(organizationInboxRoomName(organizationId));
+    agentPresence.connected(organizationId);
 
     // `role` is safe in a log and is not in any response: an operator needs to
     // know which standing a connection was accepted under.
     socketLog.info({ event: "socket.agent.connected", role }, "Agent socket connected");
 
+    socket.on(SOCKET_EVENTS.TYPING, (payload: TypingPayload) => {
+      void handleAgentTyping(socket, principal, payload);
+    });
+
+    socket.on(SOCKET_EVENTS.CONVERSATION_READ, (payload: ConversationReadPayload, ack: unknown) => {
+      void handleAgentRead(socket, principal, socketLog, payload, ack);
+    });
+
     socket.on("disconnect", (reason: string) => {
+      agentPresence.disconnected(organizationId);
       socketLog.info({ event: "socket.disconnected", reason }, "Socket disconnected");
     });
   }
@@ -351,6 +389,10 @@ export function createSocketServer(httpServer: HttpServer, options: CreateSocket
 
     socketLog.info({ event: "socket.connected" }, "Socket connected");
 
+    // Presence changes for this organisation (ADR-040 §2), plus the current state.
+    void socket.join(organizationVisitorsRoomName(organizationId));
+    socket.emit(SOCKET_EVENTS.PRESENCE_UPDATE, { agentsOnline: agentPresence.isOnline(organizationId) });
+
     socket.on(SOCKET_EVENTS.CONVERSATION_JOIN, (payload: ConversationJoinPayload, ack: unknown) => {
       void handleJoin(socket, principal, socketLog, payload, ack);
     });
@@ -359,9 +401,136 @@ export function createSocketServer(httpServer: HttpServer, options: CreateSocket
       void handleSend(socket, principal, socketLog, payload, ack);
     });
 
+    socket.on(SOCKET_EVENTS.TYPING, (payload: TypingPayload) => {
+      handleCustomerTyping(socket, principal, payload);
+    });
+
+    socket.on(SOCKET_EVENTS.CONVERSATION_READ, (payload: ConversationReadPayload, ack: unknown) => {
+      void handleCustomerRead(socket, principal, socketLog, payload, ack);
+    });
+
     socket.on("disconnect", (reason: string) => {
       socketLog.info({ event: "socket.disconnected", reason }, "Socket disconnected");
     });
+  }
+
+  // ---- typing and read receipts (ADR-040 §3–4) ----
+
+  /** Whether this agent socket may speak about `conversationId`, proving it once per socket. */
+  async function agentOwnsConversation(socket: AppSocket, organizationId: string, conversationId: unknown) {
+    if (typeof conversationId !== "string" || !OBJECT_ID_PATTERN.test(conversationId)) return null;
+    const identity = socket.data.identity;
+    if (identity.kind !== "agent") return null;
+    if (identity.verifiedConversationIds.has(conversationId)) return conversationId;
+
+    const conversation = await conversationRepository.findByIdForOrganization(conversationId, organizationId);
+    if (conversation === null) return null;
+    identity.verifiedConversationIds.add(conversationId);
+    return conversationId;
+  }
+
+  /*
+    An agent typing reaches the customer's chat and the other agents of the
+    same organisation. Neither is told WHO is typing: the customer sees
+    "typing", and colleagues see which conversation is being answered.
+  */
+  async function handleAgentTyping(socket: AppSocket, principal: AgentSocketPrincipal, payload: TypingPayload) {
+    const { organizationId, userId } = principal;
+    if (rateLimiting && !interactionLimiter.check(`user:${userId}`).allowed) return;
+    if (typeof payload?.isTyping !== "boolean") return;
+
+    const conversationId = await agentOwnsConversation(socket, organizationId, payload.conversationId);
+    if (conversationId === null) return;
+
+    const event = { conversationId, sender: "agent", isTyping: payload.isTyping };
+    io.to(conversationRoomName(organizationId, conversationId)).emit(SOCKET_EVENTS.TYPING, event);
+    socket.to(organizationInboxRoomName(organizationId)).emit(SOCKET_EVENTS.TYPING, event);
+  }
+
+  function handleCustomerTyping(socket: AppSocket, principal: WidgetPrincipal, payload: TypingPayload) {
+    const { organizationId, customerId } = principal;
+    if (rateLimiting && !interactionLimiter.check(`customer:${customerId}`).allowed) return;
+    if (typeof payload?.isTyping !== "boolean") return;
+
+    const conversationId = payload?.conversationId;
+    // Only a conversation this socket proved it owns when it joined.
+    if (typeof conversationId !== "string" || !joinedConversations(socket).has(conversationId)) return;
+
+    io.to(organizationInboxRoomName(organizationId)).emit(SOCKET_EVENTS.TYPING, {
+      conversationId,
+      sender: "customer",
+      isTyping: payload.isTyping,
+    });
+  }
+
+  async function handleAgentRead(
+    socket: AppSocket,
+    principal: AgentSocketPrincipal,
+    socketLog: AuthLogger,
+    payload: ConversationReadPayload,
+    ack: unknown,
+  ) {
+    const { organizationId, userId } = principal;
+    if (rateLimiting && !interactionLimiter.check(`user:${userId}`).allowed) {
+      return safeAck(ack, { ok: false, error: socketError("TOO_MANY_REQUESTS") });
+    }
+
+    const conversationId = await agentOwnsConversation(socket, organizationId, payload?.conversationId);
+    if (conversationId === null) return safeAck(ack, { ok: false, error: socketError("NOT_FOUND") });
+
+    try {
+      const conversation = await conversationRepository.markReadByAgents(conversationId, organizationId, new Date());
+      if (conversation === null) return safeAck(ack, { ok: false, error: socketError("NOT_FOUND") });
+
+      const event = { conversationId, reader: "agent", readAt: conversation.agentLastReadAt };
+      io.to(conversationRoomName(organizationId, conversationId)).emit(SOCKET_EVENTS.CONVERSATION_READ, event);
+      io.to(organizationInboxRoomName(organizationId)).emit(SOCKET_EVENTS.CONVERSATION_READ, event);
+      safeAck(ack, { ok: true, data: event });
+    } catch (err) {
+      socketLog.error(
+        { event: "socket.conversation.read_failed", failureType: err instanceof Error ? err.name : "UnknownError" },
+        "Marking a conversation read failed",
+      );
+      safeAck(ack, { ok: false, error: socketError("INTERNAL_ERROR") });
+    }
+  }
+
+  async function handleCustomerRead(
+    socket: AppSocket,
+    principal: WidgetPrincipal,
+    socketLog: AuthLogger,
+    payload: ConversationReadPayload,
+    ack: unknown,
+  ) {
+    const { organizationId, customerId } = principal;
+    if (rateLimiting && !interactionLimiter.check(`customer:${customerId}`).allowed) {
+      return safeAck(ack, { ok: false, error: socketError("TOO_MANY_REQUESTS") });
+    }
+
+    const conversationId = payload?.conversationId;
+    if (typeof conversationId !== "string" || !joinedConversations(socket).has(conversationId)) {
+      return safeAck(ack, { ok: false, error: socketError("NOT_JOINED") });
+    }
+
+    try {
+      const conversation = await conversationRepository.markReadByCustomer(
+        conversationId,
+        organizationId,
+        customerId,
+        new Date(),
+      );
+      if (conversation === null) return safeAck(ack, { ok: false, error: socketError("NOT_FOUND") });
+
+      const event = { conversationId, reader: "customer", readAt: conversation.customerLastReadAt };
+      io.to(organizationInboxRoomName(organizationId)).emit(SOCKET_EVENTS.CONVERSATION_READ, event);
+      safeAck(ack, { ok: true, data: event });
+    } catch (err) {
+      socketLog.error(
+        { event: "socket.conversation.read_failed", failureType: err instanceof Error ? err.name : "UnknownError" },
+        "Marking a conversation read failed",
+      );
+      safeAck(ack, { ok: false, error: socketError("INTERNAL_ERROR") });
+    }
   }
 
   /** The conversations a widget socket has joined. Asserted because only widget handlers call it. */
@@ -436,7 +605,7 @@ export function createSocketServer(httpServer: HttpServer, options: CreateSocket
       return safeAck(ack, { ok: false, error: socketError("NOT_JOINED") });
     }
 
-    const parsed = createMessageSchema.safeParse({ body: payload?.body });
+    const parsed = createMessageSchema.safeParse({ body: payload?.body, attachmentIds: payload?.attachmentIds });
     if (!parsed.success) {
       return safeAck(ack, { ok: false, error: socketError("VALIDATION_ERROR") });
     }
@@ -459,6 +628,7 @@ export function createSocketServer(httpServer: HttpServer, options: CreateSocket
         conversationId,
         parsed.data.body,
         socketLog,
+        parsed.data.attachmentIds,
       );
 
       safeAck(ack, { ok: true, data: toMessageResponse(message) });

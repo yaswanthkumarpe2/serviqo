@@ -21,6 +21,8 @@ export interface InboxCustomer {
   id: string;
   name: string | null;
   email: string | null;
+  /** Optional contact detail the visitor gave (ADR-038 §5). */
+  phone?: string | null;
 }
 
 /**
@@ -52,6 +54,12 @@ export interface InboxConversation {
   customer: InboxCustomer | null;
   /** `null` when nobody has claimed it (ADR-026 §1). */
   assignedTo: InboxAssignee | null;
+  /** Customer messages nobody on the team has read (ADR-040 §4). Absent from older servers. */
+  unreadCount?: number;
+  /** When the team last read it. */
+  agentLastReadAt?: string | null;
+  /** When the customer last read it, for "Seen" under an agent's reply. */
+  customerLastReadAt?: string | null;
 }
 
 /**
@@ -78,8 +86,20 @@ export interface InboxMessage {
   id: string;
   conversationId: string;
   senderType: "customer" | "agent";
+  /** Empty when the message is only files (ADR-041 §1). */
   body: string;
+  /** Absent from servers before ADR-041. */
+  attachments?: InboxAttachment[];
   createdAt: string;
+}
+
+/** A file sent in a message (ADR-041 §3). `url` is a path on this app's own API. */
+export interface InboxAttachment {
+  id: string;
+  name: string;
+  contentType: string;
+  size: number;
+  url: string;
 }
 
 export interface ConversationPage {
@@ -233,6 +253,7 @@ export function sendAgentMessage(
   organizationId: string,
   conversationId: string,
   body: string,
+  attachmentIds: string[] = [],
 ): Promise<InboxMessage> {
   return callInbox<InboxMessage>(
     authorizedFetch,
@@ -240,7 +261,28 @@ export function sendAgentMessage(
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ body }),
+      body: JSON.stringify(attachmentIds.length > 0 ? { body, attachmentIds } : { body }),
+    },
+  );
+}
+
+/**
+ * Uploads one file into a conversation, ready to send (ADR-041 §2). The file
+ * is the whole body; its name travels URI-encoded in `X-Filename`.
+ */
+export function uploadInboxAttachment(
+  authorizedFetch: AuthorizedFetch,
+  organizationId: string,
+  conversationId: string,
+  file: File,
+): Promise<InboxAttachment> {
+  return callInbox<InboxAttachment>(
+    authorizedFetch,
+    conversationsPath(organizationId, `/${encodeURIComponent(conversationId)}/attachments`),
+    {
+      method: "POST",
+      headers: { "Content-Type": file.type, "X-Filename": encodeURIComponent(file.name) },
+      body: file,
     },
   );
 }

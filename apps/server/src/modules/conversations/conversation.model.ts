@@ -54,6 +54,17 @@ export interface ConversationAttrs {
    * sorts correctly rather than requiring a null-handling special case.
    */
   lastMessageAt: Date;
+  /**
+   * Customer messages no agent has read yet (ADR-040 §4). Shared by the team:
+   * the inbox is one queue, so "read" means someone on the team opened it.
+   */
+  unreadByAgents: number;
+  /** Agent messages the customer has not seen yet (ADR-040 §4). */
+  unreadByCustomer: number;
+  /** When the team last read this conversation. Drives "Seen" in the customer's chat. */
+  agentLastReadAt: Date | null;
+  /** When the customer last read this conversation. Drives "Seen" in the inbox. */
+  customerLastReadAt: Date | null;
   createdAt: Date;
   /**
    * When THIS document's own state last changed (its `status`), distinct
@@ -106,6 +117,10 @@ const conversationSchema = new Schema<ConversationAttrs>(
       ref: "User",
       default: null,
     },
+    unreadByAgents: { type: Number, default: 0, min: 0 },
+    unreadByCustomer: { type: Number, default: 0, min: 0 },
+    agentLastReadAt: { type: Date, default: null },
+    customerLastReadAt: { type: Date, default: null },
   },
   {
     timestamps: true,

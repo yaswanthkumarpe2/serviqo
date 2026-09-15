@@ -31,6 +31,8 @@ export interface ActiveOrganizationContext {
   role: string;
   /** The organisation's customer chat link, as the server built it (ADR-038 §4). */
   widgetUrl: string | null;
+  /** The organisation's display name. */
+  name: string;
 }
 
 interface OrganizationSwitcherProps {
@@ -153,6 +155,7 @@ export function OrganizationSwitcher({
             organizationId: context.organization.id,
             role: context.role,
             widgetUrl: context.organization.widgetUrl ?? null,
+            name: context.organization.name,
           }
         : null,
     );

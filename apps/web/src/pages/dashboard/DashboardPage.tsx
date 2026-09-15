@@ -7,6 +7,7 @@ import { useAuth } from "@/features/auth/useAuth";
 import { useCurrentUser } from "@/features/auth/useCurrentUser";
 import { AgentInbox } from "@/features/inbox/AgentInbox";
 import { OrganizationSwitcher } from "@/features/organizations/OrganizationSwitcher";
+import { WidgetAppearanceSettings } from "@/features/organizations/WidgetAppearanceSettings";
 import { WidgetInstallation } from "@/features/organizations/WidgetInstallation";
 import { WidgetLinkCard } from "@/features/workspace/WidgetLinkCard";
 import { TeamManagement } from "@/features/team/TeamManagement";
@@ -275,6 +276,7 @@ export function DashboardPage() {
                 organizationId={activeOrganization.organizationId}
                 role={activeOrganization.role}
                 widgetUrl={activeOrganization.widgetUrl}
+                organizationName={activeOrganization.name}
                 userId={user.id}
                 pendingConversationId={pendingConversationId}
                 onConversationHandled={() => setPendingConversationId(null)}
@@ -295,6 +297,7 @@ interface WorkspaceBodyProps {
   organizationId: string;
   role: string;
   widgetUrl: string | null;
+  organizationName: string;
   userId: string;
   pendingConversationId: string | null;
   onConversationHandled: () => void;
@@ -320,6 +323,7 @@ function WorkspaceBody({
   organizationId,
   role,
   widgetUrl,
+  organizationName,
   userId,
   pendingConversationId,
   onConversationHandled,
@@ -381,6 +385,7 @@ function WorkspaceBody({
       {view === "settings" && (
         <div className="ws__stack">
           {widgetUrl !== null && <WidgetLinkCard widgetUrl={widgetUrl} />}
+          <WidgetAppearanceSettings organizationId={organizationId} organizationName={organizationName} />
           {/*
             Embedding the chat on the organisation's own website. Its settings
             are `organization.manage`, and the component renders the server's

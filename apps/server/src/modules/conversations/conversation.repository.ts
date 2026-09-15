@@ -205,10 +205,46 @@ export const conversationRepository = {
     conversationId: ObjectIdLike,
     organizationId: ObjectIdLike,
     when: Date,
+    senderType?: "customer" | "agent",
+  ): Promise<ConversationDocument | null> {
+    /*
+      A message is unread by the OTHER side, and the sender has evidently read
+      everything before writing (ADR-040 §4): replying marks the thread read for
+      the replier and adds one to the counter the recipient sees.
+    */
+    const update =
+      senderType === "customer"
+        ? { $set: { lastMessageAt: when, unreadByCustomer: 0, customerLastReadAt: when }, $inc: { unreadByAgents: 1 } }
+        : senderType === "agent"
+          ? { $set: { lastMessageAt: when, unreadByAgents: 0, agentLastReadAt: when }, $inc: { unreadByCustomer: 1 } }
+          : { $set: { lastMessageAt: when } };
+
+    return ConversationModel.findOneAndUpdate({ _id: conversationId, organizationId }, update, { returnDocument: "after" });
+  },
+
+  /** The team read this conversation (ADR-040 §4). Scoped by organisation like every write here. */
+  async markReadByAgents(
+    conversationId: ObjectIdLike,
+    organizationId: ObjectIdLike,
+    when: Date,
   ): Promise<ConversationDocument | null> {
     return ConversationModel.findOneAndUpdate(
       { _id: conversationId, organizationId },
-      { $set: { lastMessageAt: when } },
+      { $set: { unreadByAgents: 0, agentLastReadAt: when } },
+      { returnDocument: "after" },
+    );
+  },
+
+  /** The customer read their own conversation (ADR-040 §4). Scoped by organisation AND customer. */
+  async markReadByCustomer(
+    conversationId: ObjectIdLike,
+    organizationId: ObjectIdLike,
+    customerId: ObjectIdLike,
+    when: Date,
+  ): Promise<ConversationDocument | null> {
+    return ConversationModel.findOneAndUpdate(
+      { _id: conversationId, organizationId, customerId },
+      { $set: { unreadByCustomer: 0, customerLastReadAt: when } },
       { returnDocument: "after" },
     );
   },

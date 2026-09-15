@@ -40,11 +40,19 @@ function isSuccessEnvelope(body: unknown): body is SuccessEnvelope {
   return typeof body === "object" && body !== null && (body as { success?: unknown }).success === true;
 }
 
+/** Checked because the colour reaches a CSS property and the title the page. */
+function isAppearance(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) return false;
+  const a = value as Record<string, unknown>;
+  return typeof a.accentColor === "string" && /^#[0-9a-fA-F]{6}$/.test(a.accentColor) && typeof a.title === "string";
+}
+
 function isWidgetSessionResult(value: unknown): value is WidgetSessionResult {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Partial<WidgetSessionResult>;
   if (typeof candidate.token !== "string" || typeof candidate.expiresInSeconds !== "number") return false;
   if (candidate.visitorKey !== undefined && typeof candidate.visitorKey !== "string") return false;
+  if (candidate.appearance !== undefined && !isAppearance(candidate.appearance)) return false;
   const customer = candidate.customer;
   if (typeof customer !== "object" || customer === null) return false;
   const c = customer as Partial<WidgetSessionResult["customer"]>;

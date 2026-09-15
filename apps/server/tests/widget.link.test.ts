@@ -102,7 +102,8 @@ describe("organisation chat links", () => {
       const response = await request(app).get(`${DIRECTORY_PATH}/centralservice`);
 
       expect(response.status).toBe(200);
-      expect(response.body.data).toEqual({ name: "CentralService", widgetKey: organization.widgetKey });
+      expect(Object.keys(response.body.data).sort()).toEqual(["appearance", "availability", "name", "widgetKey"]);
+      expect(response.body.data).toMatchObject({ name: "CentralService", widgetKey: organization.widgetKey });
     });
 
     it("matches the slug case-insensitively, as links get retyped", async () => {

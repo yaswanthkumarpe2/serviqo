@@ -2,6 +2,7 @@ import { Schema, model } from "mongoose";
 
 import { MESSAGE_BODY_MAX_LENGTH } from "../../config/constants";
 
+import type { MessageAttachment } from "../attachments/attachmentResponses";
 import type { HydratedDocument, Model, Types } from "mongoose";
 
 /**
@@ -27,7 +28,10 @@ export interface MessageAttrs {
    * endpoint being able to assign it are deliberately separate questions.
    */
   senderType: MessageSenderType;
+  /** Empty when the message is only attachments (ADR-041 §1). */
   body: string;
+  /** Files sent with the message, copied at send time (ADR-041 §1). */
+  attachments: MessageAttachment[];
   createdAt: Date;
 }
 
@@ -69,9 +73,32 @@ const messageSchema = new Schema<MessageAttrs>(
     */
     body: {
       type: String,
-      required: true,
+      // Text is optional only when the message carries files (ADR-041 §1).
+      required: [
+        function (this: { attachments?: unknown[] }) {
+          return (this.attachments?.length ?? 0) === 0;
+        },
+        "body is required",
+      ],
+      default: "",
       trim: true,
       maxlength: MESSAGE_BODY_MAX_LENGTH,
+      immutable: true,
+    },
+    attachments: {
+      type: [
+        new Schema<MessageAttachment>(
+          {
+            id: { type: Schema.Types.ObjectId, ref: "Attachment", required: true },
+            name: { type: String, required: true },
+            contentType: { type: String, required: true },
+            size: { type: Number, required: true },
+            accessKey: { type: String, required: true },
+          },
+          { _id: false },
+        ),
+      ],
+      default: [],
       immutable: true,
     },
   },

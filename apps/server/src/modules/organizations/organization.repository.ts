@@ -3,6 +3,7 @@ import { OrganizationModel, normalizeSlug } from "./organization.model";
 import { generateWidgetKey } from "./widgetConfig";
 
 import type { OrganizationDocument, OrganizationStatus } from "./organization.model";
+import type { WidgetAppearance } from "./widgetAppearance";
 import type { Types } from "mongoose";
 
 export interface CreateOrganizationInput {
@@ -174,6 +175,18 @@ export const organizationRepository = {
     if ((await MembershipModel.countDocuments({ organizationId })) > 0) return false;
     const result = await OrganizationModel.deleteOne({ _id: organizationId });
     return result.deletedCount === 1;
+  },
+
+  /** Replaces the chat's appearance and business hours (ADR-040 §1). */
+  async updateWidgetAppearance(
+    organizationId: string,
+    widgetAppearance: WidgetAppearance,
+  ): Promise<OrganizationDocument | null> {
+    return OrganizationModel.findByIdAndUpdate(
+      organizationId,
+      { $set: { widgetAppearance } },
+      { returnDocument: "after", runValidators: true },
+    );
   },
 
   async rotateWidgetKey(organizationId: string): Promise<OrganizationDocument | null> {

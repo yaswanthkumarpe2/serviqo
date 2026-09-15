@@ -1,3 +1,5 @@
+import { toAttachmentResponse } from "../attachments/attachmentResponses";
+
 import type { ConversationDocument } from "../conversations/conversation.model";
 import type { MessageDocument } from "../messages/message.model";
 
@@ -22,6 +24,9 @@ export function toConversationResponse(conversation: ConversationDocument) {
     status: conversation.status,
     createdAt: conversation.createdAt,
     lastMessageAt: conversation.lastMessageAt,
+    // When the team last read it, so the chat can show "Seen" (ADR-040 §4). No one's identity.
+    agentLastReadAt: conversation.agentLastReadAt ?? null,
+    unreadCount: conversation.unreadByCustomer ?? 0,
   };
 }
 
@@ -31,7 +36,9 @@ export function toMessageResponse(message: MessageDocument) {
     id: message._id.toString(),
     conversationId: message.conversationId.toString(),
     senderType: message.senderType,
-    body: message.body,
+    body: message.body ?? "",
+    // Download links, never the raw keys (ADR-041 §3).
+    attachments: (message.attachments ?? []).map(toAttachmentResponse),
     createdAt: message.createdAt,
   };
 }

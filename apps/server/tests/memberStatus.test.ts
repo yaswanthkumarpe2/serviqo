@@ -985,7 +985,7 @@ describe("membership suspension and reactivation", () => {
       const keys = new Set(
         (history.body.data.messages as Record<string, unknown>[]).flatMap((m) => Object.keys(m)),
       );
-      expect([...keys].sort()).toEqual(["body", "conversationId", "createdAt", "id", "senderType"]);
+      expect([...keys].sort()).toEqual(["attachments", "body", "conversationId", "createdAt", "id", "senderType"]);
       expect(JSON.stringify(history.body)).not.toContain("suspended");
       expect(JSON.stringify(history.body)).not.toContain(t.member.email);
     });

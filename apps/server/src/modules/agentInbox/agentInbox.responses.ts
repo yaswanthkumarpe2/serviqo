@@ -98,6 +98,7 @@ export function toInboxConversationResponse(
     lastMessageAt: conversation.lastMessageAt,
     customer: toInboxCustomerResponse(customer),
     assignedTo: toAssignedAgentResponse(assignee),
+    ...toReadStateResponse(conversation),
   };
 }
 
@@ -123,6 +124,15 @@ export function toInboxConversationResponse(
  * including it keeps the merge on the client a plain field replacement rather
  * than a per-field exception list.
  */
+/** Unread and "seen" state (ADR-040 §4). */
+export function toReadStateResponse(conversation: ConversationDocument) {
+  return {
+    unreadCount: conversation.unreadByAgents ?? 0,
+    agentLastReadAt: conversation.agentLastReadAt ?? null,
+    customerLastReadAt: conversation.customerLastReadAt ?? null,
+  };
+}
+
 export function toConversationStateResponse(conversation: ConversationDocument) {
   return {
     id: conversation._id.toString(),

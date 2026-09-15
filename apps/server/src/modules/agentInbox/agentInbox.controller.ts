@@ -1,4 +1,6 @@
 import { ValidationError } from "../../lib/errors";
+import { uploadedFileFrom } from "../attachments/attachment.routes";
+import { attachmentService } from "../attachments/attachment.service";
 import { created, success } from "../../lib/response";
 import { customerRepository } from "../customers/customer.repository";
 import { membershipRepository } from "../memberships/membership.repository";
@@ -289,9 +291,9 @@ export function createAgentInboxController({
   const sendMessage: RequestHandler = async (req, res) => {
     const { organizationId } = req.organizationContext!;
     const conversationId = requireWellFormedConversationId(req.params.conversationId);
-    const { body } = req.body as SendAgentMessageInput;
+    const { body, attachmentIds } = req.body as SendAgentMessageInput;
 
-    const message = await messageService.createFromAgent(organizationId, conversationId, body, req.log);
+    const message = await messageService.createFromAgent(organizationId, conversationId, body, req.log, attachmentIds);
 
     created(res, toMessageResponse(message));
   };
@@ -359,5 +361,22 @@ export function createAgentInboxController({
     success(res, toInboxConversationResponse(conversation, customer, assigneeFor(conversation, assignees)));
   };
 
-  return { listConversations, readConversation, listMessages, sendMessage, updateAssignment, updateStatus };
+  /** Stores one file in an open conversation of the caller's organisation, ready to send (ADR-041 §2). */
+  const uploadAttachment: RequestHandler = async (req, res) => {
+    const { organizationId } = req.organizationContext!;
+    const { userId } = req.principal!;
+    const conversationId = requireWellFormedConversationId(req.params.conversationId);
+
+    const attachment = await attachmentService.uploadForAgent(
+      organizationId,
+      userId,
+      conversationId,
+      uploadedFileFrom(req),
+      req.log,
+    );
+
+    created(res, attachment);
+  };
+
+  return { uploadAttachment, listConversations, readConversation, listMessages, sendMessage, updateAssignment, updateStatus };
 }

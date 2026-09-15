@@ -5,6 +5,10 @@ import { readCookie } from "../http/cookies";
 import { parseRefreshToken } from "../../modules/auth/refreshToken";
 
 import {
+  AGENT_CONVERSATION_WRITE_LIMIT,
+  AGENT_CONVERSATION_WRITE_WINDOW_MS,
+  ATTACHMENT_UPLOAD_LIMIT,
+  ATTACHMENT_UPLOAD_WINDOW_MS,
   AUTHENTICATED_READ_LIMIT,
   AUTHENTICATED_READ_WINDOW_MS,
   AUTHENTICATED_WRITE_LIMIT,
@@ -76,6 +80,9 @@ export type RateLimitClass =
   | "ownershipTransfer"
   | "widgetSession"
   | "widgetDirectory"
+  | "attachmentUpload"
+  | "agentConversationWrite"
+  | "widgetAttachmentUpload"
   | "widgetConversationWrite"
   | "widgetConversationRead"
   | "global";
@@ -295,6 +302,12 @@ export interface RateLimiters {
    * `GET /widget/organizations/:slug` (ADR-038 §2). Keyed by IP.
    */
   widgetDirectory: RequestHandler;
+  /** An agent uploading a chat attachment (ADR-041 §4). Keyed by user. */
+  attachmentUpload: RequestHandler;
+  /** Agent replies, claims and status changes (ADR-041 §5). Keyed by user. */
+  agentConversationWrite: RequestHandler;
+  /** A visitor uploading a chat attachment (ADR-041 §4). Keyed by customer. */
+  widgetAttachmentUpload: RequestHandler;
   /**
    * Conversation and message writes: `POST /widget/conversations`,
    * `POST /widget/conversations/:id/messages` (ADR-022 §12). Keyed by
@@ -376,6 +389,24 @@ export function createRateLimiters(): RateLimiters {
       windowMs: WIDGET_SESSION_WINDOW_MS,
       limit: WIDGET_SESSION_LIMIT,
     }),
+    agentConversationWrite: createLimiter({
+      limitClass: "agentConversationWrite",
+      windowMs: AGENT_CONVERSATION_WRITE_WINDOW_MS,
+      limit: AGENT_CONVERSATION_WRITE_LIMIT,
+      keyByUser: true,
+    }),
+    attachmentUpload: createLimiter({
+      limitClass: "attachmentUpload",
+      windowMs: ATTACHMENT_UPLOAD_WINDOW_MS,
+      limit: ATTACHMENT_UPLOAD_LIMIT,
+      keyByUser: true,
+    }),
+    widgetAttachmentUpload: createLimiter({
+      limitClass: "widgetAttachmentUpload",
+      windowMs: ATTACHMENT_UPLOAD_WINDOW_MS,
+      limit: ATTACHMENT_UPLOAD_LIMIT,
+      keyByCustomer: true,
+    }),
     widgetDirectory: createLimiter({
       limitClass: "widgetDirectory",
       windowMs: WIDGET_DIRECTORY_WINDOW_MS,
@@ -425,6 +456,9 @@ export function createDisabledRateLimiters(): RateLimiters {
     ownershipTransfer: passthrough,
     widgetSession: passthrough,
     widgetDirectory: passthrough,
+    attachmentUpload: passthrough,
+    agentConversationWrite: passthrough,
+    widgetAttachmentUpload: passthrough,
     widgetConversationWrite: passthrough,
     widgetConversationRead: passthrough,
     global: passthrough,

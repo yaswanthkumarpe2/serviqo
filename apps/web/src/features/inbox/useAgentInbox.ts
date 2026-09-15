@@ -6,13 +6,17 @@ import {
   fetchConversations,
   fetchMessages,
   sendAgentMessage,
+  uploadInboxAttachment,
   updateAssignment,
   updateConversationStatus,
 } from "./inboxApi";
+import { useInboxNotifications } from "./inboxNotifications";
 import { createInboxRealtimeClient } from "./inboxRealtime";
 
-import type { InboxConversation, InboxConversationStatus, InboxMessage, MessagePage } from "./inboxApi";
-import type { InboxRealtimeStatus, InboxSocketFactory } from "./inboxRealtime";
+import type { InboxNotifications } from "./inboxNotifications";
+
+import type { InboxAttachment, InboxConversation, InboxConversationStatus, InboxMessage, MessagePage } from "./inboxApi";
+import type { InboxRealtimeClient, InboxRealtimeStatus, InboxSocketFactory } from "./inboxRealtime";
 
 /**
  * All of the agent inbox's state and effects, kept out of the component
@@ -112,7 +116,19 @@ export interface AgentInbox {
 
   isSending: boolean;
   sendError: string | null;
-  send: (body: string) => Promise<void>;
+  /** Sends a reply with any uploaded files; resolves whether it was sent (ADR-041 §1). */
+  send: (body: string, attachmentIds?: string[]) => Promise<boolean>;
+  /** Uploads a file into the selected conversation, ready to send (ADR-041 §2). */
+  upload: (file: File) => Promise<InboxAttachment>;
+
+  /** Conversations whose customer is typing right now (ADR-040 §3). */
+  customerTyping: Record<string, true>;
+  /** Conversations a colleague is replying to right now, so two agents do not answer at once (ADR-040 §3). */
+  colleagueTyping: Record<string, true>;
+  /** Call as the agent types in the composer; throttled, and "stopped" follows on its own. */
+  notifyTyping: () => void;
+  /** Sound and desktop notification switches (ADR-040 §5). */
+  notifications: InboxNotifications;
 
   /** The signed-in agent's own user id, for telling their assignments from a colleague's (ADR-026 §11). */
   currentUserId: string | null;
@@ -223,6 +239,19 @@ export function useAgentInbox({
   const [messages, setMessages] = useState<InboxMessage[]>([]);
 
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
+  const [customerTyping, setCustomerTyping] = useState<Record<string, true>>({});
+  const [colleagueTyping, setColleagueTyping] = useState<Record<string, true>>({});
+  const notifications = useInboxNotifications();
+  const notify = notifications.notify;
+
+  /** The live socket client, so selection and the composer can emit through it (ADR-040 §3–4). */
+  const realtimeRef = useRef<InboxRealtimeClient | null>(null);
+  /** Clears a "typing" nobody said stopped, keyed by `${sender}:${conversationId}`. */
+  const typingTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const lastTypingSentAt = useRef(0);
+  const typingIdleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Titles by conversation id, so a notification can name the customer. */
+  const titlesRef = useRef<Map<string, string>>(new Map());
   const [realtimeStatus, setRealtimeStatus] = useState<InboxRealtimeStatus>("connecting");
 
   const [isSending, setIsSending] = useState(false);
@@ -288,8 +317,8 @@ export function useAgentInbox({
     // conversation would otherwise suppress nothing useful and grow forever.
     seenMessageIds.current = new Set();
 
-    // Selecting is what clears the indicator. Nothing is reported to the
-    // server — this is a local hint, not a read receipt (ADR-025 §12).
+    // Selecting reads the conversation for the whole team (ADR-040 §4).
+    realtimeRef.current?.markRead(conversationId);
     setUnreadCounts((counts) => {
       if (counts[conversationId] === undefined) return counts;
       const next = { ...counts };
@@ -324,6 +353,9 @@ export function useAgentInbox({
       const page = await fetchConversations(authorizedFetch, organizationId, { limit: PAGE_LIMIT });
       setConversations(page.conversations);
       setConversationsCursor(page.nextCursor);
+      // Unread counts are stored on the server now, so they survive a reload (ADR-040 §4).
+      setUnreadCounts(unreadFrom(page.conversations));
+      for (const conversation of page.conversations) titlesRef.current.set(conversation.id, titleOf(conversation));
       setStatus("ready");
 
       /*
@@ -402,6 +434,8 @@ export function useAgentInbox({
         const held = new Set(current.map((conversation) => conversation.id));
         return [...current, ...page.conversations.filter((conversation) => !held.has(conversation.id))];
       });
+      setUnreadCounts((counts) => ({ ...unreadFrom(page.conversations), ...counts }));
+      for (const conversation of page.conversations) titlesRef.current.set(conversation.id, titleOf(conversation));
       setConversationsCursor(page.nextCursor);
     } catch (caught: unknown) {
       // A 401 is a sign-out already in progress; ProtectedRoute redirects.
@@ -529,6 +563,35 @@ export function useAgentInbox({
     }
   }, [authorizedFetch, isLoadingMoreMessages, organizationId, selectedConversationId, threadCursor]);
 
+  // ---- typing (ADR-040 §3) ----
+
+  const clearTyping = useCallback((kind: "customer" | "colleague", conversationId: string) => {
+    const key = `${kind}:${conversationId}`;
+    const existing = typingTimers.current.get(key);
+    if (existing !== undefined) clearTimeout(existing);
+    typingTimers.current.delete(key);
+    const setter = kind === "customer" ? setCustomerTyping : setColleagueTyping;
+    setter((current) => {
+      if (!current[conversationId]) return current;
+      const next = { ...current };
+      delete next[conversationId];
+      return next;
+    });
+  }, []);
+
+  const setTyping = useCallback(
+    (kind: "customer" | "colleague", conversationId: string) => {
+      const setter = kind === "customer" ? setCustomerTyping : setColleagueTyping;
+      setter((current) => (current[conversationId] ? current : { ...current, [conversationId]: true }));
+      const key = `${kind}:${conversationId}`;
+      const existing = typingTimers.current.get(key);
+      if (existing !== undefined) clearTimeout(existing);
+      // A lost "stopped" must not leave the indicator on forever.
+      typingTimers.current.set(key, setTimeout(() => clearTyping(kind, conversationId), 6000));
+    },
+    [clearTyping],
+  );
+
   // ---- real-time ----
 
   const accessToken = session?.accessToken ?? null;
@@ -560,11 +623,27 @@ export function useAgentInbox({
             sender's own reply, which arrives twice by design: once as the
             REST 201 and once as the inbox broadcast.
           */
-          if (message.conversationId === selectedRef.current) {
+          const isSelected = message.conversationId === selectedRef.current;
+          const isVisible = typeof document === "undefined" || document.visibilityState === "visible";
+
+          if (message.senderType === "customer") {
+            // A message ends "typing" for that conversation.
+            clearTyping("customer", message.conversationId);
+            if (!isSelected || !isVisible) {
+              notify(
+                `New message from ${titlesRef.current.get(message.conversationId) ?? "a customer"}`,
+                message.body.length > 0 ? message.body : "Sent a file",
+              );
+            }
+          }
+
+          if (isSelected) {
             if (seenMessageIds.current.has(message.id)) return;
             seenMessageIds.current.add(message.id);
             setMessages((current) => [...current, message]);
-          } else {
+            if (message.senderType === "customer" && isVisible) client.markRead(message.conversationId);
+          } else if (message.senderType === "customer") {
+            // Only customer messages are unread for the team; a colleague's reply is not.
             setUnreadCounts((counts) => ({
               ...counts,
               [message.conversationId]: (counts[message.conversationId] ?? 0) + 1,
@@ -584,6 +663,30 @@ export function useAgentInbox({
                 : conversation,
             ),
           );
+        },
+        onTyping: (conversationId, sender, isTyping) => {
+          if (isTyping) setTyping(sender === "customer" ? "customer" : "colleague", conversationId);
+          else clearTyping(sender === "customer" ? "customer" : "colleague", conversationId);
+        },
+        onRead: (conversationId, reader, readAt) => {
+          setConversations((current) =>
+            current.map((conversation) =>
+              conversation.id !== conversationId
+                ? conversation
+                : reader === "customer"
+                  ? { ...conversation, customerLastReadAt: readAt }
+                  : { ...conversation, agentLastReadAt: readAt, unreadCount: 0 },
+            ),
+          );
+          // A colleague opening it reads it for everyone.
+          if (reader === "agent") {
+            setUnreadCounts((counts) => {
+              if (counts[conversationId] === undefined) return counts;
+              const next = { ...counts };
+              delete next[conversationId];
+              return next;
+            });
+          }
         },
         onConversationUpdate: (update) => {
           /*
@@ -622,25 +725,70 @@ export function useAgentInbox({
       },
     });
 
+    realtimeRef.current = client;
     client.connect();
-    return () => client.destroy();
-  }, [accessToken, organizationId, socketFactory]);
+    return () => {
+      realtimeRef.current = null;
+      client.destroy();
+    };
+  }, [accessToken, organizationId, socketFactory, notify, setTyping, clearTyping]);
+
+  useEffect(() => {
+    const timers = typingTimers.current;
+    return () => {
+      for (const timer of timers.values()) clearTimeout(timer);
+      if (typingIdleTimer.current !== null) clearTimeout(typingIdleTimer.current);
+    };
+  }, []);
+
+  const stopTyping = useCallback(() => {
+    if (typingIdleTimer.current !== null) clearTimeout(typingIdleTimer.current);
+    typingIdleTimer.current = null;
+    if (lastTypingSentAt.current === 0) return;
+    lastTypingSentAt.current = 0;
+    const conversationId = selectedRef.current;
+    if (conversationId !== null) realtimeRef.current?.typing(conversationId, false);
+  }, []);
+
+  const notifyTyping = useCallback(() => {
+    const conversationId = selectedRef.current;
+    if (conversationId === null) return;
+    const now = Date.now();
+    if (now - lastTypingSentAt.current > 2500) {
+      realtimeRef.current?.typing(conversationId, true);
+      lastTypingSentAt.current = now;
+    }
+    if (typingIdleTimer.current !== null) clearTimeout(typingIdleTimer.current);
+    typingIdleTimer.current = setTimeout(stopTyping, 3000);
+  }, [stopTyping]);
+
+  // Coming back to the tab reads what arrived meanwhile in the open conversation.
+  useEffect(() => {
+    function onVisible() {
+      if (document.visibilityState === "visible" && selectedRef.current !== null) {
+        realtimeRef.current?.markRead(selectedRef.current);
+      }
+    }
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, []);
 
   // ---- sending ----
 
   const send = useCallback(
-    async (body: string) => {
+    async (body: string, attachmentIds: string[] = []) => {
       const conversationId = selectedConversationId;
-      if (conversationId === null) return;
+      if (conversationId === null) return false;
 
       const trimmed = body.trim();
-      if (trimmed.length === 0) return;
+      if (trimmed.length === 0 && attachmentIds.length === 0) return false;
 
       setIsSending(true);
       setSendError(null);
+      stopTyping();
 
       try {
-        const message = await sendAgentMessage(authorizedFetch, organizationId, conversationId, trimmed);
+        const message = await sendAgentMessage(authorizedFetch, organizationId, conversationId, trimmed, attachmentIds);
 
         // Through the same id check as the socket path: the broadcast for
         // this very message may already have arrived.
@@ -648,8 +796,9 @@ export function useAgentInbox({
           seenMessageIds.current.add(message.id);
           setMessages((current) => [...current, message]);
         }
+        return true;
       } catch (caught: unknown) {
-        if (caught instanceof AuthApiError && caught.status === 401) return;
+        if (caught instanceof AuthApiError && caught.status === 401) return false;
 
         /*
           The server's own message is not shown. A 429 in particular carries
@@ -658,9 +807,19 @@ export function useAgentInbox({
           posture, applied to a staff surface).
         */
         setSendError(GENERIC_SEND_ERROR);
+        return false;
       } finally {
         setIsSending(false);
       }
+    },
+    [authorizedFetch, organizationId, selectedConversationId, stopTyping],
+  );
+
+  const upload = useCallback(
+    (file: File) => {
+      const conversationId = selectedConversationId;
+      if (conversationId === null) return Promise.reject(new Error("No conversation selected"));
+      return uploadInboxAttachment(authorizedFetch, organizationId, conversationId, file);
     },
     [authorizedFetch, organizationId, selectedConversationId],
   );
@@ -745,12 +904,17 @@ export function useAgentInbox({
     isSending,
     sendError,
     send,
+    upload,
     /*
       From the session the provider holds, which came from the login response
       — the same id the server compares `assignedTo` against. Used only to
       render "Assigned to you" versus a colleague; it authorizes nothing,
       because the server re-proves every request regardless (ADR-017 §10).
     */
+    customerTyping,
+    colleagueTyping,
+    notifyTyping,
+    notifications,
     currentUserId: session?.user.id ?? null,
     pendingAction,
     actionError,
@@ -758,4 +922,17 @@ export function useAgentInbox({
     release,
     setConversationStatus,
   };
+}
+
+/** Seeds the unread badges from the server's stored counts (ADR-040 §4). */
+function unreadFrom(conversations: InboxConversation[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const conversation of conversations) {
+    if ((conversation.unreadCount ?? 0) > 0) counts[conversation.id] = conversation.unreadCount!;
+  }
+  return counts;
+}
+
+function titleOf(conversation: InboxConversation): string {
+  return conversation.customer?.name ?? conversation.customer?.email ?? "a visitor";
 }

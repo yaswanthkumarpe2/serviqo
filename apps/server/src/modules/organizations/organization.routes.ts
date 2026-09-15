@@ -5,7 +5,7 @@ import { requireOrganization } from "../../middleware/requireOrganization";
 import { requirePermission } from "../../middleware/requirePermission";
 import { validateBody } from "../../middleware/validate";
 import { createOrganizationController } from "./organization.controller";
-import { replaceAllowedOriginsSchema } from "./organization.validation";
+import { replaceAllowedOriginsSchema, widgetAppearanceSchema } from "./organization.validation";
 import { transferOwnershipSchema } from "./ownership.validation";
 import { createOwnershipTransferService } from "./ownershipTransfer.service";
 import { createWidgetSettingsService } from "./widgetSettings.service";
@@ -95,6 +95,17 @@ export function createOrganizationRouter({ rateLimiters }: OrganizationRouterDep
     requirePermission("organization.manage"),
     validateBody(replaceAllowedOriginsSchema),
     controller.updateAllowedOrigins,
+  );
+
+  // The chat's look and business hours (ADR-040 §1). Same standing as the rest of widget-config.
+  router.put(
+    "/:organizationId/widget-config/appearance",
+    requireAccessToken,
+    rateLimiters.authenticatedWrite,
+    requireOrganization,
+    requirePermission("organization.manage"),
+    validateBody(widgetAppearanceSchema),
+    controller.updateWidgetAppearance,
   );
 
   router.post(

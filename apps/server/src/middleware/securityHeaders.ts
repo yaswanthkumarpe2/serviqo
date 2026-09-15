@@ -121,7 +121,11 @@ const documentDirectives = {
   // The font files that Google stylesheet then points at.
   "font-src": ["https://fonts.gstatic.com"],
 
-  "img-src": ["'self'", "data:"],
+  /*
+    `blob:` for the thumbnail of a file a visitor or agent has picked but not
+    yet sent (ADR-041 §6): a local object URL, never a remote host.
+  */
+  "img-src": ["'self'", "data:", "blob:"],
 
   // Covers both the REST API and the same-origin Socket.IO upgrade: one
   // process serves the app and the API, so there is no second host to name.

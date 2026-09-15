@@ -5,6 +5,8 @@ import { logger } from "../../lib/logger";
 import { customerRepository } from "../customers/customer.repository";
 import { organizationRepository } from "../organizations/organization.repository";
 import { normalizeOrigin } from "../organizations/widgetConfig";
+import { toPublicChatSettings } from "../organizations/widgetAppearance";
+import { agentPresence } from "../../realtime/presence";
 import { decideOrigin } from "./originPolicy";
 import { issueWidgetToken, verifyWidgetToken } from "./widgetToken";
 
@@ -69,6 +71,9 @@ export interface WidgetSessionResult {
    * put a durable credential in every response a proxy might log.
    */
   visitorKey?: string;
+  /** How the chat looks and whether anyone is available (ADR-040 §1–2), so an embed needs no second request. */
+  appearance: ReturnType<typeof toPublicChatSettings>["appearance"];
+  availability: ReturnType<typeof toPublicChatSettings>["availability"];
 }
 
 /** What the request carried outside its body. The header is a claim, not an identity. */
@@ -263,6 +268,7 @@ export function createWidgetSessionService(): WidgetSessionService {
         expiresInSeconds,
         customer: toSessionCustomer(customer),
         ...(visitorKey === undefined ? {} : { visitorKey }),
+        ...toPublicChatSettings(organization, agentPresence.isOnline(organizationId)),
       };
     },
   };

@@ -1,3 +1,6 @@
+import { Types } from "mongoose";
+
+import { attachmentService } from "../attachments/attachment.service";
 import { conversationRepository } from "../conversations/conversation.repository";
 import { ConversationClosedError, ConversationNotAccessibleError } from "../../lib/errors";
 import { logger } from "../../lib/logger";
@@ -51,6 +54,8 @@ export interface MessageService {
     conversationId: string,
     body: string,
     log?: AuthLogger,
+    /** Uploaded files to send with it (ADR-041 §1). */
+    attachmentIds?: string[],
   ): Promise<MessageDocument>;
 
   list(
@@ -80,6 +85,7 @@ export interface MessageService {
     conversationId: string,
     body: string,
     log?: AuthLogger,
+    attachmentIds?: string[],
   ): Promise<MessageDocument>;
 
   /**
@@ -148,7 +154,7 @@ async function recordAndAnnounce(
   log: AuthLogger,
 ): Promise<void> {
   try {
-    await conversationRepository.touchLastMessageAt(conversationId, organizationId, message.createdAt);
+    await conversationRepository.touchLastMessageAt(conversationId, organizationId, message.createdAt, message.senderType);
   } catch (err) {
     log.error(
       {
@@ -173,6 +179,34 @@ async function recordAndAnnounce(
   messageEvents.publish(toMessageCreatedEvent(organizationId, message));
 }
 
+/**
+ * Creates a message with its attachments bound to it (ADR-041 §1).
+ *
+ * The message id is generated first so the attachments can be claimed for it
+ * atomically BEFORE it exists; if the insert then fails, the claim is undone
+ * and the files can be sent again.
+ */
+async function persistWithAttachments(
+  input: Omit<Parameters<typeof messageRepository.create>[0], "_id" | "attachments">,
+  attachmentIds: string[],
+): Promise<MessageDocument> {
+  const messageId = new Types.ObjectId();
+  const attachments = await attachmentService.claimForMessage({
+    attachmentIds,
+    organizationId: input.organizationId.toString(),
+    conversationId: input.conversationId.toString(),
+    uploaderType: input.senderType,
+    messageId,
+  });
+
+  try {
+    return await messageRepository.create({ ...input, _id: messageId, attachments });
+  } catch (err) {
+    if (attachments.length > 0) await attachmentService.release(messageId);
+    throw err;
+  }
+}
+
 export function createMessageService(): MessageService {
   return {
     async create(
@@ -181,6 +215,7 @@ export function createMessageService(): MessageService {
       conversationId: string,
       body: string,
       log: AuthLogger = logger,
+      attachmentIds: string[] = [],
     ): Promise<MessageDocument> {
       const conversation = await requireOwnConversation(organizationId, customerId, conversationId);
 
@@ -189,7 +224,8 @@ export function createMessageService(): MessageService {
       // still gets their message delivered.
       requireOpenConversation(conversation);
 
-      const message = await messageRepository.create({
+      const message = await persistWithAttachments(
+        {
         organizationId,
         conversationId,
         customerId,
@@ -199,7 +235,9 @@ export function createMessageService(): MessageService {
         // reached with any other value.
         senderType: "customer",
         body,
-      });
+        },
+        attachmentIds,
+      );
 
       /*
         Best-effort (ADR-022 §10): the message the caller asked to send is
@@ -250,6 +288,7 @@ export function createMessageService(): MessageService {
       conversationId: string,
       body: string,
       log: AuthLogger = logger,
+      attachmentIds: string[] = [],
     ): Promise<MessageDocument> {
       const conversation = await requireTenantConversation(organizationId, conversationId);
 
@@ -259,7 +298,8 @@ export function createMessageService(): MessageService {
       // every other agent in the tenant.
       requireOpenConversation(conversation);
 
-      const message = await messageRepository.create({
+      const message = await persistWithAttachments(
+        {
         organizationId,
         conversationId,
         /*
@@ -285,7 +325,9 @@ export function createMessageService(): MessageService {
         */
         senderType: "agent",
         body,
-      });
+        },
+        attachmentIds,
+      );
 
       await recordAndAnnounce(organizationId, conversationId, message, log);
 

@@ -146,7 +146,7 @@ describe("widget installation configuration", () => {
       expect(response.body.success).toBe(true);
       expect(response.body.meta).toMatchObject({ version: "v1" });
       // `widgetUrl` since ADR-038 §4: the hosted chat link sits beside the embed settings.
-      expect(Object.keys(response.body.data).sort()).toEqual(["allowedOrigins", "widgetKey", "widgetUrl"]);
+      expect(Object.keys(response.body.data).sort()).toEqual(["allowedOrigins", "appearance", "widgetKey", "widgetUrl"]);
     });
 
     it("mints a key for an organization written before widget keys existed", async () => {

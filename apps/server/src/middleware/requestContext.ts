@@ -9,6 +9,14 @@ import { logger } from "../lib/logger";
  * service can pass one through without touching this middleware) to every
  * request, binds them to a child logger on req.log, and logs start/finish.
  */
+/**
+ * A file link's `key` is its credential (ADR-041 §3), so request logs record
+ * that one was present and never its value.
+ */
+export function redactUrl(url: string): string {
+  return url.replace(/([?&]key=)[^&#]*/gi, "$1[redacted]");
+}
+
 export function requestContext(req: Request, res: Response, next: NextFunction) {
   const incomingRequestId = req.headers["x-request-id"];
   const requestId = typeof incomingRequestId === "string" && incomingRequestId ? incomingRequestId : createId();
@@ -25,10 +33,10 @@ export function requestContext(req: Request, res: Response, next: NextFunction) 
   req.log = logger.child({ requestId, correlationId });
 
   const startedAt = Date.now();
-  req.log.info({ method: req.method, url: req.originalUrl }, "request started");
+  req.log.info({ method: req.method, url: redactUrl(req.originalUrl) }, "request started");
   res.on("finish", () => {
     req.log.info(
-      { method: req.method, url: req.originalUrl, statusCode: res.statusCode, durationMs: Date.now() - startedAt },
+      { method: req.method, url: redactUrl(req.originalUrl), statusCode: res.statusCode, durationMs: Date.now() - startedAt },
       "request completed",
     );
   });

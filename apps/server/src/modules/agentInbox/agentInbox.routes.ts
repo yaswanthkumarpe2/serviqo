@@ -4,6 +4,7 @@ import { requireAccessToken } from "../../middleware/requireAccessToken";
 import { requireOrganization } from "../../middleware/requireOrganization";
 import { requirePermission } from "../../middleware/requirePermission";
 import { validateBody } from "../../middleware/validate";
+import { readUploadBody } from "../attachments/attachment.routes";
 import { createConversationService } from "../conversations/conversation.service";
 import { createMessageService } from "../messages/message.service";
 import { createAgentInboxController } from "./agentInbox.controller";
@@ -103,11 +104,26 @@ export function createAgentInboxRouter({ rateLimiters }: AgentInboxRouterDepende
   router.post(
     "/:conversationId/messages",
     requireAccessToken,
-    rateLimiters.authenticatedWrite,
+    rateLimiters.agentConversationWrite,
     requireOrganization,
     requirePermission("conversation.reply"),
     validateBody(sendAgentMessageSchema),
     controller.sendMessage,
+  );
+
+  /*
+    An agent uploads a file to send (ADR-041 §2). Behind `conversation.reply`,
+    because a file is only ever uploaded to be sent. The body is read last, after
+    every check, so a refused caller never makes the server buffer a file.
+  */
+  router.post(
+    "/:conversationId/attachments",
+    requireAccessToken,
+    rateLimiters.attachmentUpload,
+    requireOrganization,
+    requirePermission("conversation.reply"),
+    readUploadBody,
+    controller.uploadAttachment,
   );
 
   /*
@@ -134,7 +150,7 @@ export function createAgentInboxRouter({ rateLimiters }: AgentInboxRouterDepende
   router.patch(
     "/:conversationId/assignment",
     requireAccessToken,
-    rateLimiters.authenticatedWrite,
+    rateLimiters.agentConversationWrite,
     requireOrganization,
     requirePermission("conversation.assign"),
     validateBody(updateAssignmentSchema),
@@ -151,7 +167,7 @@ export function createAgentInboxRouter({ rateLimiters }: AgentInboxRouterDepende
   router.patch(
     "/:conversationId/status",
     requireAccessToken,
-    rateLimiters.authenticatedWrite,
+    rateLimiters.agentConversationWrite,
     requireOrganization,
     requirePermission("conversation.reply"),
     validateBody(updateConversationStatusSchema),

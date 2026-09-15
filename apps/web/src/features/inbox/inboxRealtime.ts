@@ -29,6 +29,10 @@ const EVENT_MESSAGE_NEW = "message:new";
  */
 const EVENT_CONVERSATION_UPDATED = "conversation:updated";
 
+/** ADR-040 §3–4's event names, restated rather than imported across the server boundary. */
+const EVENT_TYPING = "typing";
+const EVENT_READ = "conversation:read";
+
 /** What the inbox shows about the connection. Mirrors the widget's states (ADR-024 §7). */
 export type InboxRealtimeStatus = "connecting" | "connected" | "reconnecting" | "failed";
 
@@ -46,6 +50,10 @@ export interface InboxRealtimeCallbacks {
    */
   onConversationUpdate(update: InboxConversationUpdate): void;
   onStatusChange(status: InboxRealtimeStatus): void;
+  /** Someone started or stopped typing in a conversation of this organisation (ADR-040 §3). */
+  onTyping?(conversationId: string, sender: "customer" | "agent", isTyping: boolean): void;
+  /** Someone read a conversation (ADR-040 §4). */
+  onRead?(conversationId: string, reader: "customer" | "agent", readAt: string): void;
   /**
    * The handshake was refused. The inbox stops retrying rather than
    * re-presenting a credential the server has already rejected — an expired
@@ -57,6 +65,10 @@ export interface InboxRealtimeCallbacks {
 
 export interface InboxRealtimeClient {
   connect(): void;
+  /** Fire-and-forget; a lost typing event is harmless (ADR-040 §3). */
+  typing(conversationId: string, isTyping: boolean): void;
+  /** Fire-and-forget; the next read covers a lost one (ADR-040 §4). */
+  markRead(conversationId: string): void;
   destroy(): void;
 }
 
@@ -196,6 +208,28 @@ export function createInboxRealtimeClient({
       if (isConversationUpdate(payload)) callbacks.onConversationUpdate(payload);
     });
 
+    socket.on(EVENT_TYPING, (payload: unknown) => {
+      const event = payload as { conversationId?: unknown; sender?: unknown; isTyping?: unknown } | null;
+      if (
+        typeof event?.conversationId === "string" &&
+        (event.sender === "customer" || event.sender === "agent") &&
+        typeof event.isTyping === "boolean"
+      ) {
+        callbacks.onTyping?.(event.conversationId, event.sender, event.isTyping);
+      }
+    });
+
+    socket.on(EVENT_READ, (payload: unknown) => {
+      const event = payload as { conversationId?: unknown; reader?: unknown; readAt?: unknown } | null;
+      if (
+        typeof event?.conversationId === "string" &&
+        (event.reader === "customer" || event.reader === "agent") &&
+        typeof event.readAt === "string"
+      ) {
+        callbacks.onRead?.(event.conversationId, event.reader, event.readAt);
+      }
+    });
+
     socket.on("disconnect", () => {
       if (destroyed) return;
       // The library retries underneath; the inbox stays readable while it
@@ -227,6 +261,14 @@ export function createInboxRealtimeClient({
     });
   }
 
+  function typing(conversationId: string, isTyping: boolean): void {
+    if (socket?.connected) socket.emit(EVENT_TYPING, { conversationId, isTyping });
+  }
+
+  function markRead(conversationId: string): void {
+    if (socket?.connected) socket.emit(EVENT_READ, { conversationId }, () => undefined);
+  }
+
   function destroy(): void {
     destroyed = true;
     if (socket !== null) {
@@ -236,7 +278,7 @@ export function createInboxRealtimeClient({
     }
   }
 
-  return { connect, destroy };
+  return { connect, typing, markRead, destroy };
 }
 
 /**

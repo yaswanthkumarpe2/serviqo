@@ -29,6 +29,15 @@ export function conversationRoomName(organizationId: string, conversationId: str
  * for display — a UX concern, not a security one, because tenancy was proved
  * before the socket joined anything.
  */
+/**
+ * Every connected visitor of one organisation (ADR-040 §2). They receive
+ * presence changes and nothing else from this room — never a message or a
+ * conversation, which only ever go to a conversation's own room.
+ */
+export function organizationVisitorsRoomName(organizationId: string): string {
+  return `org:${organizationId}:visitors`;
+}
+
 export function organizationInboxRoomName(organizationId: string): string {
   return `org:${organizationId}:inbox`;
 }

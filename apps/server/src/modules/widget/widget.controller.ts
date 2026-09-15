@@ -1,4 +1,6 @@
 import { ValidationError } from "../../lib/errors";
+import { uploadedFileFrom } from "../attachments/attachment.routes";
+import { attachmentService } from "../attachments/attachment.service";
 import { created, success } from "../../lib/response";
 import { OBJECT_ID_PATTERN, listMessagesQuerySchema } from "./widgetConversation.validation";
 import { toConversationResponse, toMessageResponse } from "./widgetResponses";
@@ -118,9 +120,9 @@ export function createWidgetController({
   const createMessage: RequestHandler = async (req, res) => {
     const { organizationId, customerId } = req.widgetPrincipal!;
     const conversationId = requireWellFormedConversationId(req.params.conversationId);
-    const { body } = req.body as CreateMessageInput;
+    const { body, attachmentIds } = req.body as CreateMessageInput;
 
-    const message = await messageService.create(organizationId, customerId, conversationId, body, req.log);
+    const message = await messageService.create(organizationId, customerId, conversationId, body, req.log, attachmentIds);
 
     created(res, toMessageResponse(message));
   };
@@ -156,5 +158,21 @@ export function createWidgetController({
     success(res, { messages: page.messages.map(toMessageResponse), nextCursor: page.nextCursor });
   };
 
-  return { readDirectoryEntry, createSession, resolveConversation, createMessage, listMessages };
+  /** Stores one file in the caller's own open conversation, ready to send (ADR-041 §2). */
+  const uploadAttachment: RequestHandler = async (req, res) => {
+    const { organizationId, customerId } = req.widgetPrincipal!;
+    const conversationId = requireWellFormedConversationId(req.params.conversationId);
+
+    const attachment = await attachmentService.uploadForCustomer(
+      organizationId,
+      customerId,
+      conversationId,
+      uploadedFileFrom(req),
+      req.log,
+    );
+
+    created(res, attachment);
+  };
+
+  return { readDirectoryEntry, createSession, resolveConversation, createMessage, listMessages, uploadAttachment };
 }
