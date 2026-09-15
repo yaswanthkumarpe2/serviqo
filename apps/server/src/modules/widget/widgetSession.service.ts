@@ -50,7 +50,8 @@ type RefusalReason =
   | "unknown_widget_key"
   | "organization_not_active"
   | "origin_not_allowed"
-  | "origin_malformed";
+  | "origin_malformed"
+  | "customer_blocked";
 
 /** What the widget learns. Deliberately small — see `toSessionCustomer` below. */
 export interface WidgetSessionCustomer {
@@ -218,6 +219,24 @@ export function createWidgetSessionService(): WidgetSessionService {
       */
       if (customer === null && input.visitorKey !== undefined) {
         customer = await customerRepository.recordVisitByVisitorKey(sha256(input.visitorKey), organizationId, details);
+      }
+
+      /*
+        A merged record points at the customer it became (ADR-043 §4). One hop,
+        inside this organisation: the visitor on the duplicate's device carries
+        on as the merged customer.
+      */
+      if (customer !== null && customer.mergedIntoCustomerId !== null) {
+        customer = await customerRepository.findByIdAndOrganization(customer.mergedIntoCustomerId, organizationId);
+      }
+
+      /*
+        A blocked visitor is refused, not given a fresh identity (ADR-043 §3).
+        Clearing the browser's storage does start a new anonymous visitor —
+        that is the nature of chat without accounts, and the ADR says so.
+      */
+      if (customer !== null && customer.blockedAt !== null) {
+        return refuse("customer_blocked", organizationId);
       }
 
       const resumed = customer !== null;

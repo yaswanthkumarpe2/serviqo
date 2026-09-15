@@ -438,7 +438,7 @@ function OrganisationDetail({
             <InviteMemberPanel organizationId={organization.id} organizationName={organization.name} onInvited={onChanged} />
           ) : (
             <div className="console__embed">
-              {tab === "chats" && <AgentInbox key={`console-inbox-${organization.id}`} organizationId={organization.id} />}
+              {tab === "chats" && <AgentInbox key={`console-inbox-${organization.id}`} organizationId={organization.id} role="admin" />}
               {tab === "team" && (
                 <TeamManagement
                   key={`console-team-${organization.id}`}

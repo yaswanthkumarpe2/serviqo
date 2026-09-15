@@ -259,14 +259,21 @@ describe("customerRepository", () => {
 
       expect(Object.keys(serialized).sort()).toEqual([
         "_id",
+        // Team-side state (ADR-043): blocking, merging and the profile note.
+        // Never sent as-is — every response is an explicit projection.
+        "blockedAt",
+        "blockedByUserId",
         "createdAt",
         "email",
         "lastSeenAt",
+        "mergedAt",
+        "mergedIntoCustomerId",
         "name",
         "organizationId",
         // Optional detail (ADR-038 §5). `visitorKeyHash` is deliberately absent:
         // it is stripped at serialization as well as unselected.
         "phone",
+        "profileNote",
         "updatedAt",
       ]);
     });

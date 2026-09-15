@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { BellIcon, BellOffIcon, KeyboardIcon, NoteIcon, VolumeIcon, VolumeOffIcon } from "@/features/workspace/workspaceIcons";
 
 import { ConversationTags } from "./ConversationTags";
+import { CustomerProfilePanel } from "./CustomerProfilePanel";
 import { COMPOSER_INPUT_ID, InboxComposer } from "./InboxComposer";
 import { INBOX_SEARCH_INPUT_ID, InboxFilters } from "./InboxFilters";
 import { ShortcutsHelp } from "./InboxShortcuts";
@@ -56,6 +57,11 @@ export interface AgentInboxProps {
    * returned to this view.
    */
   onInitialConversationHandled?: () => void;
+  /**
+   * The reader's server-confirmed role, used only to decide whether to offer
+   * blocking and merging (ADR-043). The server decides every action.
+   */
+  role?: string;
 }
 
 /** A conversation's display name — the customer's, or an honest stand-in. */
@@ -180,6 +186,7 @@ export function AgentInbox({
   socketFactory,
   initialConversationId = null,
   onInitialConversationHandled,
+  role,
 }: AgentInboxProps) {
   /*
     The initial selection is handed to the HOOK rather than applied here in an
@@ -332,7 +339,7 @@ export function AgentInbox({
       )}
 
       {inbox.status === "ready" && (inbox.conversations.length > 0 || hasFilters) && (
-        <div className="inbox__body">
+        <div className={`inbox__body${selected?.customer ? " inbox__body--withProfile" : ""}`}>
           <nav className="inbox__list" aria-label="Conversations">
             <InboxFilters
               filters={inbox.filters}
@@ -371,6 +378,7 @@ export function AgentInbox({
                           <span className="inbox__typingTag">typing…</span>
                         ) : (
                           <>
+                            {conversation.customer?.blocked && <span className="inbox__blockedTag">Blocked · </span>}
                             {assignmentLabel(conversation, inbox.currentUserId)}
                             {conversation.status === "closed" && <span className="inbox__closedTag"> · Closed</span>}
                             {(conversation.tags ?? []).slice(0, 2).map((tag) => (
@@ -640,6 +648,17 @@ export function AgentInbox({
               </>
             )}
           </div>
+
+          {selected !== null && selected.customer !== null && (
+            <CustomerProfilePanel
+              key={selected.customer.id}
+              organizationId={organizationId}
+              customerId={selected.customer.id}
+              canManage={role === "owner" || role === "admin" || role === "supervisor"}
+              currentConversationId={selected.id}
+              onOpenConversation={inbox.selectConversation}
+            />
+          )}
         </div>
       )}
     </section>

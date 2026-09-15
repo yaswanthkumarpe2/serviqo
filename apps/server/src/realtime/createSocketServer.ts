@@ -1,4 +1,5 @@
 import { noteEvents } from "../modules/notes/note.routes";
+import { customerEvents } from "../modules/customerProfiles/customerProfile.routes";
 import { Server } from "socket.io";
 
 import {
@@ -27,6 +28,7 @@ import { authenticateSocketHandshake } from "./socketAuthentication";
 import { SocketRateLimiter } from "./socketRateLimit";
 
 import type { NoteCreatedEvent } from "../modules/notes/note.routes";
+import type { CustomerEvent } from "../modules/customerProfiles/customerProfile.routes";
 import type { AuthLogger } from "../modules/auth/authLogging";
 import type { ConversationUpdatedEvent } from "../modules/conversations/conversationEvents";
 import type { MembershipRevokedEvent } from "../modules/memberships/membershipEvents";
@@ -280,6 +282,47 @@ export function createSocketServer(httpServer: HttpServer, options: CreateSocket
     io.to(organizationInboxRoomName(event.organizationId)).emit(SOCKET_EVENTS.NOTE_NEW, event.note);
   });
 
+  /*
+    Customer profiles (ADR-043). Detail changes and merges go to the inbox room
+    only. A block or merge also ends that visitor's live connections: the
+    widget sockets in the organisation's visitors room whose verified identity
+    is that customer.
+  */
+  const unsubscribeCustomers = customerEvents.subscribe((event: CustomerEvent) => {
+    if (event.type === "updated") {
+      io.to(organizationInboxRoomName(event.organizationId)).emit(SOCKET_EVENTS.CUSTOMER_UPDATED, event.customer);
+      return;
+    }
+    if (event.type === "merged") {
+      io.to(organizationInboxRoomName(event.organizationId)).emit(SOCKET_EVENTS.CUSTOMER_MERGED, {
+        sourceCustomerId: event.sourceCustomerId,
+        customer: event.customer,
+      });
+      return;
+    }
+    void (async () => {
+      try {
+        const sockets = await io.in(organizationVisitorsRoomName(event.organizationId)).fetchSockets();
+        let disconnected = 0;
+        for (const socket of sockets) {
+          const identity = socket.data.identity;
+          if (identity?.kind !== "widget" || identity.principal.customerId !== event.customerId) continue;
+          socket.disconnect(true);
+          disconnected += 1;
+        }
+        logger.info(
+          { event: "socket.customer.revoked", organizationId: event.organizationId, customerId: event.customerId, reason: event.reason, disconnectedSockets: disconnected },
+          "Closed a blocked or merged visitor's sockets",
+        );
+      } catch (err) {
+        logger.error(
+          { event: "socket.customer.revoke_failed", organizationId: event.organizationId, failureType: err instanceof Error ? err.name : "UnknownError" },
+          "A blocked or merged visitor's sockets could not be closed",
+        );
+      }
+    })();
+  });
+
   const unsubscribePresence = agentPresence.subscribe((organizationId, agentsOnline) => {
     io.to(organizationVisitorsRoomName(organizationId)).emit(SOCKET_EVENTS.PRESENCE_UPDATE, { agentsOnline });
   });
@@ -287,6 +330,7 @@ export function createSocketServer(httpServer: HttpServer, options: CreateSocket
   httpServer.once("close", () => {
     unsubscribePresence();
     unsubscribeNotes();
+    unsubscribeCustomers();
     unsubscribeMessages();
     unsubscribeConversations();
     unsubscribeMemberships();

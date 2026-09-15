@@ -40,7 +40,8 @@ type RefusalReason =
   | "invalid_token"
   | "organization_not_found"
   | "organization_not_active"
-  | "customer_not_found";
+  | "customer_not_found"
+  | "customer_blocked";
 
 /**
  * Reads the bearer widget token from `Authorization`, verifies it, confirms
@@ -121,6 +122,15 @@ export const requireWidgetToken: RequestHandler = async (req, _res, next) => {
   const customer = await customerRepository.findByIdAndOrganization(customerId, organizationId);
   if (customer === null) {
     return refuseSessionInvalid("customer_not_found", organizationId);
+  }
+  /*
+    Blocked, or merged into another record (ADR-043 §3–4). The same refusal as
+    a vanished customer: the widget drops the token and opens a new session,
+    which a merged visitor resumes through the merge and a blocked one is
+    refused.
+  */
+  if (customer.blockedAt !== null || customer.mergedIntoCustomerId !== null) {
+    return refuseSessionInvalid(customer.blockedAt !== null ? "customer_blocked" : "customer_not_found", organizationId);
   }
 
   req.widgetPrincipal = { customerId, organizationId };

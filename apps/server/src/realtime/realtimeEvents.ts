@@ -30,6 +30,9 @@ export const SOCKET_EVENTS = {
   CONVERSATION_READ: "conversation:read",
   /** A new internal note, to the organisation's inbox room only (ADR-042 §2). */
   NOTE_NEW: "note:new",
+  /** A customer's details changed, or two were merged (ADR-043). Inbox room only. */
+  CUSTOMER_UPDATED: "customer:updated",
+  CUSTOMER_MERGED: "customer:merged",
 } as const;
 
 /** One machine-readable code per ack failure, mirroring the REST error codes this transport parallels. */

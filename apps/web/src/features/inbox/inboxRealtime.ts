@@ -1,6 +1,6 @@
 import { io } from "socket.io-client";
 
-import type { InboxConversationUpdate, InboxMessage, InboxNote } from "./inboxApi";
+import type { InboxConversationUpdate, InboxCustomer, InboxMessage, InboxNote } from "./inboxApi";
 import type { Socket } from "socket.io-client";
 
 /**
@@ -33,6 +33,16 @@ const EVENT_CONVERSATION_UPDATED = "conversation:updated";
 const EVENT_TYPING = "typing";
 const EVENT_READ = "conversation:read";
 const EVENT_NOTE_NEW = "note:new";
+
+function isInboxCustomer(value: unknown): value is InboxCustomer {
+  if (typeof value !== "object" || value === null) return false;
+  const customer = value as Partial<InboxCustomer>;
+  return (
+    typeof customer.id === "string" &&
+    (customer.name === null || typeof customer.name === "string") &&
+    (customer.email === null || typeof customer.email === "string")
+  );
+}
 
 function isInboxNote(value: unknown): value is InboxNote {
   if (typeof value !== "object" || value === null) return false;
@@ -72,6 +82,10 @@ export interface InboxRealtimeCallbacks {
   onRead?(conversationId: string, reader: "customer" | "agent", readAt: string): void;
   /** A teammate wrote an internal note (ADR-042 §2). Staff-only by the server's room choice. */
   onNote?(note: InboxNote): void;
+  /** A customer's details changed or they were blocked (ADR-043). */
+  onCustomerUpdated?(customer: InboxCustomer): void;
+  /** Two customers were merged: rows for `sourceCustomerId` now belong to `customer` (ADR-043 §4). */
+  onCustomerMerged?(sourceCustomerId: string, customer: InboxCustomer): void;
   /**
    * The handshake was refused. The inbox stops retrying rather than
    * re-presenting a credential the server has already rejected — an expired
@@ -229,6 +243,17 @@ export function createInboxRealtimeClient({
 
     socket.on(EVENT_NOTE_NEW, (payload: unknown) => {
       if (isInboxNote(payload)) callbacks.onNote?.(payload);
+    });
+
+    socket.on("customer:updated", (payload: unknown) => {
+      if (isInboxCustomer(payload)) callbacks.onCustomerUpdated?.(payload);
+    });
+
+    socket.on("customer:merged", (payload: unknown) => {
+      const event = payload as { sourceCustomerId?: unknown; customer?: unknown } | null;
+      if (event !== null && typeof event.sourceCustomerId === "string" && isInboxCustomer(event.customer)) {
+        callbacks.onCustomerMerged?.(event.sourceCustomerId, event.customer);
+      }
     });
 
     socket.on(EVENT_TYPING, (payload: unknown) => {
